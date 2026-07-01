@@ -6,6 +6,9 @@ from sqlmodel import SQLModel
 from alembic import context
 from baseline_api.config import get_settings
 
+# Import all SQLModel table classes so their metadata is registered.
+from baseline_api.db import models  # noqa: F401
+
 config = context.config
 
 if config.config_file_name is not None:
