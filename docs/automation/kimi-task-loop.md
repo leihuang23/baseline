@@ -43,10 +43,13 @@ Failures are split into two classes:
 
 - Gate failures and structured review decisions are actionable, so the
   controller can run one focused Codex repair pass.
-- Implementation command failures, review infrastructure failures, timeouts,
-  interrupted turns, or missing JSON are not actionable implementation feedback.
-  The loop stops and leaves an inspectable blocked state instead of spending
-  another implementation attempt.
+- Implementation timeouts with a newly produced candidate diff are verifier
+  inputs, not automatic failures. The controller records the timeout and still
+  runs its own gates and review.
+- Implementation command failures, review infrastructure failures, timeouts
+  without a new candidate diff, interrupted turns, or missing JSON are not
+  actionable implementation feedback. The loop stops and leaves an inspectable
+  blocked state instead of spending another implementation attempt.
 
 ## Commands
 

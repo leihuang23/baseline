@@ -128,6 +128,26 @@ def git_status_snapshot() -> dict[str, Any]:
     }
 
 
+def git_status_lines() -> list[str] | None:
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def implementation_timeout_has_candidate_changes(
+    before: list[str] | None,
+    after: list[str] | None,
+) -> bool:
+    return after is not None and bool(after) and after != before
+
+
 def build_run_state(
     base_state: dict[str, Any],
     *,
@@ -1016,6 +1036,7 @@ def run_task(
             "max_attempts": args.max_attempts,
             "run_dir": relative_to_root(task_run_dir),
         }
+        initial_status_lines = git_status_lines()
         print(f"  attempt {attempt}: {agent_label} -> run {relative_to_root(task_run_dir)}")
         exec_log = task_run_dir / f"{args.agent}-exec.log"
         print(f"    log: {relative_to_root(exec_log)}")
@@ -1031,18 +1052,46 @@ def run_task(
             heartbeat_seconds=args.heartbeat_seconds,
         )
         if code != 0:
-            previous_failure = format_logged_failure(f"{agent_label} failed", exec_log)
-            print(f"  failed: {previous_failure}")
-            write_static_run_state(
-                CURRENT_RUN_PATH,
-                base_status,
-                status="blocked",
-                stage="implementation_timeout" if code == 124 else "implementation",
-                message=(
-                    "implementation attempt failed; stopped before launching another broad retry"
-                ),
-            )
-            return False
+            current_status_lines = git_status_lines()
+            if code == 124 and implementation_timeout_has_candidate_changes(
+                initial_status_lines,
+                current_status_lines,
+            ):
+                previous_failure = format_logged_failure(
+                    f"{agent_label} timed out after producing candidate changes",
+                    exec_log,
+                )
+                print(
+                    "  timed out: implementation produced candidate changes; "
+                    "continuing to controller gates"
+                )
+                write_static_run_state(
+                    CURRENT_RUN_PATH,
+                    base_status,
+                    status="running",
+                    stage="implementation_timeout_candidate",
+                    message=(
+                        "implementation timed out after changing files; "
+                        "continuing to controller gates"
+                    ),
+                )
+            else:
+                previous_failure = format_logged_failure(f"{agent_label} failed", exec_log)
+                print(f"  failed: {previous_failure}")
+                write_static_run_state(
+                    CURRENT_RUN_PATH,
+                    base_status,
+                    status="blocked",
+                    stage="implementation_timeout" if code == 124 else "implementation",
+                    message=(
+                        "implementation attempt failed; "
+                        "stopped before launching another broad retry"
+                    ),
+                )
+                return False
+
+        if code != 0 and previous_failure is not None:
+            print("  note: timeout details retained for run history; gates decide task outcome")
 
         gates_ok, gate_result = run_quality_gates(
             task_run_dir,

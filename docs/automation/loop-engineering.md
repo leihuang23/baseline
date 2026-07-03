@@ -79,6 +79,11 @@ python3 scripts/run_task_loop.py run --heartbeat-seconds 10
 python3 scripts/run_task_loop.py run --heartbeat-seconds 0
 ```
 
+If an implementation agent times out after producing a candidate diff, the
+controller does not automatically discard the work. It records the timeout, then
+continues to the controller-owned quality gates and review. Timeouts with no new
+candidate diff still block immediately.
+
 Run one task and commit it after all gates pass:
 
 ```bash

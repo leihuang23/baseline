@@ -431,3 +431,18 @@ def test_final_repair_accepts_only_actionable_gate_or_review_failures() -> None:
     assert TASK_LOOP.failure_is_actionable(actionable) is True
     assert TASK_LOOP.failure_is_actionable("make test failed; see file") is True
     assert TASK_LOOP.failure_is_actionable(non_actionable) is False
+
+
+def test_implementation_timeout_candidate_changes_are_detected() -> None:
+    before: list[str] = []
+    after = [" M packages/eval/scorers.py", "?? apps/api/tests/features/"]
+
+    assert TASK_LOOP.implementation_timeout_has_candidate_changes(before, after) is True
+
+
+def test_implementation_timeout_without_new_changes_is_not_candidate() -> None:
+    before = [" M existing.py"]
+
+    assert TASK_LOOP.implementation_timeout_has_candidate_changes(before, before) is False
+    assert TASK_LOOP.implementation_timeout_has_candidate_changes(before, None) is False
+    assert TASK_LOOP.implementation_timeout_has_candidate_changes([], []) is False

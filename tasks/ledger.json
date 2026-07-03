@@ -214,7 +214,8 @@
       "title": "feature golden tests",
       "prompt": "tasks/P2-04-feature-golden-tests.md",
       "phase": "P2",
-      "status": "pending"
+      "status": "complete",
+      "completed_at": "2026-07-03T14:20:00Z"
     },
     {
       "id": "P2-05",
