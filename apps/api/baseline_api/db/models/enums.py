@@ -139,6 +139,9 @@ class AuditEventType(StrEnum):
     feedback_submitted = "feedback_submitted"
     model_run_logged = "model_run_logged"
     safety_flag_triggered = "safety_flag_triggered"
+    checkin_submitted = "checkin_submitted"
+    checkin_updated = "checkin_updated"
+    checkin_deleted = "checkin_deleted"
 
 
 class RedactionStatus(StrEnum):

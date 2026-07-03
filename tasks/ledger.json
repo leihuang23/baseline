@@ -1,7 +1,7 @@
 {
   "version": 1,
   "active_cluster": "P1-ingestion-mvp",
-  "updated_at": "2026-07-03T10:44:23Z",
+  "updated_at": "2026-07-03T12:02:24Z",
   "quality_gates": [
     "make fmt",
     "make lint",
@@ -190,7 +190,9 @@
       "title": "checkin api redaction",
       "prompt": "tasks/P2-01-checkin-api-redaction.md",
       "phase": "P2",
-      "status": "pending"
+      "status": "complete",
+      "completed_at": "2026-07-03T12:02:24Z",
+      "last_run_dir": ".task-runs/manual-P2-01-review-filtered"
     },
     {
       "id": "P2-02",

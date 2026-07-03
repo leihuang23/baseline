@@ -23,6 +23,7 @@ DEFAULT_REVIEW_TIMEOUT_SECONDS = 1800
 DEFAULT_KIMI_MAX_ATTEMPTS = 2
 DEFAULT_KIMI_AGENT_TIMEOUT_SECONDS = 1200
 DEFAULT_KIMI_REVIEW_TIMEOUT_SECONDS = 600
+DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS = 900
 DEFAULT_HEARTBEAT_SECONDS = 30
 FAILURE_CONTEXT_MAX_CHARS = 16_000
 FAILURE_LOG_TAIL_LINES = 120
@@ -48,14 +49,20 @@ KIMI_REPAIR_GUIDANCE = """Kimi repair mode:
 - Treat the existing working tree as the previous attempt's draft.
 - Repair only the concrete failure details below; do not restart from broad PRD/repo discovery.
 - Read the failure text and directly cited files first, then patch the smallest set of lines.
+- Turn each review finding into an explicit checklist item and address every item before stopping.
 - Add or adjust a regression test when the failure is behavioral.
+- Before final summary, verify that generated artifacts such as __pycache__ are absent from
+  `git status --short`.
 - Stop after the focused repair and local targeted verification.
 """
 CODEX_REPAIR_GUIDANCE = """Repair mode:
 - Treat the existing working tree as the previous attempt's draft.
 - Start from the concrete failure details below and any cited files or lines.
 - Do not restart broad repo discovery unless the failure text is missing required context.
+- Turn each review finding into an explicit checklist item and address every item before stopping.
 - Add or adjust a regression test when the failure is behavioral.
+- Before final summary, verify that generated artifacts such as __pycache__ are absent from
+  `git status --short`.
 - Stop after the focused repair and local targeted verification.
 """
 
@@ -758,6 +765,92 @@ def should_retry_after_review_failure(agent: str, review_result: str) -> bool:
     return review_failure_is_actionable(review_result)
 
 
+def run_final_repair(
+    ledger: dict[str, Any],
+    task: dict[str, Any],
+    args: argparse.Namespace,
+    previous_failure: str,
+) -> bool:
+    task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-final-repair"
+    prompt = implementation_prompt(
+        task,
+        args.max_attempts + 1,
+        previous_failure,
+        agent=AGENT_CODEX,
+    )
+    command = [
+        args.codex_bin,
+        "exec",
+        "-C",
+        str(ROOT),
+        "--sandbox",
+        "workspace-write",
+        "-",
+    ]
+    base_status = {
+        "task_id": task["id"],
+        "task_title": task["title"],
+        "attempt": args.max_attempts + 1,
+        "max_attempts": args.max_attempts,
+        "run_dir": relative_to_root(task_run_dir),
+        "final_repair": True,
+    }
+    print(
+        "  final repair: codex exec for actionable review findings "
+        f"-> run {relative_to_root(task_run_dir)}"
+    )
+    exec_log = task_run_dir / "codex-final-repair.log"
+    code = run_logged(
+        command,
+        exec_log,
+        prompt,
+        timeout_seconds=normalize_timeout_seconds(args.final_repair_timeout_seconds),
+        status_file=CURRENT_RUN_PATH,
+        status={**base_status, "stage": "final_repair", "agent": AGENT_CODEX},
+        command_label="codex final repair",
+        heartbeat_seconds=args.heartbeat_seconds,
+    )
+    if code != 0:
+        print(f"  failed: {format_logged_failure('codex final repair failed', exec_log)}")
+        return False
+
+    gates_ok, gate_result = run_quality_gates(
+        task_run_dir,
+        ledger,
+        base_status,
+        args.heartbeat_seconds,
+    )
+    if not gates_ok:
+        print(f"  failed: {gate_result}")
+        return False
+
+    if not args.skip_review:
+        review_timeout_seconds = normalize_timeout_seconds(args.review_timeout_seconds)
+        review_ok, review_result = run_review(
+            task,
+            task_run_dir,
+            args.codex_bin,
+            review_timeout_seconds,
+            base_status,
+            args.heartbeat_seconds,
+        )
+        if not review_ok:
+            print(f"  failed: {review_result}")
+            return False
+        print(f"  {review_result}")
+
+    complete_task(ledger, task, task_run_dir, args.commit)
+    write_static_run_state(
+        CURRENT_RUN_PATH,
+        base_status,
+        status="complete",
+        stage="complete",
+        message=f"completed {task['id']} after final repair",
+    )
+    print(f"  complete: {task['id']}")
+    return True
+
+
 def implementation_agent_command(args: argparse.Namespace) -> tuple[str, list[str]]:
     if args.agent == AGENT_CODEX:
         return (
@@ -867,6 +960,18 @@ def run_task(
         if code != 0:
             previous_failure = format_logged_failure(f"{agent_label} failed", exec_log)
             print(f"  failed: {previous_failure}")
+            if code == 124:
+                write_static_run_state(
+                    CURRENT_RUN_PATH,
+                    base_status,
+                    status="blocked",
+                    stage="implementation_timeout",
+                    message=(
+                        "implementation attempt timed out; stopped before launching "
+                        "another broad retry"
+                    ),
+                )
+                return False
             continue
 
         gates_ok, gate_result = run_quality_gates(
@@ -916,6 +1021,15 @@ def run_task(
             message=f"completed {task['id']}",
         )
         print(f"  complete: {task['id']}")
+        return True
+
+    if (
+        args.final_repair
+        and args.agent == AGENT_KIMI
+        and previous_failure
+        and review_failure_is_actionable(previous_failure)
+        and run_final_repair(ledger, task, args, previous_failure)
+    ):
         return True
 
     print(f"blocked: {task['id']} after {args.max_attempts} attempt(s)")
@@ -991,6 +1105,19 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Maximum runtime for the structured review gate; 0 disables.",
     )
+    run_parser.add_argument(
+        "--final-repair-timeout-seconds",
+        type=int,
+        default=DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS,
+        help="Maximum runtime for the bounded Codex final-repair pass; 0 disables.",
+    )
+    run_parser.add_argument(
+        "--no-final-repair",
+        dest="final_repair",
+        action="store_false",
+        help="Disable the bounded Codex repair pass after actionable Kimi review failures.",
+    )
+    run_parser.set_defaults(final_repair=True)
     run_parser.add_argument(
         "--heartbeat-seconds",
         type=int,
@@ -1073,6 +1200,7 @@ def main() -> int:
         return 0
 
     validate_heartbeat_seconds(args.heartbeat_seconds)
+    normalize_timeout_seconds(args.final_repair_timeout_seconds)
     check_clean_worktree(args.allow_dirty)
     if args.task:
         candidates = [task_map(ledger)[args.task]]

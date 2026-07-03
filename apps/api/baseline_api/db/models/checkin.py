@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field
 
 from baseline_api.db.models._base import BaseDBModel
-from baseline_api.db.models.enums import SensitiveNotePolicy
+from baseline_api.db.models.enums import RedactionStatus, SensitiveNotePolicy
 
 
 class DailyCheckIn(BaseDBModel, table=True):
@@ -42,8 +42,17 @@ class DailyCheckIn(BaseDBModel, table=True):
             nullable=False,
         ),
     )
+    redaction_status: RedactionStatus = Field(
+        default=RedactionStatus.none,
+        sa_column=Column(
+            SAEnum(RedactionStatus, native_enum=True),
+            nullable=False,
+        ),
+    )
     structured_notes: dict[str, Any] = Field(
         sa_type=JSONB,
         default_factory=dict,
     )
     free_text_note_reference: str | None = Field(default=None)
+    free_text_note_summary: str | None = Field(default=None)
+    analysis_job_id: UUID | None = Field(default=None)
