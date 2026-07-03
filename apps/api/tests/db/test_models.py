@@ -123,6 +123,7 @@ def test_insert_and_read_each_entity(db_session, user, model_run) -> None:
             duration=3600.0,
             intensity_zone_distribution={"zone2": 1800},
             muscle_group_tags=["legs"],
+            normalization_version="v1",
             source_sample_ids=[str(uuid4())],
         ),
         SleepSession(
@@ -130,6 +131,7 @@ def test_insert_and_read_each_entity(db_session, user, model_run) -> None:
             start_time=_now(),
             duration=28800.0,
             sleep_stage_breakdown={"deep": 7200},
+            normalization_version="v1",
             source_sample_ids=[str(uuid4())],
         ),
         DailyCheckIn(

@@ -147,6 +147,7 @@ def load_fixture(
                 intensity_zone_distribution=workout.intensity_zone_distribution,
                 perceived_exertion=workout.perceived_exertion,
                 muscle_group_tags=workout.muscle_group_tags,
+                normalization_version="synthetic-v1",
                 source_sample_ids=[str(raw_id)],
             )
         )
@@ -172,6 +173,7 @@ def load_fixture(
                 sleep_stage_breakdown=sleep.stage_seconds,
                 interruptions=sleep.interruptions,
                 quality_proxy=sleep.quality_proxy,
+                normalization_version="synthetic-v1",
                 source_sample_ids=[str(raw_id) for raw_id in raw_ids],
             )
         )
