@@ -6,7 +6,11 @@ from baseline_api.db.models.checkin import DailyCheckIn
 from baseline_api.db.models.evaluation import EvaluationCase
 from baseline_api.db.models.features import DerivedDailyFeature
 from baseline_api.db.models.goals import Goal
-from baseline_api.db.models.ingestion import NormalizedHealthMetric, RawHealthSample
+from baseline_api.db.models.ingestion import (
+    HealthImportBatch,
+    NormalizedHealthMetric,
+    RawHealthSample,
+)
 from baseline_api.db.models.knowledge import KnowledgeSource
 from baseline_api.db.models.memory import MemorySummary
 from baseline_api.db.models.modelrun import ModelRun
@@ -29,6 +33,7 @@ __all__ = [
     "DerivedDailyFeature",
     "EvaluationCase",
     "Goal",
+    "HealthImportBatch",
     "KnowledgeSource",
     "MemorySummary",
     "ModelRun",

@@ -56,9 +56,7 @@ def load_fixture(
     import_batch_id = _fixture_uuid(dataset.name, dataset.seed, "import-batch")
     imported_at = dt.datetime.combine(dataset.start_date, dt.time(0, 0), tzinfo=dt.UTC)
     provenance_links: list[
-        NormalizedHealthMetricSourceSample
-        | SleepSessionSourceSample
-        | WorkoutSessionSourceSample
+        NormalizedHealthMetricSourceSample | SleepSessionSourceSample | WorkoutSessionSourceSample
     ] = []
 
     for sample in dataset.samples:
