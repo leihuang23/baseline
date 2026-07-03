@@ -12,6 +12,11 @@ from sqlmodel import Session
 from baseline_api.db.models.checkin import DailyCheckIn
 from baseline_api.db.models.enums import MetricType, Modality, PrivacyMode, SensitiveNotePolicy
 from baseline_api.db.models.ingestion import NormalizedHealthMetric, RawHealthSample
+from baseline_api.db.models.provenance import (
+    NormalizedHealthMetricSourceSample,
+    SleepSessionSourceSample,
+    WorkoutSessionSourceSample,
+)
 from baseline_api.db.models.sessions import SleepSession, WorkoutSession
 from baseline_api.db.models.user import User
 from packages.fixtures.models import FixtureDataset
@@ -50,12 +55,19 @@ def load_fixture(
 
     import_batch_id = _fixture_uuid(dataset.name, dataset.seed, "import-batch")
     imported_at = dt.datetime.combine(dataset.start_date, dt.time(0, 0), tzinfo=dt.UTC)
+    provenance_links: list[
+        NormalizedHealthMetricSourceSample
+        | SleepSessionSourceSample
+        | WorkoutSessionSourceSample
+    ] = []
 
     for sample in dataset.samples:
         metric_type = MetricType(sample.metric_type)
+        raw_id = _fixture_uuid(sample.sample_id, "raw")
+        normalized_id = _fixture_uuid(sample.sample_id, "normalized")
         session.add(
             RawHealthSample(
-                id=_fixture_uuid(sample.sample_id, "raw"),
+                id=raw_id,
                 user_id=fixture_user.id,
                 source_platform="apple_health_synthetic",
                 source_device="Baseline Synthetic Watch",
@@ -72,7 +84,7 @@ def load_fixture(
         )
         session.add(
             NormalizedHealthMetric(
-                id=_fixture_uuid(sample.sample_id, "normalized"),
+                id=normalized_id,
                 user_id=fixture_user.id,
                 metric_type=metric_type,
                 start_time=sample.start_time,
@@ -80,15 +92,51 @@ def load_fixture(
                 value=sample.value,
                 unit=sample.unit,
                 confidence=1.0,
-                source_sample_ids=[sample.sample_id],
+                source_sample_ids=[str(raw_id)],
                 normalization_version="synthetic-v1",
+            )
+        )
+        provenance_links.append(
+            NormalizedHealthMetricSourceSample(
+                normalized_health_metric_id=normalized_id,
+                raw_health_sample_id=raw_id,
             )
         )
 
     for workout in dataset.workouts:
+        raw_id = _fixture_uuid(workout.workout_id, "raw")
+        workout_id = _fixture_uuid(workout.workout_id, "workout")
+        session.add(
+            RawHealthSample(
+                id=raw_id,
+                user_id=fixture_user.id,
+                source_platform="apple_health_synthetic",
+                source_device="Baseline Synthetic Watch",
+                source_sample_id=workout.workout_id,
+                sample_type=MetricType.workout,
+                start_time=workout.start_time,
+                end_time=workout.end_time,
+                raw_value=workout.duration_seconds,
+                raw_unit="s",
+                source_metadata={
+                    "synthetic": True,
+                    "modality": workout.modality,
+                    "duration_seconds": workout.duration_seconds,
+                    "distance_meters": workout.distance_meters,
+                    "active_energy_kcal": workout.active_energy_kcal,
+                    "average_hr_bpm": workout.average_hr_bpm,
+                    "max_hr_bpm": workout.max_hr_bpm,
+                    "intensity_zone_distribution": workout.intensity_zone_distribution,
+                    "perceived_exertion": workout.perceived_exertion,
+                    "muscle_group_tags": workout.muscle_group_tags,
+                },
+                imported_at=imported_at,
+                import_batch_id=import_batch_id,
+            )
+        )
         session.add(
             WorkoutSession(
-                id=_fixture_uuid(workout.workout_id, "workout"),
+                id=workout_id,
                 user_id=fixture_user.id,
                 start_time=workout.start_time,
                 end_time=workout.end_time,
@@ -101,14 +149,24 @@ def load_fixture(
                 intensity_zone_distribution=workout.intensity_zone_distribution,
                 perceived_exertion=workout.perceived_exertion,
                 muscle_group_tags=workout.muscle_group_tags,
-                source_sample_ids=workout.source_sample_ids,
+                source_sample_ids=[str(raw_id)],
+            )
+        )
+        provenance_links.append(
+            WorkoutSessionSourceSample(
+                workout_session_id=workout_id,
+                raw_health_sample_id=raw_id,
             )
         )
 
     for sleep in dataset.sleep_sessions:
+        sleep_id = _fixture_uuid(sleep.sleep_id, "sleep")
+        raw_ids = [
+            _fixture_uuid(source_sample_id, "raw") for source_sample_id in sleep.source_sample_ids
+        ]
         session.add(
             SleepSession(
-                id=_fixture_uuid(sleep.sleep_id, "sleep"),
+                id=sleep_id,
                 user_id=fixture_user.id,
                 start_time=sleep.start_time,
                 end_time=sleep.end_time,
@@ -116,9 +174,19 @@ def load_fixture(
                 sleep_stage_breakdown=sleep.stage_seconds,
                 interruptions=sleep.interruptions,
                 quality_proxy=sleep.quality_proxy,
-                source_sample_ids=sleep.source_sample_ids,
+                source_sample_ids=[str(raw_id) for raw_id in raw_ids],
             )
         )
+        for raw_id in raw_ids:
+            provenance_links.append(
+                SleepSessionSourceSample(
+                    sleep_session_id=sleep_id,
+                    raw_health_sample_id=raw_id,
+                )
+            )
+
+    session.flush()
+    session.add_all(provenance_links)
 
     for checkin in dataset.checkins:
         session.add(
@@ -146,7 +214,7 @@ def load_fixture(
     session.flush()
     return LoadedFixture(
         user=fixture_user,
-        raw_sample_count=len(dataset.samples),
+        raw_sample_count=len(dataset.samples) + len(dataset.workouts),
         normalized_metric_count=len(dataset.samples),
         workout_count=len(dataset.workouts),
         sleep_count=len(dataset.sleep_sessions),
@@ -158,49 +226,48 @@ def emit_raw_sync_payload(dataset: FixtureDataset) -> dict[str, Any]:
     """Emit a HealthKit-like raw-sync payload for API contract tests."""
 
     return {
-        "source_platform": "apple_health_synthetic",
-        "source_device": "Baseline Synthetic Watch",
-        "sync_anchor": f"synthetic:{dataset.name}:{dataset.seed}:{dataset.days}",
+        "schema_version": "v1",
+        "client_sync_id": f"synthetic:{dataset.name}:{dataset.seed}",
+        "device_id": "baseline-synthetic-watch",
+        "timezone": dataset.timezone,
+        "last_anchor": f"synthetic:{dataset.name}:{dataset.seed}:start",
+        "consent_version": "synthetic-v1",
         "samples": [
             {
                 "source_sample_id": sample.sample_id,
                 "sample_type": sample.metric_type,
                 "start_time": sample.start_time.isoformat(),
                 "end_time": sample.end_time.isoformat() if sample.end_time else None,
-                "raw_value": sample.value,
-                "raw_unit": sample.unit,
+                "value": sample.value,
+                "unit": sample.unit,
                 "source_metadata": sample.metadata,
             }
             for sample in dataset.samples
-        ],
-        "workouts": [
+        ]
+        + [
             {
                 "source_sample_id": workout.workout_id,
+                "sample_type": "workout",
                 "start_time": workout.start_time.isoformat(),
                 "end_time": workout.end_time.isoformat(),
-                "modality": workout.modality,
-                "distance_meters": workout.distance_meters,
-                "duration_seconds": workout.duration_seconds,
-                "active_energy_kcal": workout.active_energy_kcal,
-                "average_hr_bpm": workout.average_hr_bpm,
-                "max_hr_bpm": workout.max_hr_bpm,
-                "intensity_zone_distribution": workout.intensity_zone_distribution,
-                "perceived_exertion": workout.perceived_exertion,
-                "muscle_group_tags": workout.muscle_group_tags,
+                "value": workout.duration_seconds,
+                "unit": "s",
+                "source_metadata": {
+                    "source_platform": "apple_health_synthetic",
+                    "source_device": "Baseline Synthetic Watch",
+                    "synthetic": True,
+                    "modality": workout.modality,
+                    "distance_meters": workout.distance_meters,
+                    "duration_seconds": workout.duration_seconds,
+                    "active_energy_kcal": workout.active_energy_kcal,
+                    "average_hr_bpm": workout.average_hr_bpm,
+                    "max_hr_bpm": workout.max_hr_bpm,
+                    "intensity_zone_distribution": workout.intensity_zone_distribution,
+                    "perceived_exertion": workout.perceived_exertion,
+                    "muscle_group_tags": workout.muscle_group_tags,
+                },
             }
             for workout in dataset.workouts
-        ],
-        "sleep_sessions": [
-            {
-                "source_sample_id": sleep.sleep_id,
-                "start_time": sleep.start_time.isoformat(),
-                "end_time": sleep.end_time.isoformat(),
-                "duration_seconds": sleep.duration_seconds,
-                "stage_seconds": sleep.stage_seconds,
-                "interruptions": sleep.interruptions,
-                "quality_proxy": sleep.quality_proxy,
-            }
-            for sleep in dataset.sleep_sessions
         ],
     }
 

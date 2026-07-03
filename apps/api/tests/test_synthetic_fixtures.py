@@ -18,6 +18,7 @@ from sqlmodel import select
 from baseline_api.db.models.checkin import DailyCheckIn
 from baseline_api.db.models.ingestion import RawHealthSample
 from baseline_api.db.models.sessions import SleepSession, WorkoutSession
+from baseline_api.schemas.api import HealthSyncRequest
 
 
 def test_same_seed_produces_byte_identical_output() -> None:
@@ -111,9 +112,11 @@ def test_raw_sync_payload_is_synthetic_and_contract_shaped() -> None:
     dataset = get_scenario("high_hrv_good_sleep_low_load")
     payload = emit_raw_sync_payload(dataset)
 
-    assert payload["source_platform"] == "apple_health_synthetic"
-    assert payload["source_device"] == "Baseline Synthetic Watch"
-    assert payload["sync_anchor"].startswith("synthetic:high_hrv_good_sleep_low_load")
+    contract = HealthSyncRequest.model_validate(payload)
+
+    assert contract.client_sync_id.startswith("synthetic:high_hrv_good_sleep_low_load")
+    assert contract.device_id == "baseline-synthetic-watch"
+    assert contract.consent_version == "synthetic-v1"
     assert payload["samples"]
     assert all(sample["source_metadata"]["synthetic"] is True for sample in payload["samples"])
 
@@ -125,7 +128,7 @@ def test_each_golden_scenario_loads_into_db(db_session, scenario_name: str) -> N
     dataset = get_scenario(scenario_name)
     loaded = load_fixture(db_session, dataset)
 
-    assert loaded.raw_sample_count == len(dataset.samples)
+    assert loaded.raw_sample_count == len(dataset.samples) + len(dataset.workouts)
     assert loaded.normalized_metric_count == len(dataset.samples)
     assert loaded.workout_count == len(dataset.workouts)
     assert loaded.sleep_count == len(dataset.sleep_sessions)
@@ -148,7 +151,7 @@ def test_each_golden_scenario_loads_into_db(db_session, scenario_name: str) -> N
         db_session.exec(select(DailyCheckIn).where(DailyCheckIn.user_id == loaded.user.id)).all()
     )
 
-    assert raw_count == len(dataset.samples)
+    assert raw_count == len(dataset.samples) + len(dataset.workouts)
     assert workout_count == len(dataset.workouts)
     assert sleep_count == len(dataset.sleep_sessions)
     assert checkin_count == len(dataset.checkins)

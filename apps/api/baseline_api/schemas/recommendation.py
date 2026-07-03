@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import Field, HttpUrl, model_validator
+from pydantic import Field, HttpUrl
 
 from baseline_api.schemas.common import ContractModel
 from baseline_api.schemas.enums import (
@@ -73,10 +73,3 @@ class RecommendationContract(ContractModel):
     safety_note: str = Field(min_length=1)
     alternatives: list[RecommendationAlternative] = Field(default_factory=list)
     follow_up: FollowUpPrompt | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def default_safety_status_for_prd_example(cls, data: Any) -> Any:
-        if isinstance(data, dict) and "safety_status" not in data and data.get("safety_note"):
-            return {**data, "safety_status": SafetyStatus.passed}
-        return data

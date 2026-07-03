@@ -10,6 +10,13 @@ from baseline_api.db.models.ingestion import NormalizedHealthMetric, RawHealthSa
 from baseline_api.db.models.knowledge import KnowledgeSource
 from baseline_api.db.models.memory import MemorySummary
 from baseline_api.db.models.modelrun import ModelRun
+from baseline_api.db.models.provenance import (
+    DerivedDailyFeatureSourceMetric,
+    DerivedDailyFeatureSourceSample,
+    NormalizedHealthMetricSourceSample,
+    SleepSessionSourceSample,
+    WorkoutSessionSourceSample,
+)
 from baseline_api.db.models.sessions import SleepSession, WorkoutSession
 from baseline_api.db.models.user import ConsentRecord, User
 
@@ -17,6 +24,8 @@ __all__ = [
     "AuditEvent",
     "ConsentRecord",
     "DailyCheckIn",
+    "DerivedDailyFeatureSourceMetric",
+    "DerivedDailyFeatureSourceSample",
     "DerivedDailyFeature",
     "EvaluationCase",
     "Goal",
@@ -24,10 +33,13 @@ __all__ = [
     "MemorySummary",
     "ModelRun",
     "NormalizedHealthMetric",
+    "NormalizedHealthMetricSourceSample",
     "RawHealthSample",
     "ReadinessAssessment",
     "Recommendation",
     "SleepSession",
+    "SleepSessionSourceSample",
     "User",
     "WorkoutSession",
+    "WorkoutSessionSourceSample",
 ]

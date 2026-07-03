@@ -50,7 +50,10 @@ class ReadinessState(StrEnum):
 class RecommendationBand(StrEnum):
     hard_training_ok = "hard_training_ok"
     moderate = "moderate"
+    moderate_or_upper_body = "moderate_or_upper_body"
+    easy = "easy"
     easy_or_recovery = "easy_or_recovery"
+    recovery = "recovery"
     rest = "rest"
     insufficient_data = "insufficient_data"
 

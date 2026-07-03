@@ -24,5 +24,20 @@ def test_migration_upgrade_downgrade_round_trip(db_engine) -> None:
 
     assert "user" in tables
     assert "raw_health_sample" in tables
+    assert "normalized_health_metric_source_sample" in tables
     assert "derived_daily_feature" in tables
     assert "recommendation" in tables
+
+    command.downgrade(alembic_cfg, "base")
+
+    with db_engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")
+        )
+        tables_after_downgrade = {row[0] for row in result}
+
+    assert "user" not in tables_after_downgrade
+    assert "raw_health_sample" not in tables_after_downgrade
+    assert "normalized_health_metric_source_sample" not in tables_after_downgrade
+
+    command.upgrade(alembic_cfg, "head")
