@@ -1,11 +1,13 @@
 .env
 .venv/
+.uv-cache/
 __pycache__/
 .coverage
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
 htmlcov/
+artifacts/
 dist/
 build/
 *.egg-info/

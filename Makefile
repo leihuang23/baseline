@@ -1,4 +1,7 @@
-.PHONY: dev test lint typecheck migrate fmt task-status task-next task-loop-one task-loop-one-commit task-loop-p0-cluster
+UV_CACHE_DIR ?= .uv-cache
+export UV_CACHE_DIR
+
+.PHONY: dev test lint typecheck migrate fmt eval task-status task-next task-loop-one task-loop-one-commit task-loop-p0-cluster
 
 dev:
 	uv run uvicorn baseline_api.main:app --reload
@@ -18,6 +21,9 @@ migrate:
 fmt:
 	uv run ruff format .
 	uv run ruff check --fix .
+
+eval:
+	uv run python -m packages.eval
 
 task-status:
 	python3 scripts/run_task_loop.py status

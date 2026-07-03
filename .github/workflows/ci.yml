@@ -7,6 +7,20 @@ on:
 jobs:
   python:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: baseline
+          POSTGRES_DB: baseline
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U baseline -d baseline"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       APP_ENV: test
       DATABASE_URL: postgresql+psycopg://baseline@localhost:5432/baseline
@@ -29,3 +43,7 @@ jobs:
         run: make typecheck
       - name: Test
         run: make test
+      - name: Migrate eval database
+        run: make migrate
+      - name: Eval gate
+        run: make eval
