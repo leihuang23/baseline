@@ -173,6 +173,33 @@ def test_run_command_selects_kimi_agent(monkeypatch) -> None:
     args = TASK_LOOP.parse_args()
 
     assert args.agent == "kimi"
+    assert args.max_attempts == 2
+    assert args.agent_timeout_seconds == 1200
+    assert args.review_timeout_seconds == 600
+
+
+def test_kimi_run_command_accepts_explicit_timeout_overrides(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run_task_loop.py",
+            "run",
+            "--kimi",
+            "--max-attempts",
+            "3",
+            "--agent-timeout-seconds",
+            "0",
+            "--review-timeout-seconds",
+            "90",
+        ],
+    )
+
+    args = TASK_LOOP.parse_args()
+
+    assert args.agent == "kimi"
+    assert args.max_attempts == 3
+    assert TASK_LOOP.normalize_timeout_seconds(args.agent_timeout_seconds) is None
+    assert args.review_timeout_seconds == 90
 
 
 def test_kimi_implementation_command_uses_prompt_mode() -> None:
@@ -196,6 +223,39 @@ def test_kimi_invocation_uses_noninteractive_prompt_mode() -> None:
     assert command == ["kimi", "--prompt", "do the task"]
     assert input_text is None
     assert logged_command == ["kimi", "--prompt", "<task-prompt>"]
+
+
+def test_kimi_initial_prompt_includes_focused_execution_contract() -> None:
+    task = {
+        "id": "P1-02",
+        "title": "normalization module",
+        "prompt": "tasks/P1-02-normalization-module.md",
+    }
+
+    prompt = TASK_LOOP.implementation_prompt(task, 1, None, agent="kimi")
+
+    assert "Kimi-specific execution contract" in prompt
+    assert "git status --short" in prompt
+    assert "untracked files are part of the" in prompt
+
+
+def test_kimi_repair_prompt_prioritizes_review_findings() -> None:
+    task = {
+        "id": "P1-02",
+        "title": "normalization module",
+        "prompt": "tasks/P1-02-normalization-module.md",
+    }
+
+    prompt = TASK_LOOP.implementation_prompt(
+        task,
+        2,
+        "Review decision JSON: provenance links are wrong",
+        agent="kimi",
+    )
+
+    assert "Kimi repair mode" in prompt
+    assert "do not restart from broad PRD/repo discovery" in prompt
+    assert "provenance links are wrong" in prompt
 
 
 def test_codex_implementation_command_preserves_existing_exec_shape() -> None:
@@ -292,3 +352,12 @@ def test_review_failure_context_includes_structured_decision(tmp_path) -> None:
     assert "Review decision JSON" in context
     assert "Replay missed normalization repair" in context
     assert "Retry should enqueue pending normalization" in context
+
+
+def test_kimi_retries_only_actionable_structured_review_failures() -> None:
+    actionable = "review failed; see file\n\nReview decision JSON:\n{}"
+    non_actionable = "review command failed; see file\n\nLog tail:\nturn interrupted"
+
+    assert TASK_LOOP.should_retry_after_review_failure("kimi", actionable) is True
+    assert TASK_LOOP.should_retry_after_review_failure("kimi", non_actionable) is False
+    assert TASK_LOOP.should_retry_after_review_failure("codex", non_actionable) is True

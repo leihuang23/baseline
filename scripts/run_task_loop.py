@@ -20,6 +20,9 @@ CURRENT_RUN_PATH = RUNS_DIR / "current.json"
 DEFAULT_MAX_ATTEMPTS = 4
 DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
 DEFAULT_REVIEW_TIMEOUT_SECONDS = 1800
+DEFAULT_KIMI_MAX_ATTEMPTS = 2
+DEFAULT_KIMI_AGENT_TIMEOUT_SECONDS = 1200
+DEFAULT_KIMI_REVIEW_TIMEOUT_SECONDS = 600
 DEFAULT_HEARTBEAT_SECONDS = 30
 FAILURE_CONTEXT_MAX_CHARS = 16_000
 FAILURE_LOG_TAIL_LINES = 120
@@ -27,6 +30,27 @@ CURRENT_LOG_TAIL_LINES = 40
 AGENT_CODEX = "codex"
 AGENT_KIMI = "kimi"
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\a]*(?:\a|\x1b\\))")
+KIMI_INITIAL_GUIDANCE = """Kimi-specific execution contract:
+- This is one non-interactive prompt. Keep the pass focused and stop once the task is ready
+  for the controller gates.
+- Start by reading the task prompt, current ledger state, and `git status --short`. Do not do
+  a broad repo survey unless those files leave the implementation surface unclear.
+- Before editing, write a compact contract in your log: files or symbols likely touched,
+  acceptance checks, and explicit non-goals.
+- Prefer a failing/targeted test first when behavior changes. If coverage already exists,
+  name the covering test before editing.
+- After edits, run the smallest relevant checks you can run locally. The controller will run
+  the full quality gates.
+- Before your final summary, inspect `git status --short`; untracked files are part of the
+  diff even when `git diff --stat` is quiet.
+"""
+KIMI_REPAIR_GUIDANCE = """Kimi repair mode:
+- Treat the existing working tree as the previous attempt's draft.
+- Repair only the concrete failure details below; do not restart from broad PRD/repo discovery.
+- Read the failure text and directly cited files first, then patch the smallest set of lines.
+- Add or adjust a regression test when the failure is behavioral.
+- Stop after the focused repair and local targeted verification.
+"""
 
 
 class LoopError(RuntimeError):
@@ -547,7 +571,20 @@ def check_clean_worktree(allow_dirty: bool) -> None:
         )
 
 
-def implementation_prompt(task: dict[str, Any], attempt: int, previous_failure: str | None) -> str:
+def implementation_guidance(agent: str, attempt: int, previous_failure: str | None) -> str:
+    if agent != AGENT_KIMI:
+        return ""
+    if attempt > 1 or previous_failure:
+        return f"\n{KIMI_REPAIR_GUIDANCE}"
+    return f"\n{KIMI_INITIAL_GUIDANCE}"
+
+
+def implementation_prompt(
+    task: dict[str, Any],
+    attempt: int,
+    previous_failure: str | None,
+    agent: str = AGENT_CODEX,
+) -> str:
     prompt_path = ROOT / task["prompt"]
     task_prompt = prompt_path.read_text(encoding="utf-8")
     failure_block = ""
@@ -557,6 +594,7 @@ def implementation_prompt(task: dict[str, Any], attempt: int, previous_failure: 
             "Use the concrete failure details below; do not require a human to re-copy them.\n\n"
             f"{previous_failure}\n"
         )
+    guidance_block = implementation_guidance(agent, attempt, previous_failure)
     return f"""You are executing one bounded Baseline task slice.
 
 Task: {task["id"]} - {task["title"]}
@@ -570,6 +608,7 @@ Rules:
 - Add or update tests required by the task.
 - The controller will run make fmt, make lint, make typecheck, make test,
   and a review gate after you finish.
+{guidance_block}
 {failure_block}
 Task prompt:
 
@@ -671,6 +710,16 @@ def run_review(
     return True, f"review passed; see {output_file}"
 
 
+def review_failure_is_actionable(review_result: str) -> bool:
+    return "Review decision JSON" in review_result
+
+
+def should_retry_after_review_failure(agent: str, review_result: str) -> bool:
+    if agent != AGENT_KIMI:
+        return True
+    return review_failure_is_actionable(review_result)
+
+
 def implementation_agent_command(args: argparse.Namespace) -> tuple[str, list[str]]:
     if args.agent == AGENT_CODEX:
         return (
@@ -751,7 +800,7 @@ def run_task(
     review_timeout_seconds = normalize_timeout_seconds(args.review_timeout_seconds)
     for attempt in range(1, args.max_attempts + 1):
         task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-attempt-{attempt}"
-        prompt = implementation_prompt(task, attempt, previous_failure)
+        prompt = implementation_prompt(task, attempt, previous_failure, agent=args.agent)
         agent_label, command, input_text, logged_command = implementation_agent_invocation(
             args,
             prompt,
@@ -805,6 +854,18 @@ def run_task(
             if not review_ok:
                 previous_failure = review_result
                 print(f"  failed: {review_result}")
+                if not should_retry_after_review_failure(args.agent, review_result):
+                    write_static_run_state(
+                        CURRENT_RUN_PATH,
+                        base_status,
+                        status="blocked",
+                        stage="review",
+                        message=(
+                            "review gate did not produce actionable findings; "
+                            "stopped before another Kimi implementation attempt"
+                        ),
+                    )
+                    return False
                 continue
             print(f"  {review_result}")
 
@@ -879,17 +940,17 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="Number of tasks to run; 0 means all pending tasks in the cluster.",
     )
-    run_parser.add_argument("--max-attempts", type=int, default=DEFAULT_MAX_ATTEMPTS)
+    run_parser.add_argument("--max-attempts", type=int)
     run_parser.add_argument(
         "--agent-timeout-seconds",
         type=int,
-        default=DEFAULT_AGENT_TIMEOUT_SECONDS,
+        default=None,
         help="Maximum runtime for each implementation agent attempt; 0 disables.",
     )
     run_parser.add_argument(
         "--review-timeout-seconds",
         type=int,
-        default=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+        default=None,
         help="Maximum runtime for the structured review gate; 0 disables.",
     )
     run_parser.add_argument(
@@ -919,7 +980,30 @@ def parse_args() -> argparse.Namespace:
     )
     run_parser.add_argument("--codex-bin", default="codex")
     run_parser.add_argument("--kimi-bin", default="kimi")
-    return parser.parse_args()
+    args = parser.parse_args()
+    apply_agent_defaults(args)
+    return args
+
+
+def apply_agent_defaults(args: argparse.Namespace) -> None:
+    if args.command != "run":
+        return
+
+    if args.agent == AGENT_KIMI:
+        if args.max_attempts is None:
+            args.max_attempts = DEFAULT_KIMI_MAX_ATTEMPTS
+        if args.agent_timeout_seconds is None:
+            args.agent_timeout_seconds = DEFAULT_KIMI_AGENT_TIMEOUT_SECONDS
+        if args.review_timeout_seconds is None:
+            args.review_timeout_seconds = DEFAULT_KIMI_REVIEW_TIMEOUT_SECONDS
+        return
+
+    if args.max_attempts is None:
+        args.max_attempts = DEFAULT_MAX_ATTEMPTS
+    if args.agent_timeout_seconds is None:
+        args.agent_timeout_seconds = DEFAULT_AGENT_TIMEOUT_SECONDS
+    if args.review_timeout_seconds is None:
+        args.review_timeout_seconds = DEFAULT_REVIEW_TIMEOUT_SECONDS
 
 
 def main() -> int:
