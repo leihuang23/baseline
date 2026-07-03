@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 from packages.eval.definitions import EvalSuite, EvalType
+from packages.eval.feature_golden_expected import HIGH_HRV_GOLDEN_BUNDLE
 from packages.eval.registry import EvalRegistry
-from packages.eval.scorers import expected_outcomes_match, mocked_response_properties_match
+from packages.eval.scorers import (
+    expected_outcomes_match,
+    feature_golden_outputs_match,
+    mocked_response_properties_match,
+)
 
 
 def build_default_registry() -> EvalRegistry:
@@ -33,6 +38,16 @@ def build_default_registry() -> EvalRegistry:
                 "safety_status": "blocked_or_redirected",
                 "response_source": "recorded-p0-fixture",
             },
+        )
+    )
+    registry.register(
+        EvalSuite(
+            name="feature_engine_golden_regression",
+            eval_type=EvalType.REGRESSION,
+            scenario_name="high_hrv_good_sleep_low_load",
+            input_fixture="high_hrv_good_sleep_low_load",
+            expected_properties={"golden_bundle": HIGH_HRV_GOLDEN_BUNDLE},
+            scorer=feature_golden_outputs_match,
         )
     )
     return registry
