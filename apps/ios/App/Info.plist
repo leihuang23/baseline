@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDisplayName</key>
+  <string>Baseline</string>
+  <key>NSHealthShareUsageDescription</key>
+  <string>Baseline reads selected HealthKit categories to sync wellness decision-support signals you enable.</string>
+  <key>BaselineAPIBaseURL</key>
+  <string>http://127.0.0.1:8000</string>
+  <key>BGTaskSchedulerPermittedIdentifiers</key>
+  <array>
+    <string>com.baseline.ios.health-refresh</string>
+  </array>
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>fetch</string>
+  </array>
+</dict>
+</plist>
