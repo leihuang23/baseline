@@ -382,6 +382,16 @@ def test_invalid_consent_version_returns_typed_error_without_persisting(db_sessi
     assert queue.enqueued == []
 
 
+def test_openapi_documents_health_sync_typed_error_responses() -> None:
+    schema = create_app(_settings()).openapi()
+    responses = schema["paths"]["/v1/health/sync"]["post"]["responses"]
+
+    for status_code in ("403", "409", "503"):
+        assert responses[status_code]["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+        }
+
+
 def test_sync_persists_raw_provenance_and_enqueues_normalization_job(db_session) -> None:
     user = _seed_user_with_consent(db_session)
     queue = FakeNormalizationQueue()

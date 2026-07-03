@@ -80,6 +80,36 @@
               }
             }
           },
+          "403": {
+            "description": "Consent is missing, revoked, invalid, or does not allow a sample category.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The sync request conflicts with idempotency or ingestion state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Raw samples were persisted, but normalization could not be queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -601,6 +631,41 @@
           "status"
         ],
         "title": "APIEnvelope[HealthSyncResponse]"
+      },
+      "APIEnvelope_NoneType_": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "data": {
+            "type": "null",
+            "title": "Data"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/APIResponseMeta"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[NoneType]"
       },
       "APIEnvelope_RecommendationFeedbackResponse_": {
         "properties": {

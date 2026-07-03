@@ -1,6 +1,6 @@
-from typing import Annotated, cast
+from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
@@ -17,6 +17,21 @@ from baseline_api.schemas.api import HealthSyncRequest, HealthSyncResponse
 from baseline_api.schemas.common import APIEnvelope, APIError
 
 router = APIRouter(prefix="/v1/health", tags=["health"])
+
+HEALTH_SYNC_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_403_FORBIDDEN: {
+        "model": APIEnvelope[None],
+        "description": "Consent is missing, revoked, invalid, or does not allow a sample category.",
+    },
+    status.HTTP_409_CONFLICT: {
+        "model": APIEnvelope[None],
+        "description": "The sync request conflicts with idempotency or ingestion state.",
+    },
+    status.HTTP_503_SERVICE_UNAVAILABLE: {
+        "model": APIEnvelope[None],
+        "description": "Raw samples were persisted, but normalization could not be queued.",
+    },
+}
 
 
 @router.get("/ping")
@@ -35,7 +50,11 @@ def get_normalization_queue(request: Request) -> NormalizationJobQueue:
     return ArqNormalizationJobQueue(str(settings.redis_url))
 
 
-@router.post("/sync", response_model=APIEnvelope[HealthSyncResponse])
+@router.post(
+    "/sync",
+    response_model=APIEnvelope[HealthSyncResponse],
+    responses=HEALTH_SYNC_ERROR_RESPONSES,
+)
 async def sync_health(
     request: HealthSyncRequest,
     session: Annotated[Session, Depends(get_db_session)],
