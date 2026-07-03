@@ -1,7 +1,7 @@
 {
   "version": 1,
   "active_cluster": "P1-ingestion-mvp",
-  "updated_at": "2026-07-03T06:59:32Z",
+  "updated_at": "2026-07-03T08:33:01Z",
   "quality_gates": [
     "make fmt",
     "make lint",
@@ -163,7 +163,9 @@
       "title": "normalization module",
       "prompt": "tasks/P1-02-normalization-module.md",
       "phase": "P1",
-      "status": "pending"
+      "status": "complete",
+      "completed_at": "2026-07-03T08:33:01Z",
+      "last_run_dir": ".task-runs/2026-07-03T081243Z-P1-02-attempt-3"
     },
     {
       "id": "P1-03",

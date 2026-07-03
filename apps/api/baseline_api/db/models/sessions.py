@@ -47,6 +47,8 @@ class WorkoutSession(BaseDBModel, table=True):
         sa_type=JSONB,
         default_factory=list,
     )
+    confidence: float = Field(nullable=False, default=1.0)
+    normalization_version: str = Field(nullable=False)
     source_sample_ids: list[str] = Field(
         sa_type=JSONB,
         default_factory=list,
@@ -69,6 +71,8 @@ class SleepSession(BaseDBModel, table=True):
     )
     interruptions: int | None = Field(default=None)
     quality_proxy: float | None = Field(default=None, ge=0, le=1)
+    confidence: float = Field(nullable=False, default=1.0)
+    normalization_version: str = Field(nullable=False)
     source_sample_ids: list[str] = Field(
         sa_type=JSONB,
         default_factory=list,
