@@ -199,7 +199,7 @@
       "title": "feature engine sleep cardio",
       "prompt": "tasks/P2-02-feature-engine-sleep-cardio.md",
       "phase": "P2",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "id": "P2-03",
