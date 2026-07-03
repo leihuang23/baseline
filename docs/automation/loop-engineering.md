@@ -25,6 +25,16 @@ Show the next task:
 make task-next
 ```
 
+Show the live or most recent loop state:
+
+```bash
+make task-current
+```
+
+The runner writes `.task-runs/current.json` while it works. `make task-current`
+prints the active task, stage, attempt, elapsed time, timeout remaining, run
+directory, log file, git change summary, and a cleaned tail of the current log.
+
 Run exactly one task from the active cluster:
 
 ```bash
@@ -53,6 +63,15 @@ python3 scripts/run_task_loop.py run --agent-timeout-seconds 0 --review-timeout-
 ```
 
 Use `0` to disable a timeout for trusted long-running agents.
+
+Long-running commands print a heartbeat every 30 seconds with elapsed time, pid,
+log path, and current git change count. Override or disable the heartbeat when
+needed:
+
+```bash
+python3 scripts/run_task_loop.py run --heartbeat-seconds 10
+python3 scripts/run_task_loop.py run --heartbeat-seconds 0
+```
 
 Run one task and commit it after all gates pass:
 
@@ -86,6 +105,18 @@ The controller then runs a structured Codex review. A task is marked complete on
 ## Recovery
 
 If the loop fails, inspect the latest directory under `.task-runs/`. The runner retries once by default. If the second attempt fails, it stops without advancing the ledger.
+
+For a run that looks stuck, check the live state first:
+
+```bash
+make task-current
+tail -f "$(python3 - <<'PY'
+import json, pathlib
+state = json.loads(pathlib.Path('.task-runs/current.json').read_text())
+print(state['log_file'])
+PY
+)"
+```
 
 Use a specific task when needed:
 

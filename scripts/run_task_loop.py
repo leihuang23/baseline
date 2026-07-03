@@ -4,8 +4,11 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,13 +16,17 @@ ROOT = Path(__file__).resolve().parents[1]
 LEDGER_PATH = ROOT / "tasks" / "ledger.json"
 REVIEW_SCHEMA_PATH = ROOT / "tasks" / "review-decision.schema.json"
 RUNS_DIR = ROOT / ".task-runs"
+CURRENT_RUN_PATH = RUNS_DIR / "current.json"
 DEFAULT_MAX_ATTEMPTS = 4
 DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
 DEFAULT_REVIEW_TIMEOUT_SECONDS = 1800
+DEFAULT_HEARTBEAT_SECONDS = 30
 FAILURE_CONTEXT_MAX_CHARS = 16_000
 FAILURE_LOG_TAIL_LINES = 120
+CURRENT_LOG_TAIL_LINES = 40
 AGENT_CODEX = "codex"
 AGENT_KIMI = "kimi"
+ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\a]*(?:\a|\x1b\\))")
 
 
 class LoopError(RuntimeError):
@@ -28,6 +35,162 @@ class LoopError(RuntimeError):
 
 def utc_now() -> str:
     return dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def utc_datetime() -> dt.datetime:
+    return dt.datetime.now(dt.UTC).replace(microsecond=0)
+
+
+def relative_to_root(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
+def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(path.suffix + ".tmp")
+    temp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temp_path.replace(path)
+
+
+def format_elapsed(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, remainder = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {remainder:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m {remainder:02d}s"
+
+
+def git_status_snapshot() -> dict[str, Any]:
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return {"available": False, "summary": "git status unavailable"}
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    return {
+        "available": True,
+        "changed_count": len(lines),
+        "summary": "clean" if not lines else f"{len(lines)} changed file(s)",
+        "files": lines[:20],
+        "truncated": len(lines) > 20,
+    }
+
+
+def build_run_state(
+    base_state: dict[str, Any],
+    *,
+    status: str,
+    started_at: dt.datetime,
+    command: list[str],
+    command_label: str,
+    log_file: Path,
+    pid: int | None,
+    timeout_seconds: int | None,
+    exit_code: int | None = None,
+) -> dict[str, Any]:
+    now = utc_datetime()
+    elapsed_seconds = int((now - started_at).total_seconds())
+    state = {
+        **base_state,
+        "schema_version": 1,
+        "status": status,
+        "command": command,
+        "command_label": command_label,
+        "log_file": relative_to_root(log_file),
+        "pid": pid,
+        "started_at": started_at.isoformat().replace("+00:00", "Z"),
+        "last_update_at": now.isoformat().replace("+00:00", "Z"),
+        "elapsed_seconds": elapsed_seconds,
+        "elapsed": format_elapsed(elapsed_seconds),
+        "timeout_seconds": timeout_seconds,
+        "exit_code": exit_code,
+        "git_status": git_status_snapshot(),
+    }
+    if timeout_seconds is not None:
+        remaining_seconds = max(0, timeout_seconds - elapsed_seconds)
+        state["timeout_remaining_seconds"] = remaining_seconds
+        state["timeout_remaining"] = format_elapsed(remaining_seconds)
+    return state
+
+
+def write_run_state(
+    status_file: Path | None,
+    base_state: dict[str, Any],
+    *,
+    status: str,
+    started_at: dt.datetime,
+    command: list[str],
+    command_label: str,
+    log_file: Path,
+    pid: int | None,
+    timeout_seconds: int | None,
+    exit_code: int | None = None,
+) -> dict[str, Any] | None:
+    if status_file is None:
+        return None
+    state = build_run_state(
+        base_state,
+        status=status,
+        started_at=started_at,
+        command=command,
+        command_label=command_label,
+        log_file=log_file,
+        pid=pid,
+        timeout_seconds=timeout_seconds,
+        exit_code=exit_code,
+    )
+    write_json_atomic(status_file, state)
+    return state
+
+
+def write_static_run_state(
+    status_file: Path,
+    base_state: dict[str, Any],
+    *,
+    status: str,
+    stage: str,
+    message: str | None = None,
+) -> None:
+    now = utc_now()
+    previous_state: dict[str, Any] = {}
+    if status_file.exists():
+        try:
+            previous_state = json.loads(status_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            previous_state = {}
+    state = {
+        **previous_state,
+        **base_state,
+        "schema_version": 1,
+        "status": status,
+        "stage": stage,
+        "message": message,
+        "pid": None,
+        "last_update_at": now,
+        "git_status": git_status_snapshot(),
+    }
+    write_json_atomic(status_file, state)
+
+
+def print_heartbeat(state: dict[str, Any]) -> None:
+    print(
+        "    running: "
+        f"{state['command_label']} "
+        f"elapsed {state['elapsed']} "
+        f"pid {state['pid']} "
+        f"log {state['log_file']} "
+        f"changes {state['git_status']['summary']}"
+    )
+    sys.stdout.flush()
 
 
 def load_ledger() -> dict[str, Any]:
@@ -93,28 +256,104 @@ def run_logged(
     log_file: Path,
     input_text: str | None = None,
     timeout_seconds: int | None = None,
+    status_file: Path | None = None,
+    status: dict[str, Any] | None = None,
+    command_label: str | None = None,
+    logged_command: list[str] | None = None,
+    heartbeat_seconds: int = DEFAULT_HEARTBEAT_SECONDS,
 ) -> int:
     log_file.parent.mkdir(parents=True, exist_ok=True)
+    base_state = status or {}
+    label = command_label or " ".join(command)
+    display_command = logged_command or command
+    started_at = utc_datetime()
     with log_file.open("w", encoding="utf-8") as log:
-        log.write("$ " + " ".join(command) + "\n\n")
+        log.write("$ " + " ".join(display_command) + "\n\n")
         log.flush()
-        try:
-            process = subprocess.run(
-                command,
-                cwd=ROOT,
-                input=input_text,
-                text=True,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                check=False,
-                timeout=timeout_seconds,
-            )
-        except subprocess.TimeoutExpired:
-            log.write(f"\n[timeout_seconds] {timeout_seconds}\n")
-            log.write("[exit_code] 124\n")
-            return 124
-        log.write(f"\n[exit_code] {process.returncode}\n")
-    return process.returncode
+        process = subprocess.Popen(
+            command,
+            cwd=ROOT,
+            stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+            text=True,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+        if input_text is not None and process.stdin is not None:
+            try:
+                process.stdin.write(input_text)
+                process.stdin.close()
+            except BrokenPipeError:
+                pass
+
+        last_heartbeat = time.monotonic()
+        write_run_state(
+            status_file,
+            base_state,
+            status="running",
+            started_at=started_at,
+            command=display_command,
+            command_label=label,
+            log_file=log_file,
+            pid=process.pid,
+            timeout_seconds=timeout_seconds,
+        )
+        while True:
+            returncode = process.poll()
+            if returncode is not None:
+                log.write(f"\n[exit_code] {returncode}\n")
+                log.flush()
+                write_run_state(
+                    status_file,
+                    base_state,
+                    status="succeeded" if returncode == 0 else "failed",
+                    started_at=started_at,
+                    command=display_command,
+                    command_label=label,
+                    log_file=log_file,
+                    pid=process.pid,
+                    timeout_seconds=timeout_seconds,
+                    exit_code=returncode,
+                )
+                return returncode
+
+            elapsed_seconds = int((utc_datetime() - started_at).total_seconds())
+            if timeout_seconds is not None and elapsed_seconds >= timeout_seconds:
+                process.kill()
+                process.wait()
+                log.write(f"\n[timeout_seconds] {timeout_seconds}\n")
+                log.write("[exit_code] 124\n")
+                log.flush()
+                write_run_state(
+                    status_file,
+                    base_state,
+                    status="timed_out",
+                    started_at=started_at,
+                    command=display_command,
+                    command_label=label,
+                    log_file=log_file,
+                    pid=process.pid,
+                    timeout_seconds=timeout_seconds,
+                    exit_code=124,
+                )
+                return 124
+
+            if heartbeat_seconds > 0 and time.monotonic() - last_heartbeat >= heartbeat_seconds:
+                state = write_run_state(
+                    status_file,
+                    base_state,
+                    status="running",
+                    started_at=started_at,
+                    command=display_command,
+                    command_label=label,
+                    log_file=log_file,
+                    pid=process.pid,
+                    timeout_seconds=timeout_seconds,
+                )
+                if state is not None:
+                    print_heartbeat(state)
+                last_heartbeat = time.monotonic()
+
+            time.sleep(1)
 
 
 def normalize_timeout_seconds(value: int) -> int | None:
@@ -123,6 +362,11 @@ def normalize_timeout_seconds(value: int) -> int | None:
     if value == 0:
         return None
     return value
+
+
+def validate_heartbeat_seconds(value: int) -> None:
+    if value < 0:
+        raise LoopError("Heartbeat seconds must be non-negative; use 0 to disable heartbeats.")
 
 
 def read_failure_context(path: Path) -> str:
@@ -143,6 +387,73 @@ def read_log_tail(path: Path) -> str:
     if len(tail) <= FAILURE_CONTEXT_MAX_CHARS:
         return tail
     return tail[-FAILURE_CONTEXT_MAX_CHARS:]
+
+
+def clean_log_tail(path: Path, line_count: int = CURRENT_LOG_TAIL_LINES) -> str:
+    text = read_failure_context(path)
+    text = ANSI_ESCAPE_RE.sub("", text).replace("\r", "\n")
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    return "\n".join(lines[-line_count:])
+
+
+def process_liveness(pid: int | None) -> str:
+    if pid is None:
+        return "unknown"
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return "not running"
+    except PermissionError:
+        return "unknown"
+    return "running"
+
+
+def latest_run_dir() -> Path | None:
+    if not RUNS_DIR.exists():
+        return None
+    candidates = [path for path in RUNS_DIR.iterdir() if path.is_dir()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
+
+
+def print_current_run() -> None:
+    if not CURRENT_RUN_PATH.exists():
+        print("No current task-loop state file.")
+        latest = latest_run_dir()
+        if latest is not None:
+            print(f"latest run dir: {relative_to_root(latest)}")
+        return
+
+    try:
+        state = json.loads(CURRENT_RUN_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LoopError(f"Could not read {CURRENT_RUN_PATH}: {exc}") from exc
+
+    pid = state.get("pid")
+    live = process_liveness(pid if isinstance(pid, int) else None)
+    print(f"status: {state.get('status', 'unknown')} ({live})")
+    print(f"task: {state.get('task_id', 'unknown')} - {state.get('task_title', 'unknown')}")
+    print(f"stage: {state.get('stage', 'unknown')}")
+    print(f"attempt: {state.get('attempt', '?')}/{state.get('max_attempts', '?')}")
+    print(f"command: {state.get('command_label', 'unknown')}")
+    print(f"elapsed: {state.get('elapsed', 'unknown')}")
+    if state.get("timeout_remaining") is not None:
+        print(f"timeout remaining: {state['timeout_remaining']}")
+    print(f"run dir: {state.get('run_dir', 'unknown')}")
+    print(f"log: {state.get('log_file', 'unknown')}")
+    git_status = state.get("git_status", {})
+    if isinstance(git_status, dict):
+        print(f"git: {git_status.get('summary', 'unknown')}")
+
+    log_name = state.get("log_file")
+    if isinstance(log_name, str):
+        log_path = ROOT / log_name
+        if log_path.exists():
+            tail = clean_log_tail(log_path)
+            if tail:
+                print("\nlog tail:")
+                print(tail)
 
 
 def format_logged_failure(summary: str, log_file: Path) -> str:
@@ -217,13 +528,30 @@ Decision rules:
 """
 
 
-def run_quality_gates(task_run_dir: Path, ledger: dict[str, Any]) -> tuple[bool, str]:
+def run_quality_gates(
+    task_run_dir: Path,
+    ledger: dict[str, Any],
+    base_status: dict[str, Any],
+    heartbeat_seconds: int,
+) -> tuple[bool, str]:
     failures: list[str] = []
     for index, gate in enumerate(ledger["quality_gates"], start=1):
         command = gate.split()
         log_file = task_run_dir / f"{index:02d}-gate-{'-'.join(command)}.log"
-        print(f"  gate: {gate}")
-        code = run_logged(command, log_file)
+        print(f"  gate: {gate} -> log {relative_to_root(log_file)}")
+        code = run_logged(
+            command,
+            log_file,
+            status_file=CURRENT_RUN_PATH,
+            status={
+                **base_status,
+                "stage": "quality_gate",
+                "gate": gate,
+                "gate_index": index,
+            },
+            command_label=gate,
+            heartbeat_seconds=heartbeat_seconds,
+        )
         if code != 0:
             failures.append(format_logged_failure(f"{gate} failed", log_file))
             break
@@ -237,6 +565,8 @@ def run_review(
     task_run_dir: Path,
     codex_bin: str,
     review_timeout_seconds: int | None,
+    base_status: dict[str, Any],
+    heartbeat_seconds: int,
 ) -> tuple[bool, str]:
     output_file = task_run_dir / "review-decision.json"
     log_file = task_run_dir / "review.log"
@@ -253,12 +583,16 @@ def run_review(
         str(output_file),
         "-",
     ]
-    print("  review: codex structured review")
+    print(f"  review: codex structured review -> log {relative_to_root(log_file)}")
     code = run_logged(
         command,
         log_file,
         review_prompt(task),
         timeout_seconds=review_timeout_seconds,
+        status_file=CURRENT_RUN_PATH,
+        status={**base_status, "stage": "review"},
+        command_label="codex structured review",
+        heartbeat_seconds=heartbeat_seconds,
     )
     if code != 0:
         return False, format_logged_failure("review command failed", log_file)
@@ -290,6 +624,20 @@ def implementation_agent_command(args: argparse.Namespace) -> tuple[str, list[st
         )
     if args.agent == AGENT_KIMI:
         return "kimi --yolo", [args.kimi_bin, "--yolo"]
+    raise LoopError(f"Unknown implementation agent: {args.agent}")
+
+
+def implementation_agent_invocation(
+    args: argparse.Namespace,
+    prompt: str,
+) -> tuple[str, list[str], str | None, list[str]]:
+    agent_label, command = implementation_agent_command(args)
+    if args.agent == AGENT_CODEX:
+        return agent_label, command, prompt, command
+    if args.agent == AGENT_KIMI:
+        prompt_command = [*command, "--prompt", prompt]
+        logged_command = [*command, "--prompt", "<task-prompt>"]
+        return agent_label, prompt_command, None, logged_command
     raise LoopError(f"Unknown implementation agent: {args.agent}")
 
 
@@ -341,16 +689,42 @@ def run_task(
     for attempt in range(1, args.max_attempts + 1):
         task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-attempt-{attempt}"
         prompt = implementation_prompt(task, attempt, previous_failure)
-        agent_label, command = implementation_agent_command(args)
-        print(f"  attempt {attempt}: {agent_label}")
+        agent_label, command, input_text, logged_command = implementation_agent_invocation(
+            args,
+            prompt,
+        )
+        base_status = {
+            "task_id": task["id"],
+            "task_title": task["title"],
+            "attempt": attempt,
+            "max_attempts": args.max_attempts,
+            "run_dir": relative_to_root(task_run_dir),
+        }
+        print(f"  attempt {attempt}: {agent_label} -> run {relative_to_root(task_run_dir)}")
         exec_log = task_run_dir / f"{args.agent}-exec.log"
-        code = run_logged(command, exec_log, prompt, timeout_seconds=agent_timeout_seconds)
+        print(f"    log: {relative_to_root(exec_log)}")
+        code = run_logged(
+            command,
+            exec_log,
+            input_text,
+            timeout_seconds=agent_timeout_seconds,
+            status_file=CURRENT_RUN_PATH,
+            status={**base_status, "stage": "implementation", "agent": args.agent},
+            command_label=agent_label,
+            logged_command=logged_command,
+            heartbeat_seconds=args.heartbeat_seconds,
+        )
         if code != 0:
             previous_failure = format_logged_failure(f"{agent_label} failed", exec_log)
             print(f"  failed: {previous_failure}")
             continue
 
-        gates_ok, gate_result = run_quality_gates(task_run_dir, ledger)
+        gates_ok, gate_result = run_quality_gates(
+            task_run_dir,
+            ledger,
+            base_status,
+            args.heartbeat_seconds,
+        )
         if not gates_ok:
             previous_failure = gate_result
             print(f"  failed: {gate_result}")
@@ -362,6 +736,8 @@ def run_task(
                 task_run_dir,
                 args.codex_bin,
                 review_timeout_seconds,
+                base_status,
+                args.heartbeat_seconds,
             )
             if not review_ok:
                 previous_failure = review_result
@@ -370,10 +746,29 @@ def run_task(
             print(f"  {review_result}")
 
         complete_task(ledger, task, task_run_dir, args.commit)
+        write_static_run_state(
+            CURRENT_RUN_PATH,
+            base_status,
+            status="complete",
+            stage="complete",
+            message=f"completed {task['id']}",
+        )
         print(f"  complete: {task['id']}")
         return True
 
     print(f"blocked: {task['id']} after {args.max_attempts} attempt(s)")
+    write_static_run_state(
+        CURRENT_RUN_PATH,
+        {
+            "task_id": task["id"],
+            "task_title": task["title"],
+            "attempt": args.max_attempts,
+            "max_attempts": args.max_attempts,
+        },
+        status="blocked",
+        stage="blocked",
+        message=f"blocked after {args.max_attempts} attempt(s)",
+    )
     if previous_failure:
         print(previous_failure)
     return False
@@ -397,6 +792,7 @@ def parse_args() -> argparse.Namespace:
     for name in ("status", "next"):
         subparser = subparsers.add_parser(name)
         subparser.add_argument("--cluster")
+    subparsers.add_parser("current")
 
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--cluster")
@@ -419,6 +815,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_REVIEW_TIMEOUT_SECONDS,
         help="Maximum runtime for the structured review gate; 0 disables.",
+    )
+    run_parser.add_argument(
+        "--heartbeat-seconds",
+        type=int,
+        default=DEFAULT_HEARTBEAT_SECONDS,
+        help="Seconds between live progress heartbeats; 0 disables heartbeat printing.",
     )
     run_parser.add_argument("--commit", action="store_true", help="Commit each completed task.")
     run_parser.add_argument("--allow-dirty", action="store_true")
@@ -463,6 +865,11 @@ def main() -> int:
         print(f"{task['id']} {task['prompt']} - {task['title']}")
         return 0
 
+    if args.command == "current":
+        print_current_run()
+        return 0
+
+    validate_heartbeat_seconds(args.heartbeat_seconds)
     check_clean_worktree(args.allow_dirty)
     if args.task:
         candidates = [task_map(ledger)[args.task]]

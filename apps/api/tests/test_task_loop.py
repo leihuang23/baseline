@@ -101,6 +101,14 @@ def test_run_command_accepts_disabled_timeouts(monkeypatch) -> None:
     assert TASK_LOOP.normalize_timeout_seconds(args.review_timeout_seconds) is None
 
 
+def test_current_command_is_available(monkeypatch) -> None:
+    monkeypatch.setattr("sys.argv", ["run_task_loop.py", "current"])
+
+    args = TASK_LOOP.parse_args()
+
+    assert args.command == "current"
+
+
 def test_negative_timeout_is_rejected() -> None:
     try:
         TASK_LOOP.normalize_timeout_seconds(-1)
@@ -108,6 +116,15 @@ def test_negative_timeout_is_rejected() -> None:
         assert "non-negative" in str(exc)
     else:
         raise AssertionError("negative timeout should fail")
+
+
+def test_negative_heartbeat_is_rejected() -> None:
+    try:
+        TASK_LOOP.validate_heartbeat_seconds(-1)
+    except TASK_LOOP.LoopError as exc:
+        assert "Heartbeat seconds" in str(exc)
+    else:
+        raise AssertionError("negative heartbeat should fail")
 
 
 def test_run_command_selects_kimi_agent(monkeypatch) -> None:
@@ -127,6 +144,20 @@ def test_kimi_implementation_command_uses_yolo_flag() -> None:
     assert command == ["kimi", "--yolo"]
 
 
+def test_kimi_invocation_uses_noninteractive_prompt_mode() -> None:
+    args = SimpleNamespace(agent="kimi", kimi_bin="kimi")
+
+    label, command, input_text, logged_command = TASK_LOOP.implementation_agent_invocation(
+        args,
+        "do the task",
+    )
+
+    assert label == "kimi --yolo"
+    assert command == ["kimi", "--yolo", "--prompt", "do the task"]
+    assert input_text is None
+    assert logged_command == ["kimi", "--yolo", "--prompt", "<task-prompt>"]
+
+
 def test_codex_implementation_command_preserves_existing_exec_shape() -> None:
     args = SimpleNamespace(agent="codex", codex_bin="codex")
 
@@ -138,19 +169,65 @@ def test_codex_implementation_command_preserves_existing_exec_shape() -> None:
     assert command[-1] == "-"
 
 
+def test_codex_invocation_keeps_prompt_on_stdin() -> None:
+    args = SimpleNamespace(agent="codex", codex_bin="codex")
+
+    label, command, input_text, logged_command = TASK_LOOP.implementation_agent_invocation(
+        args,
+        "do the task",
+    )
+
+    assert label == "codex exec"
+    assert command == logged_command
+    assert input_text == "do the task"
+
+
 def test_run_logged_times_out_stalled_command(tmp_path) -> None:
     log_file = tmp_path / "stalled.log"
+    status_file = tmp_path / "current.json"
 
     code = TASK_LOOP.run_logged(
         [sys.executable, "-c", "import time; time.sleep(5)"],
         log_file,
         timeout_seconds=1,
+        status_file=status_file,
+        status={
+            "task_id": "P1-02",
+            "task_title": "normalization module",
+            "stage": "implementation",
+            "attempt": 1,
+            "max_attempts": 4,
+            "run_dir": str(tmp_path),
+        },
     )
 
     assert code == 124
     log = log_file.read_text(encoding="utf-8")
     assert "[timeout_seconds] 1" in log
     assert "[exit_code] 124" in log
+    state = json.loads(status_file.read_text(encoding="utf-8"))
+    assert state["status"] == "timed_out"
+    assert state["task_id"] == "P1-02"
+    assert state["log_file"].endswith("stalled.log")
+
+
+def test_run_logged_writes_success_state(tmp_path) -> None:
+    log_file = tmp_path / "ok.log"
+    status_file = tmp_path / "current.json"
+
+    code = TASK_LOOP.run_logged(
+        [sys.executable, "-c", "print('done')"],
+        log_file,
+        status_file=status_file,
+        status={"task_id": "P1-02", "stage": "implementation"},
+        heartbeat_seconds=0,
+    )
+
+    assert code == 0
+    state = json.loads(status_file.read_text(encoding="utf-8"))
+    assert state["status"] == "succeeded"
+    assert state["exit_code"] == 0
+    assert state["command"][0] == sys.executable
 
 
 def test_review_failure_context_includes_structured_decision(tmp_path) -> None:
