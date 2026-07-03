@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 
 def load_task_loop() -> ModuleType:
@@ -76,6 +77,51 @@ def test_run_command_defaults_to_four_attempts(monkeypatch) -> None:
     args = TASK_LOOP.parse_args()
 
     assert args.max_attempts == 4
+    assert args.agent_timeout_seconds == 600
+    assert args.agent == "codex"
+
+
+def test_run_command_selects_kimi_agent(monkeypatch) -> None:
+    monkeypatch.setattr("sys.argv", ["run_task_loop.py", "run", "--kimi"])
+
+    args = TASK_LOOP.parse_args()
+
+    assert args.agent == "kimi"
+
+
+def test_kimi_implementation_command_uses_yolo_flag() -> None:
+    args = SimpleNamespace(agent="kimi", kimi_bin="kimi")
+
+    label, command = TASK_LOOP.implementation_agent_command(args)
+
+    assert label == "kimi --yolo"
+    assert command == ["kimi", "--yolo"]
+
+
+def test_codex_implementation_command_preserves_existing_exec_shape() -> None:
+    args = SimpleNamespace(agent="codex", codex_bin="codex")
+
+    label, command = TASK_LOOP.implementation_agent_command(args)
+
+    assert label == "codex exec"
+    assert command[:2] == ["codex", "exec"]
+    assert "--sandbox" in command
+    assert command[-1] == "-"
+
+
+def test_run_logged_times_out_stalled_command(tmp_path) -> None:
+    log_file = tmp_path / "stalled.log"
+
+    code = TASK_LOOP.run_logged(
+        [sys.executable, "-c", "import time; time.sleep(5)"],
+        log_file,
+        timeout_seconds=1,
+    )
+
+    assert code == 124
+    log = log_file.read_text(encoding="utf-8")
+    assert "[timeout_seconds] 1" in log
+    assert "[exit_code] 124" in log
 
 
 def test_review_failure_context_includes_structured_decision(tmp_path) -> None:

@@ -29,18 +29,41 @@ Run exactly one task from the active cluster:
 
 ```bash
 make task-loop-one
+make task-loop-one-codex
+make task-loop-one-kimi
+```
+
+Choose the implementation agent explicitly when needed:
+
+```bash
+python3 scripts/run_task_loop.py run --codex
+python3 scripts/run_task_loop.py run --kimi
+```
+
+`--codex` is the default and runs `codex exec`. `--kimi` runs implementation attempts with `kimi --yolo`. The final structured review gate still uses Codex because it depends on schema-constrained review output.
+
+Implementation attempts are capped at 600 seconds by default so a stalled agent
+cannot block the loop forever. Override this per run when a task is expected to
+take longer:
+
+```bash
+python3 scripts/run_task_loop.py run --agent-timeout-seconds 1200
 ```
 
 Run one task and commit it after all gates pass:
 
 ```bash
 make task-loop-one-commit
+make task-loop-one-commit-codex
+make task-loop-one-commit-kimi
 ```
 
 Run the rest of the current P0 cluster:
 
 ```bash
 make task-loop-p0-cluster
+make task-loop-p0-cluster-codex
+make task-loop-p0-cluster-kimi
 ```
 
 ## Quality Gates

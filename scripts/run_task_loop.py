@@ -14,8 +14,12 @@ LEDGER_PATH = ROOT / "tasks" / "ledger.json"
 REVIEW_SCHEMA_PATH = ROOT / "tasks" / "review-decision.schema.json"
 RUNS_DIR = ROOT / ".task-runs"
 DEFAULT_MAX_ATTEMPTS = 4
+DEFAULT_AGENT_TIMEOUT_SECONDS = 600
+DEFAULT_REVIEW_TIMEOUT_SECONDS = 600
 FAILURE_CONTEXT_MAX_CHARS = 16_000
 FAILURE_LOG_TAIL_LINES = 120
+AGENT_CODEX = "codex"
+AGENT_KIMI = "kimi"
 
 
 class LoopError(RuntimeError):
@@ -84,20 +88,31 @@ def pending_tasks(ledger: dict[str, Any], cluster_id: str | None) -> list[dict[s
     return tasks
 
 
-def run_logged(command: list[str], log_file: Path, input_text: str | None = None) -> int:
+def run_logged(
+    command: list[str],
+    log_file: Path,
+    input_text: str | None = None,
+    timeout_seconds: int | None = None,
+) -> int:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     with log_file.open("w", encoding="utf-8") as log:
         log.write("$ " + " ".join(command) + "\n\n")
         log.flush()
-        process = subprocess.run(
-            command,
-            cwd=ROOT,
-            input=input_text,
-            text=True,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            check=False,
-        )
+        try:
+            process = subprocess.run(
+                command,
+                cwd=ROOT,
+                input=input_text,
+                text=True,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            log.write(f"\n[timeout_seconds] {timeout_seconds}\n")
+            log.write("[exit_code] 124\n")
+            return 124
         log.write(f"\n[exit_code] {process.returncode}\n")
     return process.returncode
 
@@ -226,7 +241,12 @@ def run_review(task: dict[str, Any], task_run_dir: Path, codex_bin: str) -> tupl
         "-",
     ]
     print("  review: codex structured review")
-    code = run_logged(command, log_file, review_prompt(task))
+    code = run_logged(
+        command,
+        log_file,
+        review_prompt(task),
+        timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+    )
     if code != 0:
         return False, format_logged_failure("review command failed", log_file)
     try:
@@ -239,6 +259,25 @@ def run_review(task: dict[str, Any], task_run_dir: Path, codex_bin: str) -> tupl
     if decision["decision"] != "pass":
         return False, format_review_failure(output_file, decision)
     return True, f"review passed; see {output_file}"
+
+
+def implementation_agent_command(args: argparse.Namespace) -> tuple[str, list[str]]:
+    if args.agent == AGENT_CODEX:
+        return (
+            "codex exec",
+            [
+                args.codex_bin,
+                "exec",
+                "-C",
+                str(ROOT),
+                "--sandbox",
+                "workspace-write",
+                "-",
+            ],
+        )
+    if args.agent == AGENT_KIMI:
+        return "kimi --yolo", [args.kimi_bin, "--yolo"]
+    raise LoopError(f"Unknown implementation agent: {args.agent}")
 
 
 def commit_task(task: dict[str, Any]) -> None:
@@ -287,20 +326,12 @@ def run_task(
     for attempt in range(1, args.max_attempts + 1):
         task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-attempt-{attempt}"
         prompt = implementation_prompt(task, attempt, previous_failure)
-        command = [
-            args.codex_bin,
-            "exec",
-            "-C",
-            str(ROOT),
-            "--sandbox",
-            "workspace-write",
-            "-",
-        ]
-        print(f"  attempt {attempt}: codex exec")
-        exec_log = task_run_dir / "codex-exec.log"
-        code = run_logged(command, exec_log, prompt)
+        agent_label, command = implementation_agent_command(args)
+        print(f"  attempt {attempt}: {agent_label}")
+        exec_log = task_run_dir / f"{args.agent}-exec.log"
+        code = run_logged(command, exec_log, prompt, timeout_seconds=args.agent_timeout_seconds)
         if code != 0:
-            previous_failure = format_logged_failure("codex exec failed", exec_log)
+            previous_failure = format_logged_failure(f"{agent_label} failed", exec_log)
             print(f"  failed: {previous_failure}")
             continue
 
@@ -357,10 +388,33 @@ def parse_args() -> argparse.Namespace:
         help="Number of tasks to run; 0 means all pending tasks in the cluster.",
     )
     run_parser.add_argument("--max-attempts", type=int, default=DEFAULT_MAX_ATTEMPTS)
+    run_parser.add_argument(
+        "--agent-timeout-seconds",
+        type=int,
+        default=DEFAULT_AGENT_TIMEOUT_SECONDS,
+        help="Maximum runtime for each implementation agent attempt.",
+    )
     run_parser.add_argument("--commit", action="store_true", help="Commit each completed task.")
     run_parser.add_argument("--allow-dirty", action="store_true")
     run_parser.add_argument("--skip-review", action="store_true")
+    agent_group = run_parser.add_mutually_exclusive_group()
+    agent_group.add_argument(
+        "--codex",
+        dest="agent",
+        action="store_const",
+        const=AGENT_CODEX,
+        default=AGENT_CODEX,
+        help="Run implementation attempts with Codex.",
+    )
+    agent_group.add_argument(
+        "--kimi",
+        dest="agent",
+        action="store_const",
+        const=AGENT_KIMI,
+        help="Run implementation attempts with Kimi Code via kimi --yolo.",
+    )
     run_parser.add_argument("--codex-bin", default="codex")
+    run_parser.add_argument("--kimi-bin", default="kimi")
     return parser.parse_args()
 
 
