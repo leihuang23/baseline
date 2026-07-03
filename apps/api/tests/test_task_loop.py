@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType
 
@@ -67,3 +68,35 @@ def test_explicit_completed_cluster_does_not_advance_to_next_cluster() -> None:
     tasks = TASK_LOOP.pending_tasks(ledger, cluster_id="P0-foundations-finish")
 
     assert tasks == []
+
+
+def test_run_command_defaults_to_four_attempts(monkeypatch) -> None:
+    monkeypatch.setattr("sys.argv", ["run_task_loop.py", "run"])
+
+    args = TASK_LOOP.parse_args()
+
+    assert args.max_attempts == 4
+
+
+def test_review_failure_context_includes_structured_decision(tmp_path) -> None:
+    decision = {
+        "decision": "fail",
+        "summary": "Replay missed normalization repair.",
+        "findings": [
+            {
+                "severity": "major",
+                "file": "apps/api/baseline_api/api/v1/health.py",
+                "line": 57,
+                "message": "Retry should enqueue pending normalization.",
+            }
+        ],
+        "residual_risk": "none",
+    }
+    output_file = tmp_path / "review-decision.json"
+    output_file.write_text(json.dumps(decision), encoding="utf-8")
+
+    context = TASK_LOOP.format_review_failure(output_file, decision)
+
+    assert "Review decision JSON" in context
+    assert "Replay missed normalization repair" in context
+    assert "Retry should enqueue pending normalization" in context

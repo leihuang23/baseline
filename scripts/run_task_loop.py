@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 LEDGER_PATH = ROOT / "tasks" / "ledger.json"
 REVIEW_SCHEMA_PATH = ROOT / "tasks" / "review-decision.schema.json"
 RUNS_DIR = ROOT / ".task-runs"
+DEFAULT_MAX_ATTEMPTS = 4
+FAILURE_CONTEXT_MAX_CHARS = 16_000
+FAILURE_LOG_TAIL_LINES = 120
 
 
 class LoopError(RuntimeError):
@@ -99,6 +102,38 @@ def run_logged(command: list[str], log_file: Path, input_text: str | None = None
     return process.returncode
 
 
+def read_failure_context(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return f"Could not read {path}: {exc}"
+
+    if len(text) <= FAILURE_CONTEXT_MAX_CHARS:
+        return text
+    return text[-FAILURE_CONTEXT_MAX_CHARS:]
+
+
+def read_log_tail(path: Path) -> str:
+    text = read_failure_context(path)
+    lines = text.splitlines()
+    tail = "\n".join(lines[-FAILURE_LOG_TAIL_LINES:])
+    if len(tail) <= FAILURE_CONTEXT_MAX_CHARS:
+        return tail
+    return tail[-FAILURE_CONTEXT_MAX_CHARS:]
+
+
+def format_logged_failure(summary: str, log_file: Path) -> str:
+    return f"{summary}; see {log_file}\n\nLog tail:\n{read_log_tail(log_file)}"
+
+
+def format_review_failure(output_file: Path, decision: dict[str, Any]) -> str:
+    return (
+        f"review failed; see {output_file}\n\n"
+        "Review decision JSON:\n"
+        f"{json.dumps(decision, indent=2, sort_keys=True)}"
+    )
+
+
 def check_clean_worktree(allow_dirty: bool) -> None:
     result = subprocess.run(
         ["git", "status", "--porcelain"],
@@ -122,6 +157,7 @@ def implementation_prompt(task: dict[str, Any], attempt: int, previous_failure: 
     if previous_failure:
         failure_block = (
             "\nPrevious loop attempt failed. Repair only the active task and the reported issues.\n"
+            "Use the concrete failure details below; do not require a human to re-copy them.\n\n"
             f"{previous_failure}\n"
         )
     return f"""You are executing one bounded Baseline task slice.
@@ -166,7 +202,7 @@ def run_quality_gates(task_run_dir: Path, ledger: dict[str, Any]) -> tuple[bool,
         print(f"  gate: {gate}")
         code = run_logged(command, log_file)
         if code != 0:
-            failures.append(f"{gate} failed; see {log_file}")
+            failures.append(format_logged_failure(f"{gate} failed", log_file))
             break
     if failures:
         return False, "\n".join(failures)
@@ -192,13 +228,16 @@ def run_review(task: dict[str, Any], task_run_dir: Path, codex_bin: str) -> tupl
     print("  review: codex structured review")
     code = run_logged(command, log_file, review_prompt(task))
     if code != 0:
-        return False, f"review command failed; see {log_file}"
+        return False, format_logged_failure("review command failed", log_file)
     try:
         decision = json.loads(output_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        return False, f"review output was not valid JSON: {exc}; see {output_file}"
+        return False, (
+            f"review output was not valid JSON: {exc}; see {output_file}\n\n"
+            f"Review log tail:\n{read_log_tail(log_file)}"
+        )
     if decision["decision"] != "pass":
-        return False, f"review failed; see {output_file}"
+        return False, format_review_failure(output_file, decision)
     return True, f"review passed; see {output_file}"
 
 
@@ -258,9 +297,10 @@ def run_task(
             "-",
         ]
         print(f"  attempt {attempt}: codex exec")
-        code = run_logged(command, task_run_dir / "codex-exec.log", prompt)
+        exec_log = task_run_dir / "codex-exec.log"
+        code = run_logged(command, exec_log, prompt)
         if code != 0:
-            previous_failure = f"codex exec failed; see {task_run_dir / 'codex-exec.log'}"
+            previous_failure = format_logged_failure("codex exec failed", exec_log)
             print(f"  failed: {previous_failure}")
             continue
 
@@ -316,7 +356,7 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="Number of tasks to run; 0 means all pending tasks in the cluster.",
     )
-    run_parser.add_argument("--max-attempts", type=int, default=2)
+    run_parser.add_argument("--max-attempts", type=int, default=DEFAULT_MAX_ATTEMPTS)
     run_parser.add_argument("--commit", action="store_true", help="Commit each completed task.")
     run_parser.add_argument("--allow-dirty", action="store_true")
     run_parser.add_argument("--skip-review", action="store_true")
