@@ -27,6 +27,7 @@ def test_metric_helpers_cover_prd_metric_list() -> None:
     metrics.set_duplicate_sample_rate(0.0, source="apple_health")
     metrics.increment_rejected_sample_count(reason="schema")
     metrics.set_data_completeness_by_day(0.99, day="2026-07-03")
+    metrics.set_data_staleness_flag(False, day="2026-07-03", sample_type="sleep_duration")
     metrics.increment_feature_job_result(status="success")
     metrics.increment_llm_generation_result(status="blocked")
     metrics.increment_schema_validation_failure(schema_name="briefing")

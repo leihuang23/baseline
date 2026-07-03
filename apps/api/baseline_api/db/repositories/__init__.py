@@ -14,6 +14,8 @@ from baseline_api.db.repositories.evaluation import EvaluationCaseRepository
 from baseline_api.db.repositories.features import DerivedDailyFeatureRepository
 from baseline_api.db.repositories.goals import GoalRepository
 from baseline_api.db.repositories.ingestion import (
+    BackfillJobRepository,
+    DailyDataQualityRepository,
     HealthImportBatchRepository,
     NormalizedHealthMetricRepository,
     RawHealthSampleRepository,
@@ -29,7 +31,9 @@ from baseline_api.db.repositories.user import ConsentRecordRepository, UserRepos
 
 __all__ = [
     "AuditEventRepository",
+    "BackfillJobRepository",
     "ConsentRecordRepository",
+    "DailyDataQualityRepository",
     "DailyCheckInRepository",
     "DerivedDailyFeatureRepository",
     "EvaluationCaseRepository",
