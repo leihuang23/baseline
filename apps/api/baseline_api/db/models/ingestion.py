@@ -5,7 +5,7 @@ Data classification:
 - NormalizedHealthMetric: Confidential (canonical derived-from-raw metrics).
 """
 
-from datetime import datetime
+import datetime as dt
 from typing import Any
 from uuid import UUID
 
@@ -41,7 +41,60 @@ class HealthImportBatch(BaseDBModel, table=True):
     warnings: list[str] = Field(sa_type=JSONB, default_factory=list)
     data_quality_summary: dict[str, Any] = Field(sa_type=JSONB, default_factory=dict)
     normalization_job_id: str | None = Field(default=None)
-    imported_at: datetime = Field(nullable=False)
+    imported_at: dt.datetime = Field(nullable=False)
+
+
+class BackfillJob(BaseDBModel, table=True):
+    """Progress state for chunked historical health imports."""
+
+    __tablename__ = "backfill_job"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "source_platform",
+            "start_date",
+            "end_date",
+            name="uq_backfill_job_user_source_range",
+        ),
+        Index("ix_backfill_job_user_id_status", "user_id", "status"),
+    )
+
+    user_id: UUID = Field(foreign_key="user.id", nullable=False)
+    source_platform: str = Field(nullable=False)
+    source_device: str = Field(nullable=False)
+    timezone: str = Field(nullable=False)
+    start_date: dt.date = Field(nullable=False)
+    end_date: dt.date = Field(nullable=False)
+    chunk_days: int = Field(nullable=False)
+    next_start_date: dt.date = Field(nullable=False)
+    processed_days: int = Field(nullable=False, default=0)
+    status: str = Field(nullable=False, default="running")
+    accepted_count: int = Field(nullable=False, default=0)
+    duplicate_count: int = Field(nullable=False, default=0)
+    rejected_count: int = Field(nullable=False, default=0)
+    last_error: str | None = Field(default=None)
+    completed_at: dt.datetime | None = Field(default=None)
+
+
+class DailyDataQuality(BaseDBModel, table=True):
+    """Per-day completeness and freshness read model for downstream consumers."""
+
+    __tablename__ = "daily_data_quality"
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_daily_data_quality_user_date"),
+        Index("ix_daily_data_quality_user_id_date", "user_id", "date"),
+    )
+
+    user_id: UUID = Field(foreign_key="user.id", nullable=False)
+    date: dt.date = Field(nullable=False)
+    expected_types: list[str] = Field(sa_type=JSONB, default_factory=list)
+    present_types: list[str] = Field(sa_type=JSONB, default_factory=list)
+    missing_types: list[str] = Field(sa_type=JSONB, default_factory=list)
+    completeness_ratio: float = Field(nullable=False)
+    completeness_warnings: list[dict[str, Any]] = Field(sa_type=JSONB, default_factory=list)
+    freshness_by_type: dict[str, Any] = Field(sa_type=JSONB, default_factory=dict)
+    stale_types: list[str] = Field(sa_type=JSONB, default_factory=list)
+    computed_at: dt.datetime = Field(nullable=False)
 
 
 class RawHealthSample(BaseDBModel, table=True):
@@ -70,15 +123,15 @@ class RawHealthSample(BaseDBModel, table=True):
             nullable=False,
         ),
     )
-    start_time: datetime = Field(nullable=False)
-    end_time: datetime | None = Field(default=None)
+    start_time: dt.datetime = Field(nullable=False)
+    end_time: dt.datetime | None = Field(default=None)
     raw_value: float = Field(nullable=False)
     raw_unit: str = Field(nullable=False)
     source_metadata: dict[str, Any] = Field(
         sa_type=JSONB,
         default_factory=dict,
     )
-    imported_at: datetime = Field(nullable=False)
+    imported_at: dt.datetime = Field(nullable=False)
     import_batch_id: UUID = Field(nullable=False)
 
 
@@ -101,8 +154,8 @@ class NormalizedHealthMetric(BaseDBModel, table=True):
             nullable=False,
         ),
     )
-    start_time: datetime = Field(nullable=False)
-    end_time: datetime | None = Field(default=None)
+    start_time: dt.datetime = Field(nullable=False)
+    end_time: dt.datetime | None = Field(default=None)
     value: float = Field(nullable=False)
     unit: str = Field(nullable=False)
     confidence: float = Field(nullable=False, default=1.0)

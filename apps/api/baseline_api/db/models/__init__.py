@@ -7,6 +7,8 @@ from baseline_api.db.models.evaluation import EvaluationCase
 from baseline_api.db.models.features import DerivedDailyFeature
 from baseline_api.db.models.goals import Goal
 from baseline_api.db.models.ingestion import (
+    BackfillJob,
+    DailyDataQuality,
     HealthImportBatch,
     NormalizedHealthMetric,
     RawHealthSample,
@@ -26,7 +28,9 @@ from baseline_api.db.models.user import ConsentRecord, User
 
 __all__ = [
     "AuditEvent",
+    "BackfillJob",
     "ConsentRecord",
+    "DailyDataQuality",
     "DailyCheckIn",
     "DerivedDailyFeatureSourceMetric",
     "DerivedDailyFeatureSourceSample",

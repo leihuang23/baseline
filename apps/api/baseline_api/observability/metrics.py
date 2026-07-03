@@ -46,6 +46,11 @@ data_completeness_by_day = _gauge(
     "Data completeness ratio by day.",
     ("day",),
 )
+data_staleness_flag = _gauge(
+    "baseline_data_staleness_flag",
+    "Data staleness flag by day and sample type.",
+    ("day", "sample_type"),
+)
 feature_job_result = _counter("baseline_feature_job", "Feature job results.", ("status",))
 llm_generation_result = _counter("baseline_llm_generation", "LLM generation results.", ("status",))
 schema_validation_failure = _counter(
@@ -149,6 +154,10 @@ def increment_rejected_sample_count(*, reason: str) -> None:
 
 def set_data_completeness_by_day(ratio: float, *, day: str) -> None:
     data_completeness_by_day.labels(day=day).set(ratio)
+
+
+def set_data_staleness_flag(is_stale: bool, *, day: str, sample_type: str) -> None:
+    data_staleness_flag.labels(day=day, sample_type=sample_type).set(float(is_stale))
 
 
 def increment_feature_job_result(*, status: str) -> None:

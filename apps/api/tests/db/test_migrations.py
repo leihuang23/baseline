@@ -24,6 +24,8 @@ def test_migration_upgrade_downgrade_round_trip(db_engine) -> None:
 
     assert "user" in tables
     assert "raw_health_sample" in tables
+    assert "backfill_job" in tables
+    assert "daily_data_quality" in tables
     assert "normalized_health_metric_source_sample" in tables
     assert "derived_daily_feature" in tables
     assert "recommendation" in tables
