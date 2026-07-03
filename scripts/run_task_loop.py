@@ -161,8 +161,6 @@ def run_review(task: dict[str, Any], task_run_dir: Path, codex_bin: str) -> tupl
         str(ROOT),
         "--sandbox",
         "read-only",
-        "--ask-for-approval",
-        "never",
         "--output-schema",
         str(REVIEW_SCHEMA_PATH),
         "--output-last-message",
@@ -235,8 +233,6 @@ def run_task(
             str(ROOT),
             "--sandbox",
             "workspace-write",
-            "--ask-for-approval",
-            "never",
             "-",
         ]
         print(f"  attempt {attempt}: codex exec")
