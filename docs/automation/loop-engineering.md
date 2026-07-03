@@ -54,15 +54,17 @@ python3 scripts/run_task_loop.py run --kimi
 
 `--codex` is the default and runs `codex exec`. `--kimi` runs implementation attempts with Kimi Code's non-interactive `--prompt` mode. The final structured review gate still uses Codex because it depends on schema-constrained review output.
 
-Implementation attempts are capped at 3600 seconds by default, and structured
-review is capped at 600 seconds, so a stalled agent cannot block the loop
-forever. The default run performs one implementation attempt, then at most one
-focused Codex repair pass for concrete gate or review findings. Override budgets
-only when a task is expected to need them:
+Implementation attempts are capped at 3600 seconds by default, structured review
+is capped at 600 seconds, and the focused post-repair verification review is
+capped at 300 seconds, so a stalled agent cannot block the loop forever. The
+default run performs one implementation attempt, then at most one focused Codex
+repair pass for concrete gate or review findings. Override budgets only when a
+task is expected to need them:
 
 ```bash
 python3 scripts/run_task_loop.py run --agent-timeout-seconds 7200
 python3 scripts/run_task_loop.py run --review-timeout-seconds 3600
+python3 scripts/run_task_loop.py run --repair-review-timeout-seconds 600
 python3 scripts/run_task_loop.py run --agent-timeout-seconds 0 --review-timeout-seconds 0
 ```
 
@@ -111,9 +113,13 @@ complete only when the gates and review pass.
 
 If a gate fails or the structured review returns concrete findings, the
 controller runs one focused Codex repair pass against those details, then reruns
-the gates and one final review. If that final review fails, or if the review
-command times out, is interrupted, or cannot produce valid JSON, the task is
-blocked for inspection instead of launching another broad implementation pass.
+the gates. If the failure came from structured review findings, the post-repair
+review verifies only that the original findings were resolved and that the repair
+did not introduce an obvious direct blocker or major regression. It is not a
+second full review that can keep moving the goalposts. If that repair
+verification fails, or if the review command times out, is interrupted, or cannot
+produce valid JSON, the task is blocked for inspection instead of launching
+another broad implementation pass.
 
 ## Recovery
 

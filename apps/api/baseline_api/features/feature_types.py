@@ -8,7 +8,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-FEATURE_VERSION = "p2-02-v1"
+FEATURE_VERSION = "p2-03-v1"
 
 FeatureStatus = Literal["computed", "insufficient_data", "baseline_not_established"]
 JsonDict = dict[str, Any]

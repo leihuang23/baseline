@@ -12,7 +12,14 @@ from baseline_api.features.cardio import (
     compute_rhr_features,
 )
 from baseline_api.features.feature_types import FEATURE_VERSION, JsonDict, rounded, unique_ordered
+from baseline_api.features.goals import compute_goal_features
+from baseline_api.features.recovery import compute_recovery_confidence
 from baseline_api.features.sleep import SleepSessionInput, compute_sleep_features
+from baseline_api.features.training_load import (
+    VO2SampleInput,
+    WorkoutSessionInput,
+    compute_training_load_features,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,10 +62,12 @@ def assemble_daily_features(
     sleep_sessions: list[SleepSessionInput],
     hrv_samples: list[CardioSampleInput],
     rhr_samples: list[CardioSampleInput],
+    workouts: list[WorkoutSessionInput] | None = None,
+    vo2_samples: list[VO2SampleInput] | None = None,
     personal_sleep_need_hours: float = 8.0,
     computed_at: dt.datetime | None = None,
 ) -> DailyFeatureBundle:
-    """Assemble P2-02 feature sections without performing I/O."""
+    """Assemble complete daily feature sections without performing I/O."""
 
     sleep_features = compute_sleep_features(
         target_date,
@@ -67,11 +76,21 @@ def assemble_daily_features(
     )
     hrv_features = compute_hrv_features(target_date, hrv_samples)
     rhr_features = compute_rhr_features(target_date, rhr_samples)
+    training_load_features = compute_training_load_features(
+        target_date,
+        workouts or [],
+    )
+    goal_features = compute_goal_features(
+        target_date,
+        vo2_samples or [],
+    )
 
     feature_sections = {
         "sleep": sleep_features,
         "hrv": hrv_features,
         "rhr": rhr_features,
+        "training_load": training_load_features,
+        "vo2": goal_features["values"]["vo2_trend"],
     }
     completeness_by_section = {
         section: float(features["data_quality"]["completeness"])
@@ -82,9 +101,7 @@ def assemble_daily_features(
         4,
     )
     flags = unique_ordered(
-        flag
-        for features in feature_sections.values()
-        for flag in features["data_quality"]["flags"]
+        flag for features in feature_sections.values() for flag in features["data_quality"]["flags"]
     )
     source_sample_ids = unique_ordered(
         source_id
@@ -92,14 +109,23 @@ def assemble_daily_features(
         for source_id in features["source_sample_ids"]
     )
 
+    recovery_features = compute_recovery_confidence(
+        target_date,
+        section_completeness=completeness_by_section,
+        flags=flags,
+    )
+
     data_quality = {
         "feature_version": FEATURE_VERSION,
         "flags": flags,
         "section_completeness": completeness_by_section,
+        "overall_completeness": overall_completeness,
         "recovery_confidence_inputs": {
             "sleep_completeness": completeness_by_section["sleep"],
             "hrv_completeness": completeness_by_section["hrv"],
             "rhr_completeness": completeness_by_section["rhr"],
+            "training_load_completeness": completeness_by_section["training_load"],
+            "vo2_completeness": completeness_by_section["vo2"],
             "overall_completeness": overall_completeness,
             "has_stale_inputs": any(flag.startswith("stale_") for flag in flags),
             "has_missing_inputs": any(flag.startswith("missing_") for flag in flags),
@@ -113,9 +139,9 @@ def assemble_daily_features(
         sleep_features=sleep_features,
         hrv_features=hrv_features,
         rhr_features=rhr_features,
-        training_load_features={},
-        recovery_features={},
-        goal_features={},
+        training_load_features=training_load_features,
+        recovery_features=recovery_features,
+        goal_features=goal_features,
         data_quality=data_quality,
         anomaly_flags=flags,
         source_sample_ids=source_sample_ids,

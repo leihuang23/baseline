@@ -24,6 +24,7 @@ DEFAULT_KIMI_MAX_ATTEMPTS = 1
 DEFAULT_KIMI_AGENT_TIMEOUT_SECONDS = 1200
 DEFAULT_KIMI_REVIEW_TIMEOUT_SECONDS = 600
 DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS = 900
+DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS = 300
 DEFAULT_HEARTBEAT_SECONDS = 30
 FAILURE_CONTEXT_MAX_CHARS = 6_000
 FAILURE_LOG_TAIL_LINES = 80
@@ -41,7 +42,8 @@ KIMI_INITIAL_GUIDANCE = """Kimi-specific execution contract:
 - Prefer a failing/targeted test first when behavior changes. If coverage already exists,
   name the covering test before editing.
 - After edits, run the smallest relevant checks you can run locally. The controller will run
-  the full quality gates.
+  the full quality gates; do not duplicate full-gate commands inside this pass unless they are
+  needed to diagnose a failure.
 - Before your final summary, inspect `git status --short`; untracked files are part of the
   diff even when `git diff --stat` is quiet.
 """
@@ -62,6 +64,8 @@ CODEX_REPAIR_GUIDANCE = """Repair mode:
 - Do not restart broad repo discovery unless the failure text is missing required context.
 - Turn each review finding into an explicit checklist item and address every item before stopping.
 - Add or adjust a regression test when the failure is behavioral.
+- Run targeted checks for the touched behavior. The controller will run full quality gates after
+  this pass.
 - Before final summary, verify that generated artifacts such as __pycache__ are absent from
   `git status --short`.
 - Stop after the focused repair and local targeted verification.
@@ -621,6 +625,8 @@ Rules:
 - Do not begin later tasks.
 - Keep changes surgical and privacy-safe.
 - Add or update tests required by the task.
+- Inside this implementation pass, run targeted checks only. The controller runs the full
+  quality gates immediately after the pass.
 - The controller will run make fmt, make lint, make typecheck, make test,
   and a review gate after you finish.
 {guidance_block}
@@ -676,6 +682,50 @@ Task prompt:
 """
 
 
+def repair_review_prompt(
+    task: dict[str, Any],
+    previous_failure: str,
+    status_snapshot: str | None = None,
+) -> str:
+    prompt_path = ROOT / task["prompt"]
+    task_prompt = prompt_path.read_text(encoding="utf-8")
+    changed_files = status_snapshot if status_snapshot is not None else review_scope_snapshot()
+    return f"""Verify the focused repair for Baseline task {task["id"]}: {task["title"]}.
+
+Use a code-review stance. Return JSON matching the provided schema.
+
+This is a repair verification, not a fresh full review.
+
+Verification scope:
+- Treat the previous actionable failure below as the checklist. Inspect the cited files/lines
+  and directly relevant changed files only.
+- Start from this changed-file snapshot:
+
+{changed_files}
+
+- Do not run build or test commands in the review sandbox. The controller already reran quality
+  gates after the repair.
+- Do not search for new task-scope gaps or re-review the whole diff from scratch.
+
+Decision rules:
+- decision="pass" when the previous blocker/major findings or gate failure are resolved and
+  the repair did not introduce an obvious direct blocker/major regression.
+- decision="fail" only for an unresolved previous finding, a failed repair of the cited issue,
+  or an obvious direct blocker/major regression introduced by the repair.
+- Put possible new unrelated concerns in residual_risk instead of failing this repair
+  verification.
+- Keep findings grounded in files and line numbers when possible.
+
+Previous actionable failure:
+
+{previous_failure}
+
+Task prompt:
+
+{task_prompt}
+"""
+
+
 def run_quality_gates(
     task_run_dir: Path,
     ledger: dict[str, Any],
@@ -715,6 +765,8 @@ def run_review(
     review_timeout_seconds: int | None,
     base_status: dict[str, Any],
     heartbeat_seconds: int,
+    prompt_text: str | None = None,
+    command_label: str = "codex structured review",
 ) -> tuple[bool, str]:
     output_file = task_run_dir / "review-decision.json"
     log_file = task_run_dir / "review.log"
@@ -731,15 +783,15 @@ def run_review(
         str(output_file),
         "-",
     ]
-    print(f"  review: codex structured review -> log {relative_to_root(log_file)}")
+    print(f"  review: {command_label} -> log {relative_to_root(log_file)}")
     code = run_logged(
         command,
         log_file,
-        review_prompt(task),
+        prompt_text if prompt_text is not None else review_prompt(task),
         timeout_seconds=review_timeout_seconds,
         status_file=CURRENT_RUN_PATH,
         status={**base_status, "stage": "review"},
-        command_label="codex structured review",
+        command_label=command_label,
         heartbeat_seconds=heartbeat_seconds,
     )
     if code != 0:
@@ -833,7 +885,18 @@ def run_final_repair(
         return False
 
     if not args.skip_review:
-        review_timeout_seconds = normalize_timeout_seconds(args.review_timeout_seconds)
+        is_repair_verification = review_failure_is_actionable(previous_failure)
+        review_timeout_seconds = normalize_timeout_seconds(
+            args.repair_review_timeout_seconds
+            if is_repair_verification
+            else args.review_timeout_seconds
+        )
+        prompt_text = (
+            repair_review_prompt(task, previous_failure) if is_repair_verification else None
+        )
+        command_label = (
+            "codex repair verification" if is_repair_verification else "codex structured review"
+        )
         review_ok, review_result = run_review(
             task,
             task_run_dir,
@@ -841,6 +904,8 @@ def run_final_repair(
             review_timeout_seconds,
             base_status,
             args.heartbeat_seconds,
+            prompt_text=prompt_text,
+            command_label=command_label,
         )
         if not review_ok:
             print(f"  failed: {review_result}")
@@ -1116,6 +1181,12 @@ def parse_args() -> argparse.Namespace:
         help="Maximum runtime for the bounded Codex final-repair pass; 0 disables.",
     )
     run_parser.add_argument(
+        "--repair-review-timeout-seconds",
+        type=int,
+        default=DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS,
+        help="Maximum runtime for the focused post-repair review gate; 0 disables.",
+    )
+    run_parser.add_argument(
         "--no-final-repair",
         dest="final_repair",
         action="store_false",
@@ -1205,6 +1276,7 @@ def main() -> int:
 
     validate_heartbeat_seconds(args.heartbeat_seconds)
     normalize_timeout_seconds(args.final_repair_timeout_seconds)
+    normalize_timeout_seconds(args.repair_review_timeout_seconds)
     check_clean_worktree(args.allow_dirty)
     if args.task:
         candidates = [task_map(ledger)[args.task]]

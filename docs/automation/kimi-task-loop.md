@@ -25,14 +25,19 @@ Kimi defaults are intentionally strict:
 - implementation attempts: `1`
 - implementation timeout: `1200` seconds
 - structured review timeout: `600` seconds
+- post-repair verification timeout: `300` seconds
 
 The first Kimi prompt asks for a compact execution contract before editing:
 likely files, acceptance checks, and non-goals. This counters the failure mode
 seen in P1-02, where broad rediscovery consumed most of the attempt budget.
+Kimi is also instructed to run targeted local checks only because the controller
+runs the full quality gates immediately afterward.
 
 Repair attempts use a different prompt. They treat the existing working tree as
 the previous draft, start from the review failure and cited files, and avoid
-restarting from the PRD or repo-wide discovery.
+restarting from the PRD or repo-wide discovery. When a repair follows structured
+review findings, the post-repair Codex review verifies the original findings
+instead of performing another full diff review.
 
 Failures are split into two classes:
 

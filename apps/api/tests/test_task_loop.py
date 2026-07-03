@@ -79,6 +79,7 @@ def test_run_command_defaults_to_one_attempt_with_bounded_review(monkeypatch) ->
     assert args.max_attempts == 1
     assert args.agent_timeout_seconds == 3600
     assert args.review_timeout_seconds == 600
+    assert args.repair_review_timeout_seconds == 300
     assert args.agent == "codex"
 
 
@@ -92,6 +93,8 @@ def test_run_command_accepts_disabled_timeouts(monkeypatch) -> None:
             "0",
             "--review-timeout-seconds",
             "0",
+            "--repair-review-timeout-seconds",
+            "0",
         ],
     )
 
@@ -99,6 +102,7 @@ def test_run_command_accepts_disabled_timeouts(monkeypatch) -> None:
 
     assert TASK_LOOP.normalize_timeout_seconds(args.agent_timeout_seconds) is None
     assert TASK_LOOP.normalize_timeout_seconds(args.review_timeout_seconds) is None
+    assert TASK_LOOP.normalize_timeout_seconds(args.repair_review_timeout_seconds) is None
 
 
 def test_current_command_is_available(monkeypatch) -> None:
@@ -176,6 +180,7 @@ def test_run_command_selects_kimi_agent(monkeypatch) -> None:
     assert args.max_attempts == 1
     assert args.agent_timeout_seconds == 1200
     assert args.review_timeout_seconds == 600
+    assert args.repair_review_timeout_seconds == 300
 
 
 def test_kimi_run_command_accepts_explicit_timeout_overrides(monkeypatch) -> None:
@@ -298,6 +303,29 @@ def test_review_prompt_is_bounded_to_task_and_changed_files() -> None:
     assert "?? apps/ios/Sources/" in prompt
     assert "Do not run build or test commands" in prompt
     assert "Demo mode launches with synthetic data" in prompt
+
+
+def test_repair_review_prompt_verifies_previous_findings_without_fresh_review() -> None:
+    task = {
+        "id": "P2-03",
+        "title": "feature engine load density",
+        "prompt": "tasks/P2-03-feature-engine-load-density.md",
+    }
+
+    prompt = TASK_LOOP.repair_review_prompt(
+        task,
+        "Review decision JSON:\n"
+        '{"findings":[{"file":"apps/api/baseline_api/features/training_load.py",'
+        '"line":334,"message":"EWMA skips rest days"}]}',
+        status_snapshot=" M apps/api/baseline_api/features/training_load.py",
+    )
+
+    assert "repair verification, not a fresh full review" in prompt
+    assert "Treat the previous actionable failure below as the checklist" in prompt
+    assert "Do not search for new task-scope gaps" in prompt
+    assert "possible new unrelated concerns in residual_risk" in prompt
+    assert "EWMA skips rest days" in prompt
+    assert " M apps/api/baseline_api/features/training_load.py" in prompt
 
 
 def test_codex_implementation_command_preserves_existing_exec_shape() -> None:

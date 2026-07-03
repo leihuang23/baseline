@@ -131,9 +131,7 @@ def _compute_metric_features(
             continue
         valid_samples.append(sample)
 
-    target_samples = [
-        sample for sample in valid_samples if sample.start_time.date() == target_date
-    ]
+    target_samples = [sample for sample in valid_samples if sample.start_time.date() == target_date]
     if not target_samples:
         flags.append(f"missing_{spec.metric_type}")
         latest_date = max(
