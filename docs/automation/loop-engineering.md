@@ -50,7 +50,7 @@ python3 scripts/run_task_loop.py run --codex
 python3 scripts/run_task_loop.py run --kimi
 ```
 
-`--codex` is the default and runs `codex exec`. `--kimi` runs implementation attempts with `kimi --yolo`. The final structured review gate still uses Codex because it depends on schema-constrained review output.
+`--codex` is the default and runs `codex exec`. `--kimi` runs implementation attempts with Kimi Code's non-interactive `--prompt` mode. The final structured review gate still uses Codex because it depends on schema-constrained review output.
 
 Implementation attempts are capped at 3600 seconds by default, and structured
 review is capped at 1800 seconds, so a stalled agent cannot block the loop

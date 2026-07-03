@@ -623,7 +623,7 @@ def implementation_agent_command(args: argparse.Namespace) -> tuple[str, list[st
             ],
         )
     if args.agent == AGENT_KIMI:
-        return "kimi --yolo", [args.kimi_bin, "--yolo"]
+        return "kimi --prompt", [args.kimi_bin]
     raise LoopError(f"Unknown implementation agent: {args.agent}")
 
 
@@ -839,7 +839,7 @@ def parse_args() -> argparse.Namespace:
         dest="agent",
         action="store_const",
         const=AGENT_KIMI,
-        help="Run implementation attempts with Kimi Code via kimi --yolo.",
+        help="Run implementation attempts with Kimi Code via non-interactive prompt mode.",
     )
     run_parser.add_argument("--codex-bin", default="codex")
     run_parser.add_argument("--kimi-bin", default="kimi")

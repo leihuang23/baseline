@@ -135,13 +135,13 @@ def test_run_command_selects_kimi_agent(monkeypatch) -> None:
     assert args.agent == "kimi"
 
 
-def test_kimi_implementation_command_uses_yolo_flag() -> None:
+def test_kimi_implementation_command_uses_prompt_mode() -> None:
     args = SimpleNamespace(agent="kimi", kimi_bin="kimi")
 
     label, command = TASK_LOOP.implementation_agent_command(args)
 
-    assert label == "kimi --yolo"
-    assert command == ["kimi", "--yolo"]
+    assert label == "kimi --prompt"
+    assert command == ["kimi"]
 
 
 def test_kimi_invocation_uses_noninteractive_prompt_mode() -> None:
@@ -152,10 +152,10 @@ def test_kimi_invocation_uses_noninteractive_prompt_mode() -> None:
         "do the task",
     )
 
-    assert label == "kimi --yolo"
-    assert command == ["kimi", "--yolo", "--prompt", "do the task"]
+    assert label == "kimi --prompt"
+    assert command == ["kimi", "--prompt", "do the task"]
     assert input_text is None
-    assert logged_command == ["kimi", "--yolo", "--prompt", "<task-prompt>"]
+    assert logged_command == ["kimi", "--prompt", "<task-prompt>"]
 
 
 def test_codex_implementation_command_preserves_existing_exec_shape() -> None:
