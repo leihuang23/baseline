@@ -77,8 +77,37 @@ def test_run_command_defaults_to_four_attempts(monkeypatch) -> None:
     args = TASK_LOOP.parse_args()
 
     assert args.max_attempts == 4
-    assert args.agent_timeout_seconds == 600
+    assert args.agent_timeout_seconds == 3600
+    assert args.review_timeout_seconds == 1800
     assert args.agent == "codex"
+
+
+def test_run_command_accepts_disabled_timeouts(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run_task_loop.py",
+            "run",
+            "--agent-timeout-seconds",
+            "0",
+            "--review-timeout-seconds",
+            "0",
+        ],
+    )
+
+    args = TASK_LOOP.parse_args()
+
+    assert TASK_LOOP.normalize_timeout_seconds(args.agent_timeout_seconds) is None
+    assert TASK_LOOP.normalize_timeout_seconds(args.review_timeout_seconds) is None
+
+
+def test_negative_timeout_is_rejected() -> None:
+    try:
+        TASK_LOOP.normalize_timeout_seconds(-1)
+    except TASK_LOOP.LoopError as exc:
+        assert "non-negative" in str(exc)
+    else:
+        raise AssertionError("negative timeout should fail")
 
 
 def test_run_command_selects_kimi_agent(monkeypatch) -> None:

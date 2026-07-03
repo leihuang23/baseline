@@ -42,13 +42,17 @@ python3 scripts/run_task_loop.py run --kimi
 
 `--codex` is the default and runs `codex exec`. `--kimi` runs implementation attempts with `kimi --yolo`. The final structured review gate still uses Codex because it depends on schema-constrained review output.
 
-Implementation attempts are capped at 600 seconds by default so a stalled agent
-cannot block the loop forever. Override this per run when a task is expected to
-take longer:
+Implementation attempts are capped at 3600 seconds by default, and structured
+review is capped at 1800 seconds, so a stalled agent cannot block the loop
+forever. Override these per run when a task is expected to take longer:
 
 ```bash
-python3 scripts/run_task_loop.py run --agent-timeout-seconds 1200
+python3 scripts/run_task_loop.py run --agent-timeout-seconds 7200
+python3 scripts/run_task_loop.py run --review-timeout-seconds 3600
+python3 scripts/run_task_loop.py run --agent-timeout-seconds 0 --review-timeout-seconds 0
 ```
+
+Use `0` to disable a timeout for trusted long-running agents.
 
 Run one task and commit it after all gates pass:
 

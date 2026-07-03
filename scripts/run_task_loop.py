@@ -14,8 +14,8 @@ LEDGER_PATH = ROOT / "tasks" / "ledger.json"
 REVIEW_SCHEMA_PATH = ROOT / "tasks" / "review-decision.schema.json"
 RUNS_DIR = ROOT / ".task-runs"
 DEFAULT_MAX_ATTEMPTS = 4
-DEFAULT_AGENT_TIMEOUT_SECONDS = 600
-DEFAULT_REVIEW_TIMEOUT_SECONDS = 600
+DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
+DEFAULT_REVIEW_TIMEOUT_SECONDS = 1800
 FAILURE_CONTEXT_MAX_CHARS = 16_000
 FAILURE_LOG_TAIL_LINES = 120
 AGENT_CODEX = "codex"
@@ -115,6 +115,14 @@ def run_logged(
             return 124
         log.write(f"\n[exit_code] {process.returncode}\n")
     return process.returncode
+
+
+def normalize_timeout_seconds(value: int) -> int | None:
+    if value < 0:
+        raise LoopError("Timeout values must be non-negative; use 0 to disable a timeout.")
+    if value == 0:
+        return None
+    return value
 
 
 def read_failure_context(path: Path) -> str:
@@ -224,7 +232,12 @@ def run_quality_gates(task_run_dir: Path, ledger: dict[str, Any]) -> tuple[bool,
     return True, "quality gates passed"
 
 
-def run_review(task: dict[str, Any], task_run_dir: Path, codex_bin: str) -> tuple[bool, str]:
+def run_review(
+    task: dict[str, Any],
+    task_run_dir: Path,
+    codex_bin: str,
+    review_timeout_seconds: int | None,
+) -> tuple[bool, str]:
     output_file = task_run_dir / "review-decision.json"
     log_file = task_run_dir / "review.log"
     command = [
@@ -245,7 +258,7 @@ def run_review(task: dict[str, Any], task_run_dir: Path, codex_bin: str) -> tupl
         command,
         log_file,
         review_prompt(task),
-        timeout_seconds=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+        timeout_seconds=review_timeout_seconds,
     )
     if code != 0:
         return False, format_logged_failure("review command failed", log_file)
@@ -323,13 +336,15 @@ def run_task(
 ) -> bool:
     print(f"task: {task['id']} - {task['title']}")
     previous_failure: str | None = None
+    agent_timeout_seconds = normalize_timeout_seconds(args.agent_timeout_seconds)
+    review_timeout_seconds = normalize_timeout_seconds(args.review_timeout_seconds)
     for attempt in range(1, args.max_attempts + 1):
         task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-attempt-{attempt}"
         prompt = implementation_prompt(task, attempt, previous_failure)
         agent_label, command = implementation_agent_command(args)
         print(f"  attempt {attempt}: {agent_label}")
         exec_log = task_run_dir / f"{args.agent}-exec.log"
-        code = run_logged(command, exec_log, prompt, timeout_seconds=args.agent_timeout_seconds)
+        code = run_logged(command, exec_log, prompt, timeout_seconds=agent_timeout_seconds)
         if code != 0:
             previous_failure = format_logged_failure(f"{agent_label} failed", exec_log)
             print(f"  failed: {previous_failure}")
@@ -342,7 +357,12 @@ def run_task(
             continue
 
         if not args.skip_review:
-            review_ok, review_result = run_review(task, task_run_dir, args.codex_bin)
+            review_ok, review_result = run_review(
+                task,
+                task_run_dir,
+                args.codex_bin,
+                review_timeout_seconds,
+            )
             if not review_ok:
                 previous_failure = review_result
                 print(f"  failed: {review_result}")
@@ -392,7 +412,13 @@ def parse_args() -> argparse.Namespace:
         "--agent-timeout-seconds",
         type=int,
         default=DEFAULT_AGENT_TIMEOUT_SECONDS,
-        help="Maximum runtime for each implementation agent attempt.",
+        help="Maximum runtime for each implementation agent attempt; 0 disables.",
+    )
+    run_parser.add_argument(
+        "--review-timeout-seconds",
+        type=int,
+        default=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+        help="Maximum runtime for the structured review gate; 0 disables.",
     )
     run_parser.add_argument("--commit", action="store_true", help="Commit each completed task.")
     run_parser.add_argument("--allow-dirty", action="store_true")
