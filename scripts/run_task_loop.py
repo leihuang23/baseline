@@ -283,15 +283,17 @@ def log_size_bytes(path: Path) -> int | None:
         return None
 
 
-def log_tail_contains(path: Path, needle: str, max_bytes: int = 32_768) -> bool:
+def log_tail_has_exact_line(path: Path, needle: str, max_bytes: int = 32_768) -> bool:
     try:
         with path.open("rb") as file:
             file.seek(0, os.SEEK_END)
             size = file.tell()
             file.seek(max(0, size - max_bytes))
-            return needle.encode("utf-8") in file.read()
+            text = file.read().decode("utf-8", errors="replace")
     except OSError:
         return False
+    text = ANSI_ESCAPE_RE.sub("", text).replace("\r", "\n")
+    return any(line.strip() == needle for line in text.splitlines())
 
 
 def load_ledger() -> dict[str, Any]:
@@ -420,7 +422,7 @@ def run_logged(
                 return returncode
 
             elapsed_seconds = int((utc_datetime() - started_at).total_seconds())
-            if success_sentinel and log_tail_contains(log_file, success_sentinel):
+            if success_sentinel and log_tail_has_exact_line(log_file, success_sentinel):
                 terminate_process(process)
                 log.write(f"\n[success_sentinel] {success_sentinel}\n")
                 log.write("[exit_code] 0\n")

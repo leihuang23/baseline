@@ -476,6 +476,32 @@ def test_run_logged_stops_after_success_sentinel(tmp_path) -> None:
     assert state["exit_code"] == 0
 
 
+def test_run_logged_ignores_sentinel_mentions_that_are_not_exact_lines(tmp_path) -> None:
+    log_file = tmp_path / "quoted-sentinel.log"
+    status_file = tmp_path / "current.json"
+
+    code = TASK_LOOP.run_logged(
+        [
+            sys.executable,
+            "-c",
+            "print('Mention `TASK_LOOP_DONE` in prompt text', flush=True)",
+        ],
+        log_file,
+        timeout_seconds=30,
+        status_file=status_file,
+        status={"task_id": "P1-02", "stage": "implementation"},
+        heartbeat_seconds=0,
+        success_sentinel="TASK_LOOP_DONE",
+    )
+
+    assert code == 0
+    log = log_file.read_text(encoding="utf-8")
+    assert "[success_sentinel]" not in log
+    state = json.loads(status_file.read_text(encoding="utf-8"))
+    assert state["status"] == "succeeded"
+    assert state["exit_code"] == 0
+
+
 def test_run_logged_stops_at_log_limit(tmp_path) -> None:
     log_file = tmp_path / "chatty.log"
     status_file = tmp_path / "current.json"
