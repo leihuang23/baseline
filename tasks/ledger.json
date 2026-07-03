@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "active_cluster": "P0-foundations-finish",
-  "updated_at": "2026-07-03T03:05:19Z",
+  "active_cluster": "P1-ingestion-mvp",
+  "updated_at": "2026-07-03T06:59:32Z",
   "quality_gates": [
     "make fmt",
     "make lint",
@@ -154,7 +154,9 @@
       "title": "health sync api",
       "prompt": "tasks/P1-01-health-sync-api.md",
       "phase": "P1",
-      "status": "pending"
+      "status": "complete",
+      "completed_at": "2026-07-03T06:59:32Z",
+      "last_run_dir": ".task-runs/2026-07-03T065510Z-P1-01-attempt-2"
     },
     {
       "id": "P1-02",
