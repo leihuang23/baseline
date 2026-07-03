@@ -20,9 +20,9 @@ boundaries.
 
 ## Controller policy
 
-Kimi defaults are intentionally shorter than Codex defaults:
+Kimi defaults are intentionally strict:
 
-- implementation attempts: `2`
+- implementation attempts: `1`
 - implementation timeout: `1200` seconds
 - structured review timeout: `600` seconds
 
@@ -34,13 +34,14 @@ Repair attempts use a different prompt. They treat the existing working tree as
 the previous draft, start from the review failure and cited files, and avoid
 restarting from the PRD or repo-wide discovery.
 
-Review failures are split into two classes:
+Failures are split into two classes:
 
-- Structured review decisions are actionable, so Kimi gets one focused repair
-  pass.
-- Review infrastructure failures, timeouts, interrupted turns, or missing JSON
-  are not actionable implementation feedback. The Kimi loop stops and leaves an
-  inspectable blocked state instead of spending another implementation attempt.
+- Gate failures and structured review decisions are actionable, so the
+  controller can run one focused Codex repair pass.
+- Implementation command failures, review infrastructure failures, timeouts,
+  interrupted turns, or missing JSON are not actionable implementation feedback.
+  The loop stops and leaves an inspectable blocked state instead of spending
+  another implementation attempt.
 
 ## Commands
 

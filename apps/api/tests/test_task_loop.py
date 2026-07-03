@@ -71,14 +71,14 @@ def test_explicit_completed_cluster_does_not_advance_to_next_cluster() -> None:
     assert tasks == []
 
 
-def test_run_command_defaults_to_four_attempts(monkeypatch) -> None:
+def test_run_command_defaults_to_one_attempt_with_bounded_review(monkeypatch) -> None:
     monkeypatch.setattr("sys.argv", ["run_task_loop.py", "run"])
 
     args = TASK_LOOP.parse_args()
 
-    assert args.max_attempts == 4
+    assert args.max_attempts == 1
     assert args.agent_timeout_seconds == 3600
-    assert args.review_timeout_seconds == 1800
+    assert args.review_timeout_seconds == 600
     assert args.agent == "codex"
 
 
@@ -173,7 +173,7 @@ def test_run_command_selects_kimi_agent(monkeypatch) -> None:
     args = TASK_LOOP.parse_args()
 
     assert args.agent == "kimi"
-    assert args.max_attempts == 2
+    assert args.max_attempts == 1
     assert args.agent_timeout_seconds == 1200
     assert args.review_timeout_seconds == 600
 
@@ -254,8 +254,16 @@ def test_kimi_repair_prompt_prioritizes_review_findings() -> None:
     )
 
     assert "Kimi repair mode" in prompt
-    assert "do not restart from broad PRD/repo discovery" in prompt
+    assert "do not restart from" in prompt
+    assert "broad PRD/repo discovery" in prompt
     assert "provenance links are wrong" in prompt
+
+
+def test_failure_actionability_is_limited_to_gates_and_review_json() -> None:
+    assert TASK_LOOP.failure_is_actionable("make typecheck failed; see log")
+    assert TASK_LOOP.failure_is_actionable("Review decision JSON:\n{}")
+    assert not TASK_LOOP.failure_is_actionable("review command failed; see log")
+    assert not TASK_LOOP.failure_is_actionable("codex exec failed; see log")
 
 
 def test_codex_repair_prompt_prioritizes_failure_context() -> None:
@@ -330,7 +338,7 @@ def test_run_logged_times_out_stalled_command(tmp_path) -> None:
             "task_title": "normalization module",
             "stage": "implementation",
             "attempt": 1,
-            "max_attempts": 4,
+            "max_attempts": 1,
             "run_dir": str(tmp_path),
         },
     )
@@ -388,10 +396,10 @@ def test_review_failure_context_includes_structured_decision(tmp_path) -> None:
     assert "Retry should enqueue pending normalization" in context
 
 
-def test_kimi_retries_only_actionable_structured_review_failures() -> None:
+def test_final_repair_accepts_only_actionable_gate_or_review_failures() -> None:
     actionable = "review failed; see file\n\nReview decision JSON:\n{}"
     non_actionable = "review command failed; see file\n\nLog tail:\nturn interrupted"
 
-    assert TASK_LOOP.should_retry_after_review_failure("kimi", actionable) is True
-    assert TASK_LOOP.should_retry_after_review_failure("kimi", non_actionable) is False
-    assert TASK_LOOP.should_retry_after_review_failure("codex", non_actionable) is True
+    assert TASK_LOOP.failure_is_actionable(actionable) is True
+    assert TASK_LOOP.failure_is_actionable("make test failed; see file") is True
+    assert TASK_LOOP.failure_is_actionable(non_actionable) is False

@@ -10,23 +10,23 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER_PATH = ROOT / "tasks" / "ledger.json"
 REVIEW_SCHEMA_PATH = ROOT / "tasks" / "review-decision.schema.json"
 RUNS_DIR = ROOT / ".task-runs"
 CURRENT_RUN_PATH = RUNS_DIR / "current.json"
-DEFAULT_MAX_ATTEMPTS = 4
+DEFAULT_MAX_ATTEMPTS = 1
 DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
-DEFAULT_REVIEW_TIMEOUT_SECONDS = 1800
-DEFAULT_KIMI_MAX_ATTEMPTS = 2
+DEFAULT_REVIEW_TIMEOUT_SECONDS = 600
+DEFAULT_KIMI_MAX_ATTEMPTS = 1
 DEFAULT_KIMI_AGENT_TIMEOUT_SECONDS = 1200
 DEFAULT_KIMI_REVIEW_TIMEOUT_SECONDS = 600
 DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS = 900
 DEFAULT_HEARTBEAT_SECONDS = 30
-FAILURE_CONTEXT_MAX_CHARS = 16_000
-FAILURE_LOG_TAIL_LINES = 120
+FAILURE_CONTEXT_MAX_CHARS = 6_000
+FAILURE_LOG_TAIL_LINES = 80
 CURRENT_LOG_TAIL_LINES = 40
 AGENT_CODEX = "codex"
 AGENT_KIMI = "kimi"
@@ -47,7 +47,8 @@ KIMI_INITIAL_GUIDANCE = """Kimi-specific execution contract:
 """
 KIMI_REPAIR_GUIDANCE = """Kimi repair mode:
 - Treat the existing working tree as the previous attempt's draft.
-- Repair only the concrete failure details below; do not restart from broad PRD/repo discovery.
+- Repair only the concrete gate/review failure details below; do not restart from
+  broad PRD/repo discovery.
 - Read the failure text and directly cited files first, then patch the smallest set of lines.
 - Turn each review finding into an explicit checklist item and address every item before stopping.
 - Add or adjust a regression test when the failure is behavioral.
@@ -233,7 +234,7 @@ def print_heartbeat(state: dict[str, Any]) -> None:
 
 def load_ledger() -> dict[str, Any]:
     with LEDGER_PATH.open(encoding="utf-8") as file:
-        return json.load(file)
+        return cast(dict[str, Any], json.load(file))
 
 
 def save_ledger(ledger: dict[str, Any]) -> None:
@@ -264,7 +265,7 @@ def cluster_queue(ledger: dict[str, Any], cluster_id: str | None) -> list[dict[s
         return [selected_cluster(ledger, cluster_id)]
 
     active = selected_cluster(ledger, None)
-    clusters = ledger["clusters"]
+    clusters = cast(list[dict[str, Any]], ledger["clusters"])
     active_index = next(
         index for index, cluster in enumerate(clusters) if cluster["id"] == active["id"]
     )
@@ -759,10 +760,17 @@ def review_failure_is_actionable(review_result: str) -> bool:
     return "Review decision JSON" in review_result
 
 
-def should_retry_after_review_failure(agent: str, review_result: str) -> bool:
-    if agent != AGENT_KIMI:
-        return True
-    return review_failure_is_actionable(review_result)
+def gate_failure_is_actionable(failure_result: str) -> bool:
+    return any(
+        failure_result.startswith(f"{gate} failed")
+        for gate in ("make fmt", "make lint", "make typecheck", "make test")
+    )
+
+
+def failure_is_actionable(failure_result: str) -> bool:
+    return review_failure_is_actionable(failure_result) or gate_failure_is_actionable(
+        failure_result
+    )
 
 
 def run_final_repair(
@@ -960,19 +968,16 @@ def run_task(
         if code != 0:
             previous_failure = format_logged_failure(f"{agent_label} failed", exec_log)
             print(f"  failed: {previous_failure}")
-            if code == 124:
-                write_static_run_state(
-                    CURRENT_RUN_PATH,
-                    base_status,
-                    status="blocked",
-                    stage="implementation_timeout",
-                    message=(
-                        "implementation attempt timed out; stopped before launching "
-                        "another broad retry"
-                    ),
-                )
-                return False
-            continue
+            write_static_run_state(
+                CURRENT_RUN_PATH,
+                base_status,
+                status="blocked",
+                stage="implementation_timeout" if code == 124 else "implementation",
+                message=(
+                    "implementation attempt failed; stopped before launching another broad retry"
+                ),
+            )
+            return False
 
         gates_ok, gate_result = run_quality_gates(
             task_run_dir,
@@ -983,7 +988,7 @@ def run_task(
         if not gates_ok:
             previous_failure = gate_result
             print(f"  failed: {gate_result}")
-            continue
+            break
 
         if not args.skip_review:
             review_ok, review_result = run_review(
@@ -997,7 +1002,7 @@ def run_task(
             if not review_ok:
                 previous_failure = review_result
                 print(f"  failed: {review_result}")
-                if not should_retry_after_review_failure(args.agent, review_result):
+                if not review_failure_is_actionable(review_result):
                     write_static_run_state(
                         CURRENT_RUN_PATH,
                         base_status,
@@ -1005,11 +1010,11 @@ def run_task(
                         stage="review",
                         message=(
                             "review gate did not produce actionable findings; "
-                            "stopped before another Kimi implementation attempt"
+                            "stopped before a repair attempt"
                         ),
                     )
                     return False
-                continue
+                break
             print(f"  {review_result}")
 
         complete_task(ledger, task, task_run_dir, args.commit)
@@ -1025,9 +1030,8 @@ def run_task(
 
     if (
         args.final_repair
-        and args.agent == AGENT_KIMI
         and previous_failure
-        and review_failure_is_actionable(previous_failure)
+        and failure_is_actionable(previous_failure)
         and run_final_repair(ledger, task, args, previous_failure)
     ):
         return True

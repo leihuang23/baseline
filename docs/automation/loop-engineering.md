@@ -1,6 +1,6 @@
 # Baseline Loop Engineering
 
-Baseline task slices are small enough for autonomous execution, but the loop must be bounded. The controller runs one task prompt at a time, verifies it, reviews it, updates the ledger, and only then advances.
+Baseline task slices are small enough for autonomous execution, but the loop must be bounded. The controller runs one task prompt at a time, verifies it, reviews it, optionally performs one focused repair, updates the ledger, and only then advances.
 
 ## Source of Truth
 
@@ -55,8 +55,10 @@ python3 scripts/run_task_loop.py run --kimi
 `--codex` is the default and runs `codex exec`. `--kimi` runs implementation attempts with Kimi Code's non-interactive `--prompt` mode. The final structured review gate still uses Codex because it depends on schema-constrained review output.
 
 Implementation attempts are capped at 3600 seconds by default, and structured
-review is capped at 1800 seconds, so a stalled agent cannot block the loop
-forever. Override these per run when a task is expected to take longer:
+review is capped at 600 seconds, so a stalled agent cannot block the loop
+forever. The default run performs one implementation attempt, then at most one
+focused Codex repair pass for concrete gate or review findings. Override budgets
+only when a task is expected to need them:
 
 ```bash
 python3 scripts/run_task_loop.py run --agent-timeout-seconds 7200
@@ -107,9 +109,18 @@ diff review scoped to the task prompt and changed files; it should not rerun
 builds or tests after the controller gates have already run. A task is marked
 complete only when the gates and review pass.
 
+If a gate fails or the structured review returns concrete findings, the
+controller runs one focused Codex repair pass against those details, then reruns
+the gates and one final review. If that final review fails, or if the review
+command times out, is interrupted, or cannot produce valid JSON, the task is
+blocked for inspection instead of launching another broad implementation pass.
+
 ## Recovery
 
-If the loop fails, inspect the latest directory under `.task-runs/`. The runner retries once by default. If the second attempt fails, it stops without advancing the ledger.
+If the loop fails, inspect the latest directory under `.task-runs/`. The runner
+does not retry broad implementation by default. It either completes after the
+initial pass, completes after one focused repair, or stops without advancing the
+ledger.
 
 For a run that looks stuck, check the live state first:
 
