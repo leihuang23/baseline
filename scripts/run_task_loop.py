@@ -51,6 +51,13 @@ KIMI_REPAIR_GUIDANCE = """Kimi repair mode:
 - Add or adjust a regression test when the failure is behavioral.
 - Stop after the focused repair and local targeted verification.
 """
+CODEX_REPAIR_GUIDANCE = """Repair mode:
+- Treat the existing working tree as the previous attempt's draft.
+- Start from the concrete failure details below and any cited files or lines.
+- Do not restart broad repo discovery unless the failure text is missing required context.
+- Add or adjust a regression test when the failure is behavioral.
+- Stop after the focused repair and local targeted verification.
+"""
 
 
 class LoopError(RuntimeError):
@@ -573,7 +580,7 @@ def check_clean_worktree(allow_dirty: bool) -> None:
 
 def implementation_guidance(agent: str, attempt: int, previous_failure: str | None) -> str:
     if agent != AGENT_KIMI:
-        return ""
+        return f"\n{CODEX_REPAIR_GUIDANCE}" if attempt > 1 or previous_failure else ""
     if attempt > 1 or previous_failure:
         return f"\n{KIMI_REPAIR_GUIDANCE}"
     return f"\n{KIMI_INITIAL_GUIDANCE}"
@@ -616,10 +623,37 @@ Task prompt:
 """
 
 
-def review_prompt(task: dict[str, Any]) -> str:
+def review_scope_snapshot() -> str:
+    result = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return "git status unavailable"
+    return result.stdout.strip() or "clean"
+
+
+def review_prompt(task: dict[str, Any], status_snapshot: str | None = None) -> str:
+    prompt_path = ROOT / task["prompt"]
+    task_prompt = prompt_path.read_text(encoding="utf-8")
+    changed_files = status_snapshot if status_snapshot is not None else review_scope_snapshot()
     return f"""Review the current repository diff for Baseline task {task["id"]}: {task["title"]}.
 
 Use a code-review stance. Return JSON matching the provided schema.
+
+Review scope:
+- Use the task prompt below as the source of truth; do not read the full PRD or broad docs unless
+  a changed file has an unclear contract that the task prompt does not cover.
+- Start from this changed-file snapshot, then inspect only files needed to assess this task:
+
+{changed_files}
+
+- Do not run build or test commands in the review sandbox. The controller already ran quality
+  gates before review; missing or sandbox-limited validation belongs in residual_risk, not as a
+  reason to explore the repo.
 
 Decision rules:
 - decision="pass" only if there are no blocker or major findings.
@@ -627,6 +661,10 @@ Decision rules:
   schema/API contract drift, or task-scope gaps.
 - Keep findings grounded in files and line numbers when possible.
 - Do not suggest unrelated refactors.
+
+Task prompt:
+
+{task_prompt}
 """
 
 

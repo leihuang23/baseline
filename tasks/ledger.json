@@ -1,7 +1,7 @@
 {
   "version": 1,
   "active_cluster": "P1-ingestion-mvp",
-  "updated_at": "2026-07-03T09:36:46Z",
+  "updated_at": "2026-07-03T10:44:23Z",
   "quality_gates": [
     "make fmt",
     "make lint",
@@ -181,7 +181,9 @@
       "title": "ios healthkit sync",
       "prompt": "tasks/P1-04-ios-healthkit-sync.md",
       "phase": "P1",
-      "status": "pending"
+      "status": "complete",
+      "completed_at": "2026-07-03T10:44:23Z",
+      "last_run_dir": ".task-runs/2026-07-03T104423Z-P1-04-manual-finish"
     },
     {
       "id": "P2-01",

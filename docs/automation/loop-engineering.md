@@ -102,7 +102,10 @@ make typecheck
 make test
 ```
 
-The controller then runs a structured Codex review. A task is marked complete only when the gates and review pass.
+The controller then runs a structured Codex review. That review is a static
+diff review scoped to the task prompt and changed files; it should not rerun
+builds or tests after the controller gates have already run. A task is marked
+complete only when the gates and review pass.
 
 ## Recovery
 

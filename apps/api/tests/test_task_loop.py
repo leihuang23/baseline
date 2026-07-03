@@ -258,6 +258,40 @@ def test_kimi_repair_prompt_prioritizes_review_findings() -> None:
     assert "provenance links are wrong" in prompt
 
 
+def test_codex_repair_prompt_prioritizes_failure_context() -> None:
+    task = {
+        "id": "P1-04",
+        "title": "ios healthkit sync",
+        "prompt": "tasks/P1-04-ios-healthkit-sync.md",
+    }
+
+    prompt = TASK_LOOP.implementation_prompt(
+        task,
+        2,
+        "Review decision JSON: demo mode missing synthetic samples",
+        agent="codex",
+    )
+
+    assert "Repair mode" in prompt
+    assert "Do not restart broad repo discovery" in prompt
+    assert "demo mode missing synthetic samples" in prompt
+
+
+def test_review_prompt_is_bounded_to_task_and_changed_files() -> None:
+    task = {
+        "id": "P1-04",
+        "title": "ios healthkit sync",
+        "prompt": "tasks/P1-04-ios-healthkit-sync.md",
+    }
+
+    prompt = TASK_LOOP.review_prompt(task, status_snapshot="?? apps/ios/Sources/")
+
+    assert "Use the task prompt below as the source of truth" in prompt
+    assert "?? apps/ios/Sources/" in prompt
+    assert "Do not run build or test commands" in prompt
+    assert "Demo mode launches with synthetic data" in prompt
+
+
 def test_codex_implementation_command_preserves_existing_exec_shape() -> None:
     args = SimpleNamespace(agent="codex", codex_bin="codex")
 
