@@ -1,7 +1,7 @@
 {
   "version": 1,
   "active_cluster": "P0-foundations-finish",
-  "updated_at": "2026-07-03T02:17:43Z",
+  "updated_at": "2026-07-03T02:42:00Z",
   "quality_gates": [
     "make fmt",
     "make lint",
@@ -136,7 +136,9 @@
       "title": "observability redaction",
       "prompt": "tasks/P0-06-observability-redaction.md",
       "phase": "P0",
-      "status": "pending"
+      "status": "complete",
+      "completed_at": "2026-07-03T02:42:00Z",
+      "last_run_dir": ".task-runs/2026-07-03T023103Z-P0-06-attempt-2"
     },
     {
       "id": "P0-07",
