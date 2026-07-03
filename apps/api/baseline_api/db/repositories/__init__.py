@@ -14,6 +14,7 @@ from baseline_api.db.repositories.evaluation import EvaluationCaseRepository
 from baseline_api.db.repositories.features import DerivedDailyFeatureRepository
 from baseline_api.db.repositories.goals import GoalRepository
 from baseline_api.db.repositories.ingestion import (
+    HealthImportBatchRepository,
     NormalizedHealthMetricRepository,
     RawHealthSampleRepository,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "DerivedDailyFeatureRepository",
     "EvaluationCaseRepository",
     "GoalRepository",
+    "HealthImportBatchRepository",
     "KnowledgeSourceRepository",
     "MemorySummaryRepository",
     "ModelRunRepository",

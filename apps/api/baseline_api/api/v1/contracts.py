@@ -15,8 +15,6 @@ from baseline_api.schemas.api import (
     DailyCheckInResponse,
     DataExportRequest,
     DataExportResponse,
-    HealthSyncRequest,
-    HealthSyncResponse,
     RecommendationFeedbackRequest,
     RecommendationFeedbackResponse,
 )
@@ -28,14 +26,6 @@ router = APIRouter(prefix="/v1", tags=["contracts"])
 def _stub(response: Response) -> APIEnvelope[None]:
     response.status_code = status.HTTP_501_NOT_IMPLEMENTED
     return not_implemented_envelope()
-
-
-@router.post("/health/sync", response_model=APIEnvelope[HealthSyncResponse])
-async def sync_health(
-    request: HealthSyncRequest,
-    response: Response,
-) -> APIEnvelope[None]:
-    return _stub(response)
 
 
 @router.post("/checkins/daily", response_model=APIEnvelope[DailyCheckInResponse])
