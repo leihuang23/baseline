@@ -80,10 +80,14 @@ def test_run_command_defaults_to_one_attempt_with_bounded_review(monkeypatch) ->
     assert args.agent_timeout_seconds == 3600
     assert args.review_timeout_seconds == 600
     assert args.repair_review_timeout_seconds == 300
+    assert args.agent_log_limit_bytes == 2_000_000
+    assert args.review_log_limit_bytes == 1_000_000
+    assert args.codex_lean is True
+    assert args.allow_no_changes is False
     assert args.agent == "codex"
 
 
-def test_run_command_accepts_disabled_timeouts(monkeypatch) -> None:
+def test_run_command_accepts_disabled_timeouts_and_log_limits(monkeypatch) -> None:
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -95,6 +99,10 @@ def test_run_command_accepts_disabled_timeouts(monkeypatch) -> None:
             "0",
             "--repair-review-timeout-seconds",
             "0",
+            "--agent-log-limit-bytes",
+            "0",
+            "--review-log-limit-bytes",
+            "0",
         ],
     )
 
@@ -103,6 +111,8 @@ def test_run_command_accepts_disabled_timeouts(monkeypatch) -> None:
     assert TASK_LOOP.normalize_timeout_seconds(args.agent_timeout_seconds) is None
     assert TASK_LOOP.normalize_timeout_seconds(args.review_timeout_seconds) is None
     assert TASK_LOOP.normalize_timeout_seconds(args.repair_review_timeout_seconds) is None
+    assert TASK_LOOP.normalize_log_limit_bytes(args.agent_log_limit_bytes) is None
+    assert TASK_LOOP.normalize_log_limit_bytes(args.review_log_limit_bytes) is None
 
 
 def test_current_command_is_available(monkeypatch) -> None:
@@ -144,6 +154,15 @@ def test_negative_timeout_is_rejected() -> None:
         assert "non-negative" in str(exc)
     else:
         raise AssertionError("negative timeout should fail")
+
+
+def test_negative_log_limit_is_rejected() -> None:
+    try:
+        TASK_LOOP.normalize_log_limit_bytes(-1)
+    except TASK_LOOP.LoopError as exc:
+        assert "Log limit values" in str(exc)
+    else:
+        raise AssertionError("negative log limit should fail")
 
 
 def test_negative_heartbeat_is_rejected() -> None:
@@ -207,6 +226,23 @@ def test_kimi_run_command_accepts_explicit_timeout_overrides(monkeypatch) -> Non
     assert args.review_timeout_seconds == 90
 
 
+def test_run_command_accepts_manual_escape_hatches(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run_task_loop.py",
+            "run",
+            "--allow-no-changes",
+            "--codex-full-config",
+        ],
+    )
+
+    args = TASK_LOOP.parse_args()
+
+    assert args.allow_no_changes is True
+    assert args.codex_lean is False
+
+
 def test_kimi_implementation_command_uses_prompt_mode() -> None:
     args = SimpleNamespace(agent="kimi", kimi_bin="kimi")
 
@@ -242,6 +278,7 @@ def test_kimi_initial_prompt_includes_focused_execution_contract() -> None:
     assert "Kimi-specific execution contract" in prompt
     assert "git status --short" in prompt
     assert "untracked files are part of the" in prompt
+    assert "TASK_LOOP_DONE" in prompt
 
 
 def test_kimi_repair_prompt_prioritizes_review_findings() -> None:
@@ -328,26 +365,39 @@ def test_repair_review_prompt_verifies_previous_findings_without_fresh_review() 
     assert " M apps/api/baseline_api/features/training_load.py" in prompt
 
 
-def test_codex_implementation_command_preserves_existing_exec_shape() -> None:
-    args = SimpleNamespace(agent="codex", codex_bin="codex")
+def test_codex_implementation_command_uses_lean_exec_by_default() -> None:
+    args = SimpleNamespace(agent="codex", codex_bin="codex", codex_lean=True)
 
     label, command = TASK_LOOP.implementation_agent_command(args)
 
-    assert label == "codex exec"
+    assert label == "codex exec (lean)"
     assert command[:2] == ["codex", "exec"]
+    assert "--ignore-user-config" in command
+    assert "--ephemeral" in command
+    assert "--color" in command
     assert "--sandbox" in command
     assert command[-1] == "-"
 
 
+def test_codex_implementation_command_can_load_full_config() -> None:
+    args = SimpleNamespace(agent="codex", codex_bin="codex", codex_lean=False)
+
+    label, command = TASK_LOOP.implementation_agent_command(args)
+
+    assert label == "codex exec"
+    assert "--ignore-user-config" not in command
+    assert "--ephemeral" not in command
+
+
 def test_codex_invocation_keeps_prompt_on_stdin() -> None:
-    args = SimpleNamespace(agent="codex", codex_bin="codex")
+    args = SimpleNamespace(agent="codex", codex_bin="codex", codex_lean=True)
 
     label, command, input_text, logged_command = TASK_LOOP.implementation_agent_invocation(
         args,
         "do the task",
     )
 
-    assert label == "codex exec"
+    assert label == "codex exec (lean)"
     assert command == logged_command
     assert input_text == "do the task"
 
@@ -398,6 +448,54 @@ def test_run_logged_writes_success_state(tmp_path) -> None:
     assert state["status"] == "succeeded"
     assert state["exit_code"] == 0
     assert state["command"][0] == sys.executable
+
+
+def test_run_logged_stops_after_success_sentinel(tmp_path) -> None:
+    log_file = tmp_path / "sentinel.log"
+    status_file = tmp_path / "current.json"
+
+    code = TASK_LOOP.run_logged(
+        [
+            sys.executable,
+            "-c",
+            "import time; print('TASK_LOOP_DONE', flush=True); time.sleep(5)",
+        ],
+        log_file,
+        timeout_seconds=30,
+        status_file=status_file,
+        status={"task_id": "P1-02", "stage": "implementation"},
+        heartbeat_seconds=0,
+        success_sentinel="TASK_LOOP_DONE",
+    )
+
+    assert code == 0
+    log = log_file.read_text(encoding="utf-8")
+    assert "[success_sentinel] TASK_LOOP_DONE" in log
+    state = json.loads(status_file.read_text(encoding="utf-8"))
+    assert state["status"] == "succeeded"
+    assert state["exit_code"] == 0
+
+
+def test_run_logged_stops_at_log_limit(tmp_path) -> None:
+    log_file = tmp_path / "chatty.log"
+    status_file = tmp_path / "current.json"
+
+    code = TASK_LOOP.run_logged(
+        [sys.executable, "-c", "print('x' * 5000, flush=True); import time; time.sleep(5)"],
+        log_file,
+        timeout_seconds=30,
+        status_file=status_file,
+        status={"task_id": "P1-02", "stage": "implementation"},
+        heartbeat_seconds=0,
+        max_log_bytes=1000,
+    )
+
+    assert code == TASK_LOOP.LOG_LIMIT_EXIT_CODE
+    log = log_file.read_text(encoding="utf-8")
+    assert "[max_log_bytes] 1000" in log
+    state = json.loads(status_file.read_text(encoding="utf-8"))
+    assert state["status"] == "log_limited"
+    assert state["exit_code"] == TASK_LOOP.LOG_LIMIT_EXIT_CODE
 
 
 def test_review_failure_context_includes_structured_decision(tmp_path) -> None:

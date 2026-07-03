@@ -24,14 +24,18 @@ Kimi defaults are intentionally strict:
 
 - implementation attempts: `1`
 - implementation timeout: `1200` seconds
+- implementation log limit: `2000000` bytes
 - structured review timeout: `600` seconds
+- structured review log limit: `1000000` bytes
 - post-repair verification timeout: `300` seconds
 
 The first Kimi prompt asks for a compact execution contract before editing:
 likely files, acceptance checks, and non-goals. This counters the failure mode
 seen in P1-02, where broad rediscovery consumed most of the attempt budget.
 Kimi is also instructed to run targeted local checks only because the controller
-runs the full quality gates immediately afterward.
+runs the full quality gates immediately afterward. The final response must end
+with `TASK_LOOP_DONE` on its own line; the controller treats that marker as the
+handoff to gates and stops waiting for more CLI output.
 
 Repair attempts use a different prompt. They treat the existing working tree as
 the previous draft, start from the review failure and cited files, and avoid
@@ -43,13 +47,14 @@ Failures are split into two classes:
 
 - Gate failures and structured review decisions are actionable, so the
   controller can run one focused Codex repair pass.
-- Implementation timeouts with a newly produced candidate diff are verifier
-  inputs, not automatic failures. The controller records the timeout and still
-  runs its own gates and review.
-- Implementation command failures, review infrastructure failures, timeouts
-  without a new candidate diff, interrupted turns, or missing JSON are not
-  actionable implementation feedback. The loop stops and leaves an inspectable
-  blocked state instead of spending another implementation attempt.
+- Implementation timeouts or log-limit stops with a newly produced candidate
+  diff are verifier inputs, not automatic failures. The controller records the
+  budget stop and still runs its own gates and review.
+- Implementation command failures, review infrastructure failures, budget stops
+  without a new candidate diff, interrupted turns, missing JSON, or a clean
+  no-change implementation pass are not actionable implementation feedback. The
+  loop stops and leaves an inspectable blocked state instead of spending another
+  implementation attempt.
 
 ## Commands
 
@@ -64,4 +69,5 @@ Override budgets only when a task is known to need it:
 
 ```bash
 python3 scripts/run_task_loop.py run --kimi --max-attempts 3 --agent-timeout-seconds 1800
+python3 scripts/run_task_loop.py run --kimi --agent-log-limit-bytes 3000000
 ```

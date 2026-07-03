@@ -26,6 +26,10 @@ DEFAULT_KIMI_REVIEW_TIMEOUT_SECONDS = 600
 DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS = 900
 DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS = 300
 DEFAULT_HEARTBEAT_SECONDS = 30
+DEFAULT_AGENT_LOG_LIMIT_BYTES = 2_000_000
+DEFAULT_REVIEW_LOG_LIMIT_BYTES = 1_000_000
+DONE_SENTINEL = "TASK_LOOP_DONE"
+LOG_LIMIT_EXIT_CODE = 125
 FAILURE_CONTEXT_MAX_CHARS = 6_000
 FAILURE_LOG_TAIL_LINES = 80
 CURRENT_LOG_TAIL_LINES = 40
@@ -145,6 +149,13 @@ def implementation_timeout_has_candidate_changes(
     before: list[str] | None,
     after: list[str] | None,
 ) -> bool:
+    return implementation_has_candidate_changes(before, after)
+
+
+def implementation_has_candidate_changes(
+    before: list[str] | None,
+    after: list[str] | None,
+) -> bool:
     return after is not None and bool(after) and after != before
 
 
@@ -256,6 +267,33 @@ def print_heartbeat(state: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
+def terminate_process(process: subprocess.Popen[str]) -> int:
+    process.terminate()
+    try:
+        return process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return process.wait()
+
+
+def log_size_bytes(path: Path) -> int | None:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
+def log_tail_contains(path: Path, needle: str, max_bytes: int = 32_768) -> bool:
+    try:
+        with path.open("rb") as file:
+            file.seek(0, os.SEEK_END)
+            size = file.tell()
+            file.seek(max(0, size - max_bytes))
+            return needle.encode("utf-8") in file.read()
+    except OSError:
+        return False
+
+
 def load_ledger() -> dict[str, Any]:
     with LEDGER_PATH.open(encoding="utf-8") as file:
         return cast(dict[str, Any], json.load(file))
@@ -324,6 +362,8 @@ def run_logged(
     command_label: str | None = None,
     logged_command: list[str] | None = None,
     heartbeat_seconds: int = DEFAULT_HEARTBEAT_SECONDS,
+    max_log_bytes: int | None = None,
+    success_sentinel: str | None = None,
 ) -> int:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     base_state = status or {}
@@ -380,6 +420,46 @@ def run_logged(
                 return returncode
 
             elapsed_seconds = int((utc_datetime() - started_at).total_seconds())
+            if success_sentinel and log_tail_contains(log_file, success_sentinel):
+                terminate_process(process)
+                log.write(f"\n[success_sentinel] {success_sentinel}\n")
+                log.write("[exit_code] 0\n")
+                log.flush()
+                write_run_state(
+                    status_file,
+                    base_state,
+                    status="succeeded",
+                    started_at=started_at,
+                    command=display_command,
+                    command_label=label,
+                    log_file=log_file,
+                    pid=process.pid,
+                    timeout_seconds=timeout_seconds,
+                    exit_code=0,
+                )
+                return 0
+
+            size_bytes = log_size_bytes(log_file)
+            if max_log_bytes is not None and size_bytes is not None and size_bytes >= max_log_bytes:
+                process.kill()
+                process.wait()
+                log.write(f"\n[max_log_bytes] {max_log_bytes}\n")
+                log.write(f"[exit_code] {LOG_LIMIT_EXIT_CODE}\n")
+                log.flush()
+                write_run_state(
+                    status_file,
+                    base_state,
+                    status="log_limited",
+                    started_at=started_at,
+                    command=display_command,
+                    command_label=label,
+                    log_file=log_file,
+                    pid=process.pid,
+                    timeout_seconds=timeout_seconds,
+                    exit_code=LOG_LIMIT_EXIT_CODE,
+                )
+                return LOG_LIMIT_EXIT_CODE
+
             if timeout_seconds is not None and elapsed_seconds >= timeout_seconds:
                 process.kill()
                 process.wait()
@@ -422,6 +502,14 @@ def run_logged(
 def normalize_timeout_seconds(value: int) -> int | None:
     if value < 0:
         raise LoopError("Timeout values must be non-negative; use 0 to disable a timeout.")
+    if value == 0:
+        return None
+    return value
+
+
+def normalize_log_limit_bytes(value: int) -> int | None:
+    if value < 0:
+        raise LoopError("Log limit values must be non-negative; use 0 to disable a log limit.")
     if value == 0:
         return None
     return value
@@ -649,6 +737,8 @@ Rules:
   quality gates immediately after the pass.
 - The controller will run make fmt, make lint, make typecheck, make test,
   and a review gate after you finish.
+- When the task is ready for controller gates, stop. End your final response with exactly
+  `{DONE_SENTINEL}` on its own line so the controller can stop waiting immediately.
 {guidance_block}
 {failure_block}
 Task prompt:
@@ -782,7 +872,9 @@ def run_review(
     task: dict[str, Any],
     task_run_dir: Path,
     codex_bin: str,
+    codex_lean: bool,
     review_timeout_seconds: int | None,
+    review_log_limit_bytes: int | None,
     base_status: dict[str, Any],
     heartbeat_seconds: int,
     prompt_text: str | None = None,
@@ -791,12 +883,7 @@ def run_review(
     output_file = task_run_dir / "review-decision.json"
     log_file = task_run_dir / "review.log"
     command = [
-        codex_bin,
-        "exec",
-        "-C",
-        str(ROOT),
-        "--sandbox",
-        "read-only",
+        *codex_exec_command(codex_bin, "read-only", lean=codex_lean),
         "--output-schema",
         str(REVIEW_SCHEMA_PATH),
         "--output-last-message",
@@ -813,6 +900,7 @@ def run_review(
         status={**base_status, "stage": "review"},
         command_label=command_label,
         heartbeat_seconds=heartbeat_seconds,
+        max_log_bytes=review_log_limit_bytes,
     )
     if code != 0:
         return False, format_logged_failure("review command failed", log_file)
@@ -845,6 +933,14 @@ def failure_is_actionable(failure_result: str) -> bool:
     )
 
 
+def codex_exec_command(codex_bin: str, sandbox: str, *, lean: bool) -> list[str]:
+    command = [codex_bin, "exec"]
+    if lean:
+        command.extend(["--ignore-user-config", "--ephemeral", "--color", "never"])
+    command.extend(["-C", str(ROOT), "--sandbox", sandbox])
+    return command
+
+
 def run_final_repair(
     ledger: dict[str, Any],
     task: dict[str, Any],
@@ -858,15 +954,7 @@ def run_final_repair(
         previous_failure,
         agent=AGENT_CODEX,
     )
-    command = [
-        args.codex_bin,
-        "exec",
-        "-C",
-        str(ROOT),
-        "--sandbox",
-        "workspace-write",
-        "-",
-    ]
+    command = [*codex_exec_command(args.codex_bin, "workspace-write", lean=args.codex_lean), "-"]
     base_status = {
         "task_id": task["id"],
         "task_title": task["title"],
@@ -889,6 +977,8 @@ def run_final_repair(
         status={**base_status, "stage": "final_repair", "agent": AGENT_CODEX},
         command_label="codex final repair",
         heartbeat_seconds=args.heartbeat_seconds,
+        max_log_bytes=normalize_log_limit_bytes(args.agent_log_limit_bytes),
+        success_sentinel=DONE_SENTINEL,
     )
     if code != 0:
         print(f"  failed: {format_logged_failure('codex final repair failed', exec_log)}")
@@ -921,7 +1011,9 @@ def run_final_repair(
             task,
             task_run_dir,
             args.codex_bin,
+            args.codex_lean,
             review_timeout_seconds,
+            normalize_log_limit_bytes(args.review_log_limit_bytes),
             base_status,
             args.heartbeat_seconds,
             prompt_text=prompt_text,
@@ -946,18 +1038,10 @@ def run_final_repair(
 
 def implementation_agent_command(args: argparse.Namespace) -> tuple[str, list[str]]:
     if args.agent == AGENT_CODEX:
-        return (
-            "codex exec",
-            [
-                args.codex_bin,
-                "exec",
-                "-C",
-                str(ROOT),
-                "--sandbox",
-                "workspace-write",
-                "-",
-            ],
-        )
+        lean = getattr(args, "codex_lean", True)
+        label = "codex exec (lean)" if lean else "codex exec"
+        command = [*codex_exec_command(args.codex_bin, "workspace-write", lean=lean), "-"]
+        return label, command
     if args.agent == AGENT_KIMI:
         return "kimi --prompt", [args.kimi_bin]
     raise LoopError(f"Unknown implementation agent: {args.agent}")
@@ -1022,6 +1106,8 @@ def run_task(
     previous_failure: str | None = None
     agent_timeout_seconds = normalize_timeout_seconds(args.agent_timeout_seconds)
     review_timeout_seconds = normalize_timeout_seconds(args.review_timeout_seconds)
+    agent_log_limit_bytes = normalize_log_limit_bytes(args.agent_log_limit_bytes)
+    review_log_limit_bytes = normalize_log_limit_bytes(args.review_log_limit_bytes)
     for attempt in range(1, args.max_attempts + 1):
         task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-attempt-{attempt}"
         prompt = implementation_prompt(task, attempt, previous_failure, agent=args.agent)
@@ -1050,28 +1136,35 @@ def run_task(
             command_label=agent_label,
             logged_command=logged_command,
             heartbeat_seconds=args.heartbeat_seconds,
+            max_log_bytes=agent_log_limit_bytes,
+            success_sentinel=DONE_SENTINEL,
         )
         if code != 0:
             current_status_lines = git_status_lines()
-            if code == 124 and implementation_timeout_has_candidate_changes(
+            if code in (124, LOG_LIMIT_EXIT_CODE) and implementation_has_candidate_changes(
                 initial_status_lines,
                 current_status_lines,
             ):
+                stop_reason = "timed out" if code == 124 else "hit the log limit"
                 previous_failure = format_logged_failure(
-                    f"{agent_label} timed out after producing candidate changes",
+                    f"{agent_label} {stop_reason} after producing candidate changes",
                     exec_log,
                 )
                 print(
-                    "  timed out: implementation produced candidate changes; "
+                    f"  {stop_reason}: implementation produced candidate changes; "
                     "continuing to controller gates"
                 )
                 write_static_run_state(
                     CURRENT_RUN_PATH,
                     base_status,
                     status="running",
-                    stage="implementation_timeout_candidate",
+                    stage=(
+                        "implementation_timeout_candidate"
+                        if code == 124
+                        else "implementation_log_limit_candidate"
+                    ),
                     message=(
-                        "implementation timed out after changing files; "
+                        f"implementation {stop_reason} after changing files; "
                         "continuing to controller gates"
                     ),
                 )
@@ -1082,7 +1175,13 @@ def run_task(
                     CURRENT_RUN_PATH,
                     base_status,
                     status="blocked",
-                    stage="implementation_timeout" if code == 124 else "implementation",
+                    stage=(
+                        "implementation_timeout"
+                        if code == 124
+                        else "implementation_log_limit"
+                        if code == LOG_LIMIT_EXIT_CODE
+                        else "implementation"
+                    ),
                     message=(
                         "implementation attempt failed; "
                         "stopped before launching another broad retry"
@@ -1091,7 +1190,30 @@ def run_task(
                 return False
 
         if code != 0 and previous_failure is not None:
-            print("  note: timeout details retained for run history; gates decide task outcome")
+            print("  note: budget-stop details retained for run history; gates decide task outcome")
+
+        current_status_lines = git_status_lines()
+        if (
+            not args.allow_no_changes
+            and initial_status_lines == []
+            and not implementation_has_candidate_changes(
+                initial_status_lines,
+                current_status_lines,
+            )
+        ):
+            previous_failure = (
+                f"{agent_label} produced no candidate diff; skipped gates and review. "
+                "If this is an intentional verification-only task, rerun with --allow-no-changes."
+            )
+            print(f"  blocked: {previous_failure}")
+            write_static_run_state(
+                CURRENT_RUN_PATH,
+                base_status,
+                status="blocked",
+                stage="implementation_no_changes",
+                message=previous_failure,
+            )
+            return False
 
         gates_ok, gate_result = run_quality_gates(
             task_run_dir,
@@ -1109,7 +1231,9 @@ def run_task(
                 task,
                 task_run_dir,
                 args.codex_bin,
+                args.codex_lean,
                 review_timeout_seconds,
+                review_log_limit_bytes,
                 base_status,
                 args.heartbeat_seconds,
             )
@@ -1224,6 +1348,18 @@ def parse_args() -> argparse.Namespace:
         help="Maximum runtime for the structured review gate; 0 disables.",
     )
     run_parser.add_argument(
+        "--agent-log-limit-bytes",
+        type=int,
+        default=DEFAULT_AGENT_LOG_LIMIT_BYTES,
+        help="Maximum implementation/final-repair log size before stopping; 0 disables.",
+    )
+    run_parser.add_argument(
+        "--review-log-limit-bytes",
+        type=int,
+        default=DEFAULT_REVIEW_LOG_LIMIT_BYTES,
+        help="Maximum structured-review log size before stopping; 0 disables.",
+    )
+    run_parser.add_argument(
         "--final-repair-timeout-seconds",
         type=int,
         default=DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS,
@@ -1250,6 +1386,11 @@ def parse_args() -> argparse.Namespace:
     )
     run_parser.add_argument("--commit", action="store_true", help="Commit each completed task.")
     run_parser.add_argument("--allow-dirty", action="store_true")
+    run_parser.add_argument(
+        "--allow-no-changes",
+        action="store_true",
+        help="Allow gates/review even when a clean implementation pass produces no diff.",
+    )
     run_parser.add_argument("--skip-review", action="store_true")
     agent_group = run_parser.add_mutually_exclusive_group()
     agent_group.add_argument(
@@ -1268,6 +1409,13 @@ def parse_args() -> argparse.Namespace:
         help="Run implementation attempts with Kimi Code via non-interactive prompt mode.",
     )
     run_parser.add_argument("--codex-bin", default="codex")
+    run_parser.add_argument(
+        "--codex-full-config",
+        dest="codex_lean",
+        action="store_false",
+        help="Load full Codex user config instead of the lean automation invocation.",
+    )
+    run_parser.set_defaults(codex_lean=True)
     run_parser.add_argument("--kimi-bin", default="kimi")
     args = parser.parse_args()
     apply_agent_defaults(args)
@@ -1326,6 +1474,8 @@ def main() -> int:
     validate_heartbeat_seconds(args.heartbeat_seconds)
     normalize_timeout_seconds(args.final_repair_timeout_seconds)
     normalize_timeout_seconds(args.repair_review_timeout_seconds)
+    normalize_log_limit_bytes(args.agent_log_limit_bytes)
+    normalize_log_limit_bytes(args.review_log_limit_bytes)
     check_clean_worktree(args.allow_dirty)
     if args.task:
         candidates = [task_map(ledger)[args.task]]

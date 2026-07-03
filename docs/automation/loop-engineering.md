@@ -52,7 +52,14 @@ python3 scripts/run_task_loop.py run --codex
 python3 scripts/run_task_loop.py run --kimi
 ```
 
-`--codex` is the default and runs `codex exec`. `--kimi` runs implementation attempts with Kimi Code's non-interactive `--prompt` mode. The final structured review gate still uses Codex because it depends on schema-constrained review output.
+`--codex` is the default and runs `codex exec`. Automation uses a lean Codex
+invocation by default: no user config, ephemeral sessions, and no terminal
+color. This keeps user-level MCP startup, large skill catalogs, and persistent
+session artifacts out of task-loop runs. Use `--codex-full-config` only when a
+task truly needs the full interactive Codex profile. `--kimi` runs
+implementation attempts with Kimi Code's non-interactive `--prompt` mode. The
+final structured review gate still uses Codex because it depends on
+schema-constrained review output.
 
 Implementation attempts are capped at 3600 seconds by default, structured review
 is capped at 600 seconds, and the focused post-repair verification review is
@@ -70,6 +77,29 @@ python3 scripts/run_task_loop.py run --agent-timeout-seconds 0 --review-timeout-
 
 Use `0` to disable a timeout for trusted long-running agents.
 
+## Cost Controls
+
+Implementation prompts now require the agent to end the final response with
+`TASK_LOOP_DONE` on its own line. When the controller sees that marker in the
+log, it stops waiting and moves directly to quality gates. This handles the
+common failure mode where an agent has already summarized completed work but the
+CLI process keeps running until the timeout.
+
+The runner also applies log-size budgets:
+
+```bash
+python3 scripts/run_task_loop.py run --agent-log-limit-bytes 2000000
+python3 scripts/run_task_loop.py run --review-log-limit-bytes 1000000
+python3 scripts/run_task_loop.py run --agent-log-limit-bytes 0 --review-log-limit-bytes 0
+```
+
+If an implementation hits the timeout or log budget after producing a candidate
+diff, the controller records the budget stop and still runs its own gates and
+review. If the budget stop produces no candidate diff, the task blocks for
+inspection. A clean implementation pass that exits without any candidate diff
+also blocks before gates/review; rerun with `--allow-no-changes` only for an
+intentional verification-only task.
+
 Long-running commands print a heartbeat every 30 seconds with elapsed time, pid,
 log path, and current git change count. Override or disable the heartbeat when
 needed:
@@ -78,11 +108,6 @@ needed:
 python3 scripts/run_task_loop.py run --heartbeat-seconds 10
 python3 scripts/run_task_loop.py run --heartbeat-seconds 0
 ```
-
-If an implementation agent times out after producing a candidate diff, the
-controller does not automatically discard the work. It records the timeout, then
-continues to the controller-owned quality gates and review. Timeouts with no new
-candidate diff still block immediately.
 
 Run one task and commit it after all gates pass:
 
