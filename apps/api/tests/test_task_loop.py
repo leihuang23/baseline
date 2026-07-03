@@ -107,6 +107,30 @@ def test_current_command_is_available(monkeypatch) -> None:
     args = TASK_LOOP.parse_args()
 
     assert args.command == "current"
+    assert args.watch is False
+    assert args.interval == 2.0
+
+
+def test_current_command_accepts_watch_options(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run_task_loop.py",
+            "current",
+            "--watch",
+            "--interval",
+            "1.5",
+            "--tail-lines",
+            "80",
+        ],
+    )
+
+    args = TASK_LOOP.parse_args()
+
+    assert args.command == "current"
+    assert args.watch is True
+    assert args.interval == 1.5
+    assert args.tail_lines == 80
 
 
 def test_negative_timeout_is_rejected() -> None:
@@ -125,6 +149,22 @@ def test_negative_heartbeat_is_rejected() -> None:
         assert "Heartbeat seconds" in str(exc)
     else:
         raise AssertionError("negative heartbeat should fail")
+
+
+def test_nonpositive_watch_options_are_rejected() -> None:
+    try:
+        TASK_LOOP.validate_positive_float(0, "watch interval")
+    except TASK_LOOP.LoopError as exc:
+        assert "watch interval" in str(exc)
+    else:
+        raise AssertionError("zero watch interval should fail")
+
+    try:
+        TASK_LOOP.validate_positive_int(0, "tail lines")
+    except TASK_LOOP.LoopError as exc:
+        assert "tail lines" in str(exc)
+    else:
+        raise AssertionError("zero tail lines should fail")
 
 
 def test_run_command_selects_kimi_agent(monkeypatch) -> None:

@@ -29,11 +29,13 @@ Show the live or most recent loop state:
 
 ```bash
 make task-current
+make task-current-watch
 ```
 
 The runner writes `.task-runs/current.json` while it works. `make task-current`
 prints the active task, stage, attempt, elapsed time, timeout remaining, run
 directory, log file, git change summary, and a cleaned tail of the current log.
+Use `make task-current-watch` to refresh that view continuously until Ctrl-C.
 
 Run exactly one task from the active cluster:
 
@@ -109,13 +111,14 @@ If the loop fails, inspect the latest directory under `.task-runs/`. The runner 
 For a run that looks stuck, check the live state first:
 
 ```bash
-make task-current
-tail -f "$(python3 - <<'PY'
-import json, pathlib
-state = json.loads(pathlib.Path('.task-runs/current.json').read_text())
-print(state['log_file'])
-PY
-)"
+make task-current-watch
+```
+
+Tune the live view when needed:
+
+```bash
+python3 scripts/run_task_loop.py current --watch --interval 1
+python3 scripts/run_task_loop.py current --watch --tail-lines 80
 ```
 
 Use a specific task when needed:

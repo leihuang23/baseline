@@ -1,7 +1,7 @@
 UV_CACHE_DIR ?= .uv-cache
 export UV_CACHE_DIR
 
-.PHONY: dev test lint typecheck migrate fmt eval task-status task-next task-current task-loop-one task-loop-one-codex task-loop-one-kimi task-loop-one-commit task-loop-one-commit-codex task-loop-one-commit-kimi task-loop-p0-cluster task-loop-p0-cluster-codex task-loop-p0-cluster-kimi
+.PHONY: dev test lint typecheck migrate fmt eval task-status task-next task-current task-current-watch task-loop-one task-loop-one-codex task-loop-one-kimi task-loop-one-commit task-loop-one-commit-codex task-loop-one-commit-kimi task-loop-p0-cluster task-loop-p0-cluster-codex task-loop-p0-cluster-kimi
 
 dev:
 	uv run uvicorn baseline_api.main:app --reload
@@ -33,6 +33,9 @@ task-next:
 
 task-current:
 	python3 scripts/run_task_loop.py current
+
+task-current-watch:
+	python3 scripts/run_task_loop.py current --watch
 
 task-loop-one:
 	python3 scripts/run_task_loop.py run

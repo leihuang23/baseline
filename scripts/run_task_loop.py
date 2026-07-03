@@ -369,6 +369,16 @@ def validate_heartbeat_seconds(value: int) -> None:
         raise LoopError("Heartbeat seconds must be non-negative; use 0 to disable heartbeats.")
 
 
+def validate_positive_float(value: float, label: str) -> None:
+    if value <= 0:
+        raise LoopError(f"{label} must be greater than 0.")
+
+
+def validate_positive_int(value: int, label: str) -> None:
+    if value <= 0:
+        raise LoopError(f"{label} must be greater than 0.")
+
+
 def read_failure_context(path: Path) -> str:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -417,13 +427,13 @@ def latest_run_dir() -> Path | None:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
-def print_current_run() -> None:
+def render_current_run(line_count: int = CURRENT_LOG_TAIL_LINES) -> str:
     if not CURRENT_RUN_PATH.exists():
-        print("No current task-loop state file.")
+        lines = ["No current task-loop state file."]
         latest = latest_run_dir()
         if latest is not None:
-            print(f"latest run dir: {relative_to_root(latest)}")
-        return
+            lines.append(f"latest run dir: {relative_to_root(latest)}")
+        return "\n".join(lines)
 
     try:
         state = json.loads(CURRENT_RUN_PATH.read_text(encoding="utf-8"))
@@ -432,28 +442,81 @@ def print_current_run() -> None:
 
     pid = state.get("pid")
     live = process_liveness(pid if isinstance(pid, int) else None)
-    print(f"status: {state.get('status', 'unknown')} ({live})")
-    print(f"task: {state.get('task_id', 'unknown')} - {state.get('task_title', 'unknown')}")
-    print(f"stage: {state.get('stage', 'unknown')}")
-    print(f"attempt: {state.get('attempt', '?')}/{state.get('max_attempts', '?')}")
-    print(f"command: {state.get('command_label', 'unknown')}")
-    print(f"elapsed: {state.get('elapsed', 'unknown')}")
-    if state.get("timeout_remaining") is not None:
-        print(f"timeout remaining: {state['timeout_remaining']}")
-    print(f"run dir: {state.get('run_dir', 'unknown')}")
-    print(f"log: {state.get('log_file', 'unknown')}")
+    lines = [
+        f"status: {state.get('status', 'unknown')} ({live})",
+        f"task: {state.get('task_id', 'unknown')} - {state.get('task_title', 'unknown')}",
+        f"stage: {state.get('stage', 'unknown')}",
+        f"attempt: {state.get('attempt', '?')}/{state.get('max_attempts', '?')}",
+        f"command: {state.get('command_label', 'unknown')}",
+        f"elapsed: {current_elapsed(state)}",
+    ]
+    timeout_remaining = current_timeout_remaining(state)
+    if timeout_remaining is not None:
+        lines.append(f"timeout remaining: {timeout_remaining}")
+    lines.extend(
+        [
+            f"run dir: {state.get('run_dir', 'unknown')}",
+            f"log: {state.get('log_file', 'unknown')}",
+        ]
+    )
     git_status = state.get("git_status", {})
     if isinstance(git_status, dict):
-        print(f"git: {git_status.get('summary', 'unknown')}")
+        lines.append(f"git: {git_status.get('summary', 'unknown')}")
 
     log_name = state.get("log_file")
     if isinstance(log_name, str):
         log_path = ROOT / log_name
         if log_path.exists():
-            tail = clean_log_tail(log_path)
+            tail = clean_log_tail(log_path, line_count)
             if tail:
-                print("\nlog tail:")
-                print(tail)
+                lines.extend(["", "log tail:", tail])
+    return "\n".join(lines)
+
+
+def current_elapsed(state: dict[str, Any]) -> str:
+    started_at = parse_utc_timestamp(state.get("started_at"))
+    if state.get("status") == "running" and started_at is not None:
+        return format_elapsed(max(0, int((utc_datetime() - started_at).total_seconds())))
+    elapsed = state.get("elapsed")
+    return str(elapsed) if elapsed is not None else "unknown"
+
+
+def current_timeout_remaining(state: dict[str, Any]) -> str | None:
+    timeout_seconds = state.get("timeout_seconds")
+    if not isinstance(timeout_seconds, int):
+        return None
+    started_at = parse_utc_timestamp(state.get("started_at"))
+    if state.get("status") == "running" and started_at is not None:
+        elapsed_seconds = max(0, int((utc_datetime() - started_at).total_seconds()))
+        return format_elapsed(max(0, timeout_seconds - elapsed_seconds))
+    timeout_remaining = state.get("timeout_remaining")
+    return str(timeout_remaining) if timeout_remaining is not None else None
+
+
+def parse_utc_timestamp(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def print_current_run(line_count: int = CURRENT_LOG_TAIL_LINES) -> None:
+    print(render_current_run(line_count))
+
+
+def watch_current_run(interval_seconds: float, line_count: int) -> None:
+    try:
+        while True:
+            if sys.stdout.isatty():
+                print("\033[2J\033[H", end="")
+            print(render_current_run(line_count))
+            print(f"\nrefreshing every {interval_seconds:g}s; press Ctrl-C to stop")
+            sys.stdout.flush()
+            time.sleep(interval_seconds)
+    except KeyboardInterrupt:
+        print("\nstopped watching")
 
 
 def format_logged_failure(summary: str, log_file: Path) -> str:
@@ -792,7 +855,20 @@ def parse_args() -> argparse.Namespace:
     for name in ("status", "next"):
         subparser = subparsers.add_parser(name)
         subparser.add_argument("--cluster")
-    subparsers.add_parser("current")
+    current_parser = subparsers.add_parser("current")
+    current_parser.add_argument("--watch", action="store_true", help="Refresh until interrupted.")
+    current_parser.add_argument(
+        "--interval",
+        type=float,
+        default=2.0,
+        help="Seconds between watch refreshes.",
+    )
+    current_parser.add_argument(
+        "--tail-lines",
+        type=int,
+        default=CURRENT_LOG_TAIL_LINES,
+        help="Number of cleaned log lines to show.",
+    )
 
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--cluster")
@@ -866,7 +942,12 @@ def main() -> int:
         return 0
 
     if args.command == "current":
-        print_current_run()
+        validate_positive_int(args.tail_lines, "tail lines")
+        if args.watch:
+            validate_positive_float(args.interval, "watch interval")
+            watch_current_run(args.interval, args.tail_lines)
+        else:
+            print_current_run(args.tail_lines)
         return 0
 
     validate_heartbeat_seconds(args.heartbeat_seconds)
