@@ -1,7 +1,7 @@
 {
   "version": 1,
   "active_cluster": "P0-foundations-finish",
-  "updated_at": "2026-07-03T00:00:00Z",
+  "updated_at": "2026-07-03T02:17:43Z",
   "quality_gates": [
     "make fmt",
     "make lint",
@@ -127,7 +127,9 @@
       "title": "safety privacy design",
       "prompt": "tasks/P0-05-safety-privacy-design.md",
       "phase": "P0",
-      "status": "pending"
+      "status": "complete",
+      "completed_at": "2026-07-03T02:17:43Z",
+      "last_run_dir": ".task-runs/2026-07-03T021342Z-P0-05-attempt-2"
     },
     {
       "id": "P0-06",
