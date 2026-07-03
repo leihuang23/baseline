@@ -11,8 +11,6 @@ from baseline_api.schemas.api import (
     DailyAnalysisRequest,
     DailyAnalysisResponse,
     DailyBriefingResponse,
-    DailyCheckInRequest,
-    DailyCheckInResponse,
     DataExportRequest,
     DataExportResponse,
     RecommendationFeedbackRequest,
@@ -26,14 +24,6 @@ router = APIRouter(prefix="/v1", tags=["contracts"])
 def _stub(response: Response) -> APIEnvelope[None]:
     response.status_code = status.HTTP_501_NOT_IMPLEMENTED
     return not_implemented_envelope()
-
-
-@router.post("/checkins/daily", response_model=APIEnvelope[DailyCheckInResponse])
-async def submit_daily_checkin(
-    request: DailyCheckInRequest,
-    response: Response,
-) -> APIEnvelope[None]:
-    return _stub(response)
 
 
 @router.post("/analysis/daily", response_model=APIEnvelope[DailyAnalysisResponse])

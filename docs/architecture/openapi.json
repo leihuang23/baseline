@@ -123,47 +123,6 @@
         }
       }
     },
-    "/v1/checkins/daily": {
-      "post": {
-        "tags": [
-          "contracts"
-        ],
-        "summary": "Submit Daily Checkin",
-        "operationId": "submit_daily_checkin_v1_checkins_daily_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DailyCheckInRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/analysis/daily": {
       "post": {
         "tags": [
@@ -369,6 +328,134 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/checkins/daily": {
+      "post": {
+        "tags": [
+          "checkins"
+        ],
+        "summary": "Submit Daily Checkin",
+        "operationId": "submit_daily_checkin_v1_checkins_daily_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyCheckInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/checkins/daily/{checkin_id}": {
+      "put": {
+        "tags": [
+          "checkins"
+        ],
+        "summary": "Update Daily Checkin",
+        "operationId": "update_daily_checkin_v1_checkins_daily__checkin_id__put",
+        "parameters": [
+          {
+            "name": "checkin_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checkin Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyCheckInRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "checkins"
+        ],
+        "summary": "Delete Daily Checkin",
+        "operationId": "delete_daily_checkin_v1_checkins_daily__checkin_id__delete",
+        "parameters": [
+          {
+            "name": "checkin_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checkin Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -1105,6 +1192,18 @@
             "title": "Alcohol",
             "default": false
           },
+          "caffeine_notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caffeine Notes"
+          },
           "illness": {
             "type": "boolean",
             "title": "Illness",
@@ -1220,7 +1319,25 @@
             "$ref": "#/components/schemas/DailyCheckInFlags"
           },
           "structured_notes": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "type": "object",
             "title": "Structured Notes"
           },
@@ -1236,14 +1353,14 @@
             "title": "Free Text Note"
           },
           "sensitive_note_policy": {
-            "$ref": "#/components/schemas/SensitiveNotePolicy"
+            "$ref": "#/components/schemas/SensitiveNotePolicy",
+            "default": "exclude_from_external_llm"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "date",
-          "sensitive_note_policy"
+          "date"
         ],
         "title": "DailyCheckInRequest"
       },

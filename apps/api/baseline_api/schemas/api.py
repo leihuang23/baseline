@@ -6,7 +6,7 @@ import datetime as dt
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from baseline_api.schemas.common import ContractModel
 from baseline_api.schemas.enums import (
@@ -36,6 +36,7 @@ from baseline_api.schemas.recommendation import (
 )
 
 Score = int
+StructuredNoteValue = bool | int | float | str | None
 
 
 class HealthSamplePayload(ContractModel):
@@ -76,9 +77,17 @@ class HealthSyncResponse(ContractModel):
 
 class DailyCheckInFlags(ContractModel):
     alcohol: bool = False
+    caffeine_notes: str | None = Field(default=None, max_length=80)
     illness: bool = False
     injury: bool = False
     travel: bool = False
+
+    @field_validator("caffeine_notes")
+    @classmethod
+    def validate_caffeine_notes(cls, value: str | None) -> str | None:
+        if value is not None and "\n" in value:
+            raise ValueError("Caffeine notes must be short high-level indicators.")
+        return value
 
 
 class DailyCheckInRequest(ContractModel):
@@ -91,9 +100,22 @@ class DailyCheckInRequest(ContractModel):
     perceived_recovery_score: Score | None = Field(default=None, ge=1, le=10)
     food_quality_score: Score | None = Field(default=None, ge=1, le=10)
     flags: DailyCheckInFlags = Field(default_factory=DailyCheckInFlags)
-    structured_notes: dict[str, Any] = Field(default_factory=dict)
+    structured_notes: dict[str, StructuredNoteValue] = Field(default_factory=dict)
     free_text_note: str | None = None
-    sensitive_note_policy: SensitiveNotePolicy
+    sensitive_note_policy: SensitiveNotePolicy = SensitiveNotePolicy.exclude_from_external_llm
+
+    @field_validator("structured_notes")
+    @classmethod
+    def validate_structured_notes(
+        cls,
+        value: dict[str, StructuredNoteValue],
+    ) -> dict[str, StructuredNoteValue]:
+        for key, note_value in value.items():
+            if not key.strip() or len(key) > 64:
+                raise ValueError("Structured note keys must be non-empty and at most 64 chars.")
+            if isinstance(note_value, str) and ("\n" in note_value or len(note_value) > 80):
+                raise ValueError("Structured note text values must be short high-level indicators.")
+        return value
 
 
 class DailyCheckInResponse(ContractModel):
