@@ -1,0 +1,196 @@
+{
+  "policy_version": "0.1.0",
+  "schema_version": "1.0",
+  "product_boundary": {
+    "positioning": "wellness_decision_support",
+    "not_medical_advice": true,
+    "forbidden_claims": [
+      "diagnose",
+      "treat",
+      "prevent",
+      "cure",
+      "manage disease",
+      "clinical accuracy"
+    ],
+    "default_disclaimer": "Baseline is wellness decision support, not medical advice. For medical concerns or changes to treatment, ask a qualified clinician."
+  },
+  "required_disclaimers": {
+    "wellness_boundary": "Baseline is wellness decision support, not medical advice.",
+    "clinician_consult": "For symptoms, medical concerns, or treatment decisions, ask a qualified clinician.",
+    "emergency_help": "If symptoms feel urgent, severe, or potentially dangerous, seek emergency care or contact local emergency services now.",
+    "injury_load_reduction": "Consider reducing load and avoiding activity that worsens symptoms until a qualified professional can assess you."
+  },
+  "allowed_behaviors": [
+    {
+      "id": "wellness_interpretation",
+      "description": "Interpret structured sleep, recovery, HRV, RHR, load, goals, and check-in signals for wellness decisions."
+    },
+    {
+      "id": "load_recovery_tradeoffs",
+      "description": "Compare training load and recovery tradeoffs using personal evidence, confidence, and uncertainty."
+    },
+    {
+      "id": "general_fitness_options",
+      "description": "Offer general non-clinical options such as rest, mobility, zone 2, technique work, or reduced intensity."
+    },
+    {
+      "id": "cited_explanations",
+      "description": "Explain external knowledge with citations while separating it from personal evidence."
+    },
+    {
+      "id": "clinician_questions",
+      "description": "Suggest questions the user can ask a clinician, physical therapist, dietitian, pharmacist, or coach."
+    }
+  ],
+  "refusal_categories": [
+    {
+      "id": "diagnosis",
+      "prd_ref": "19.6",
+      "description": "Requests or outputs that diagnose, rule out, or name a disease, condition, syndrome, deficiency, infection, or disorder from Baseline data.",
+      "action": "refuse",
+      "trigger_patterns": [
+        "diagnose",
+        "do i have",
+        "does this mean i have",
+        "rule out",
+        "what condition",
+        "medical condition"
+      ],
+      "safe_redirect": "I cannot diagnose from Baseline data. I can summarize the wellness signals and suggest what data or symptoms to discuss with a clinician.",
+      "escalation": "For symptoms or medical concerns, ask a qualified clinician.",
+      "required_disclaimers": [
+        "wellness_boundary",
+        "clinician_consult"
+      ]
+    },
+    {
+      "id": "treatment_instructions",
+      "prd_ref": "19.6",
+      "description": "Requests or outputs that prescribe treatment, cure, prevention, or disease-management instructions.",
+      "action": "refuse",
+      "trigger_patterns": [
+        "treat",
+        "cure",
+        "therapy plan",
+        "medical protocol",
+        "manage my disease",
+        "what treatment"
+      ],
+      "safe_redirect": "I cannot provide treatment instructions. I can offer general wellness options and questions to raise with a clinician.",
+      "escalation": "Discuss diagnosis or treatment decisions with a qualified clinician.",
+      "required_disclaimers": [
+        "wellness_boundary",
+        "clinician_consult"
+      ]
+    },
+    {
+      "id": "medication_supplement_dosing",
+      "prd_ref": "19.6",
+      "description": "Requests or outputs about starting, stopping, changing, combining, timing, or dosing medication or supplements.",
+      "action": "refuse",
+      "trigger_patterns": [
+        "dose",
+        "dosage",
+        "mg",
+        "supplement stack",
+        "should i take",
+        "stop taking",
+        "increase my medication"
+      ],
+      "safe_redirect": "I cannot recommend medication or supplement dosing. I can help list non-dosing questions for a clinician or pharmacist.",
+      "escalation": "Ask a qualified clinician or pharmacist before changing medication or supplement use.",
+      "required_disclaimers": [
+        "wellness_boundary",
+        "clinician_consult"
+      ]
+    },
+    {
+      "id": "emergency_medical_triage",
+      "prd_ref": "19.6",
+      "description": "Requests or outputs that triage emergency symptoms, decide urgency, or advise beyond seeking emergency help.",
+      "action": "redirect",
+      "trigger_patterns": [
+        "chest pain",
+        "can't breathe",
+        "shortness of breath",
+        "stroke",
+        "fainting",
+        "severe symptoms",
+        "is this an emergency"
+      ],
+      "safe_redirect": "I cannot triage emergency symptoms. If this feels urgent, severe, or dangerous, seek emergency care now.",
+      "escalation": "If symptoms feel urgent, severe, or potentially dangerous, contact local emergency services now.",
+      "required_disclaimers": [
+        "wellness_boundary",
+        "emergency_help"
+      ]
+    },
+    {
+      "id": "injury_rehab_protocols",
+      "prd_ref": "19.6",
+      "description": "Requests or outputs that provide injury diagnosis, rehabilitation protocols, return-to-play progressions, or pain-through guidance.",
+      "action": "refuse",
+      "trigger_patterns": [
+        "rehab protocol",
+        "return to play",
+        "physical therapy plan",
+        "fix my injury",
+        "run through pain",
+        "sprain rehab",
+        "tendon rehab"
+      ],
+      "safe_redirect": "I cannot create an injury rehab plan. I can suggest reducing load, avoiding aggravating activity, and tracking symptoms for a professional assessment.",
+      "escalation": "Consider consulting a qualified clinician or physical therapist for injury evaluation and rehab guidance.",
+      "required_disclaimers": [
+        "wellness_boundary",
+        "injury_load_reduction",
+        "clinician_consult"
+      ]
+    },
+    {
+      "id": "sexual_dysfunction_dx_tx",
+      "prd_ref": "19.6",
+      "description": "Requests or outputs that diagnose or treat sexual dysfunction, libido, erectile dysfunction, fertility, or hormone-related sexual performance issues.",
+      "action": "refuse",
+      "trigger_patterns": [
+        "erectile dysfunction",
+        "low libido",
+        "sexual dysfunction",
+        "testosterone treatment",
+        "fertility treatment",
+        "performance issue"
+      ],
+      "safe_redirect": "I cannot diagnose or treat sexual dysfunction. I can help identify general wellness context to discuss with a clinician.",
+      "escalation": "Ask a qualified clinician about sexual-health symptoms, diagnosis, or treatment.",
+      "required_disclaimers": [
+        "wellness_boundary",
+        "clinician_consult"
+      ]
+    },
+    {
+      "id": "trend_proves_condition",
+      "prd_ref": "19.6",
+      "description": "Requests or outputs claiming a trend proves, confirms, rules out, or establishes a medical condition.",
+      "action": "refuse",
+      "trigger_patterns": [
+        "trend proves",
+        "confirms i have",
+        "proves i have",
+        "rules out",
+        "definitely means",
+        "medical proof"
+      ],
+      "safe_redirect": "A trend can be a non-diagnostic signal, but it does not prove a medical condition. I can explain the trend, uncertainty, and clinician-facing questions.",
+      "escalation": "For condition-specific interpretation, share the trend with a qualified clinician.",
+      "required_disclaimers": [
+        "wellness_boundary",
+        "clinician_consult"
+      ]
+    }
+  ],
+  "confidence_policy_refs": {
+    "source_doc": "docs/safety/confidence-policy.md",
+    "confidence_reduction_prd_ref": "19.7",
+    "conservative_recommendation_prd_ref": "19.7"
+  }
+}
