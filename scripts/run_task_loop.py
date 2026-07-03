@@ -51,12 +51,34 @@ def selected_cluster(ledger: dict[str, Any], cluster_id: str | None) -> dict[str
         raise LoopError(f"Unknown cluster {selected!r}. Available clusters: {choices}") from exc
 
 
-def pending_tasks(ledger: dict[str, Any], cluster_id: str | None) -> list[dict[str, Any]]:
+def cluster_queue(ledger: dict[str, Any], cluster_id: str | None) -> list[dict[str, Any]]:
+    if cluster_id:
+        return [selected_cluster(ledger, cluster_id)]
+
+    active = selected_cluster(ledger, None)
+    clusters = ledger["clusters"]
+    active_index = next(
+        index for index, cluster in enumerate(clusters) if cluster["id"] == active["id"]
+    )
+    return clusters[active_index:]
+
+
+def pending_task_selection(
+    ledger: dict[str, Any], cluster_id: str | None
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     tasks = task_map(ledger)
-    cluster = selected_cluster(ledger, cluster_id)
-    return [
-        tasks[task_id] for task_id in cluster["tasks"] if tasks[task_id]["status"] != "complete"
-    ]
+    for cluster in cluster_queue(ledger, cluster_id):
+        pending = [
+            tasks[task_id] for task_id in cluster["tasks"] if tasks[task_id]["status"] != "complete"
+        ]
+        if pending:
+            return cluster, pending
+    return None, []
+
+
+def pending_tasks(ledger: dict[str, Any], cluster_id: str | None) -> list[dict[str, Any]]:
+    _, tasks = pending_task_selection(ledger, cluster_id)
+    return tasks
 
 
 def run_logged(command: list[str], log_file: Path, input_text: str | None = None) -> int:
@@ -322,7 +344,12 @@ def main() -> int:
         return 0
 
     check_clean_worktree(args.allow_dirty)
-    candidates = [task_map(ledger)[args.task]] if args.task else pending_tasks(ledger, args.cluster)
+    if args.task:
+        candidates = [task_map(ledger)[args.task]]
+    else:
+        cluster, candidates = pending_task_selection(ledger, args.cluster)
+        if cluster and not args.cluster:
+            ledger["active_cluster"] = cluster["id"]
     if not candidates:
         print("No pending tasks.")
         return 0
