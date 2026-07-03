@@ -1,0 +1,336 @@
+{
+  "version": 1,
+  "active_cluster": "P0-foundations-finish",
+  "updated_at": "2026-07-03T00:00:00Z",
+  "quality_gates": [
+    "make fmt",
+    "make lint",
+    "make typecheck",
+    "make test"
+  ],
+  "clusters": [
+    {
+      "id": "P0-foundations-finish",
+      "description": "Finish the remaining foundation slices after P0-04.",
+      "tasks": [
+        "P0-05",
+        "P0-06",
+        "P0-07"
+      ],
+      "cluster_review_required": true
+    },
+    {
+      "id": "P1-ingestion-mvp",
+      "description": "Build the HealthKit ingestion MVP in dependency order.",
+      "tasks": [
+        "P1-01",
+        "P1-02",
+        "P1-03",
+        "P1-04"
+      ],
+      "cluster_review_required": true
+    },
+    {
+      "id": "P2-feature-checkin",
+      "description": "Add daily check-ins and deterministic feature generation.",
+      "tasks": [
+        "P2-01",
+        "P2-02",
+        "P2-03",
+        "P2-04",
+        "P2-05"
+      ],
+      "cluster_review_required": true
+    },
+    {
+      "id": "P3-core-loop",
+      "description": "Build the deterministic reasoning, LLM, safety, briefing, and assistant loop.",
+      "tasks": [
+        "P3-01",
+        "P3-02",
+        "P3-03",
+        "P3-04",
+        "P3-05",
+        "P3-06",
+        "P3-07",
+        "P3-08"
+      ],
+      "cluster_review_required": true
+    },
+    {
+      "id": "P4-memory-data-controls",
+      "description": "Add memory, feedback, consent, export, and deletion support.",
+      "tasks": [
+        "P4-01",
+        "P4-02",
+        "P4-03",
+        "P4-04"
+      ],
+      "cluster_review_required": true
+    },
+    {
+      "id": "P5-knowledge-ops",
+      "description": "Add external knowledge retrieval, eval operations, and cost fallback controls.",
+      "tasks": [
+        "P5-01",
+        "P5-02",
+        "P5-03",
+        "P5-04"
+      ],
+      "cluster_review_required": true
+    },
+    {
+      "id": "P6-demo-portfolio",
+      "description": "Package the synthetic demo and portfolio-facing documentation.",
+      "tasks": [
+        "P6-01",
+        "P6-02"
+      ],
+      "cluster_review_required": true
+    }
+  ],
+  "tasks": [
+    {
+      "id": "P0-01",
+      "title": "repo scaffold",
+      "prompt": "tasks/P0-01-repo-scaffold.md",
+      "phase": "P0",
+      "status": "complete",
+      "notes": "Completed before loop ledger creation."
+    },
+    {
+      "id": "P0-02",
+      "title": "data model migrations",
+      "prompt": "tasks/P0-02-data-model-migrations.md",
+      "phase": "P0",
+      "status": "complete",
+      "notes": "Completed before loop ledger creation."
+    },
+    {
+      "id": "P0-03",
+      "title": "synthetic fixtures",
+      "prompt": "tasks/P0-03-synthetic-fixtures.md",
+      "phase": "P0",
+      "status": "complete",
+      "notes": "Completed before loop ledger creation."
+    },
+    {
+      "id": "P0-04",
+      "title": "api contracts schemas",
+      "prompt": "tasks/P0-04-api-contracts-schemas.md",
+      "phase": "P0",
+      "status": "complete",
+      "notes": "Completed before loop ledger creation."
+    },
+    {
+      "id": "P0-05",
+      "title": "safety privacy design",
+      "prompt": "tasks/P0-05-safety-privacy-design.md",
+      "phase": "P0",
+      "status": "pending"
+    },
+    {
+      "id": "P0-06",
+      "title": "observability redaction",
+      "prompt": "tasks/P0-06-observability-redaction.md",
+      "phase": "P0",
+      "status": "pending"
+    },
+    {
+      "id": "P0-07",
+      "title": "eval harness scaffold",
+      "prompt": "tasks/P0-07-eval-harness-scaffold.md",
+      "phase": "P0",
+      "status": "pending"
+    },
+    {
+      "id": "P1-01",
+      "title": "health sync api",
+      "prompt": "tasks/P1-01-health-sync-api.md",
+      "phase": "P1",
+      "status": "pending"
+    },
+    {
+      "id": "P1-02",
+      "title": "normalization module",
+      "prompt": "tasks/P1-02-normalization-module.md",
+      "phase": "P1",
+      "status": "pending"
+    },
+    {
+      "id": "P1-03",
+      "title": "backfill data quality",
+      "prompt": "tasks/P1-03-backfill-data-quality.md",
+      "phase": "P1",
+      "status": "pending"
+    },
+    {
+      "id": "P1-04",
+      "title": "ios healthkit sync",
+      "prompt": "tasks/P1-04-ios-healthkit-sync.md",
+      "phase": "P1",
+      "status": "pending"
+    },
+    {
+      "id": "P2-01",
+      "title": "checkin api redaction",
+      "prompt": "tasks/P2-01-checkin-api-redaction.md",
+      "phase": "P2",
+      "status": "pending"
+    },
+    {
+      "id": "P2-02",
+      "title": "feature engine sleep cardio",
+      "prompt": "tasks/P2-02-feature-engine-sleep-cardio.md",
+      "phase": "P2",
+      "status": "pending"
+    },
+    {
+      "id": "P2-03",
+      "title": "feature engine load density",
+      "prompt": "tasks/P2-03-feature-engine-load-density.md",
+      "phase": "P2",
+      "status": "pending"
+    },
+    {
+      "id": "P2-04",
+      "title": "feature golden tests",
+      "prompt": "tasks/P2-04-feature-golden-tests.md",
+      "phase": "P2",
+      "status": "pending"
+    },
+    {
+      "id": "P2-05",
+      "title": "ios checkin goals ui",
+      "prompt": "tasks/P2-05-ios-checkin-goals-ui.md",
+      "phase": "P2",
+      "status": "pending"
+    },
+    {
+      "id": "P3-01",
+      "title": "goal management",
+      "prompt": "tasks/P3-01-goal-management.md",
+      "phase": "P3",
+      "status": "pending"
+    },
+    {
+      "id": "P3-02",
+      "title": "reasoning engine",
+      "prompt": "tasks/P3-02-reasoning-engine.md",
+      "phase": "P3",
+      "status": "pending"
+    },
+    {
+      "id": "P3-03",
+      "title": "reasoning golden scenarios",
+      "prompt": "tasks/P3-03-reasoning-golden-scenarios.md",
+      "phase": "P3",
+      "status": "pending"
+    },
+    {
+      "id": "P3-04",
+      "title": "llm orchestrator",
+      "prompt": "tasks/P3-04-llm-orchestrator.md",
+      "phase": "P3",
+      "status": "pending"
+    },
+    {
+      "id": "P3-05",
+      "title": "safety policy engine",
+      "prompt": "tasks/P3-05-safety-policy-engine.md",
+      "phase": "P3",
+      "status": "pending"
+    },
+    {
+      "id": "P3-06",
+      "title": "daily briefing assembly",
+      "prompt": "tasks/P3-06-daily-briefing-assembly.md",
+      "phase": "P3",
+      "status": "pending"
+    },
+    {
+      "id": "P3-07",
+      "title": "assistant qa",
+      "prompt": "tasks/P3-07-assistant-qa.md",
+      "phase": "P3",
+      "status": "pending"
+    },
+    {
+      "id": "P3-08",
+      "title": "ios briefing trace ui",
+      "prompt": "tasks/P3-08-ios-briefing-trace-ui.md",
+      "phase": "P3",
+      "status": "pending"
+    },
+    {
+      "id": "P4-01",
+      "title": "memory daily weekly",
+      "prompt": "tasks/P4-01-memory-daily-weekly.md",
+      "phase": "P4",
+      "status": "pending"
+    },
+    {
+      "id": "P4-02",
+      "title": "memory monthly quarterly",
+      "prompt": "tasks/P4-02-memory-monthly-quarterly.md",
+      "phase": "P4",
+      "status": "pending"
+    },
+    {
+      "id": "P4-03",
+      "title": "feedback outcome loop",
+      "prompt": "tasks/P4-03-feedback-outcome-loop.md",
+      "phase": "P4",
+      "status": "pending"
+    },
+    {
+      "id": "P4-04",
+      "title": "data controls consent",
+      "prompt": "tasks/P4-04-data-controls-consent.md",
+      "phase": "P4",
+      "status": "pending"
+    },
+    {
+      "id": "P5-01",
+      "title": "knowledge corpus",
+      "prompt": "tasks/P5-01-knowledge-corpus.md",
+      "phase": "P5",
+      "status": "pending"
+    },
+    {
+      "id": "P5-02",
+      "title": "knowledge retrieval citations",
+      "prompt": "tasks/P5-02-knowledge-retrieval-citations.md",
+      "phase": "P5",
+      "status": "pending"
+    },
+    {
+      "id": "P5-03",
+      "title": "eval ops dashboard",
+      "prompt": "tasks/P5-03-eval-ops-dashboard.md",
+      "phase": "P5",
+      "status": "pending"
+    },
+    {
+      "id": "P5-04",
+      "title": "cost latency fallback",
+      "prompt": "tasks/P5-04-cost-latency-fallback.md",
+      "phase": "P5",
+      "status": "pending"
+    },
+    {
+      "id": "P6-01",
+      "title": "demo mode leak tests",
+      "prompt": "tasks/P6-01-demo-mode-leak-tests.md",
+      "phase": "P6",
+      "status": "pending"
+    },
+    {
+      "id": "P6-02",
+      "title": "portfolio docs",
+      "prompt": "tasks/P6-02-portfolio-docs.md",
+      "phase": "P6",
+      "status": "pending"
+    }
+  ]
+}
