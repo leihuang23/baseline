@@ -62,9 +62,7 @@ def compute_sleep_features(
             flags.append("anomalous_sleep_quality_proxy")
         valid_sessions.append(session)
 
-    target_sessions = [
-        session for session in valid_sessions if _sleep_date(session) == target_date
-    ]
+    target_sessions = [session for session in valid_sessions if _sleep_date(session) == target_date]
     if not target_sessions:
         flags.append("missing_sleep")
         latest_sleep_date = _latest_sleep_date(valid_sessions, target_date)
@@ -217,8 +215,7 @@ def _has_conflicting_target_sessions(sessions: list[SleepSessionInput]) -> bool:
         key=lambda session: session.start_time,
     )
     return any(
-        (first_end := _effective_end_time(first)) is not None
-        and first_end > second.start_time
+        (first_end := _effective_end_time(first)) is not None and first_end > second.start_time
         for first, second in zip(sorted_sessions, sorted_sessions[1:], strict=False)
     )
 

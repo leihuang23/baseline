@@ -7,7 +7,7 @@ import datetime as dt
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Index
+from sqlalchemy import Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field
 
@@ -18,7 +18,10 @@ class DerivedDailyFeature(BaseDBModel, table=True):
     """Versioned, deterministic feature bundle for a single calendar day."""
 
     __tablename__ = "derived_daily_feature"
-    __table_args__ = (Index("ix_derived_daily_feature_user_id_date", "user_id", "date"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "date", name="uq_derived_daily_feature_user_date"),
+        Index("ix_derived_daily_feature_user_id_date", "user_id", "date"),
+    )
 
     user_id: UUID = Field(foreign_key="user.id", nullable=False)
     date: dt.date = Field(nullable=False)

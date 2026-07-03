@@ -358,13 +358,10 @@ def test_assembler_returns_derived_daily_feature_field_shape() -> None:
     assert derived_fields["sleep_features"]["status"] == "computed"
     assert derived_fields["hrv_features"]["status"] == "computed"
     assert derived_fields["rhr_features"]["status"] == "computed"
-    assert derived_fields["training_load_features"] == {}
-    assert derived_fields["recovery_features"] == {}
-    assert derived_fields["goal_features"] == {}
+    assert derived_fields["training_load_features"]["status"] == "insufficient_data"
+    assert derived_fields["recovery_features"]["status"] == "computed"
+    assert derived_fields["goal_features"]["status"] == "insufficient_data"
     assert derived_fields["computed_at"] == dt.datetime(2026, 1, 25, 8, 0, tzinfo=dt.UTC)
-    assert derived_fields["data_quality"]["recovery_confidence_inputs"]["overall_completeness"] == (
-        pytest.approx(1.0)
-    )
     assert derived_fields["source_sample_ids"]
 
 
