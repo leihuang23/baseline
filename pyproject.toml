@@ -31,8 +31,8 @@ requires = ["setuptools>=80.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["apps/api"]
-include = ["baseline_api*"]
+where = ["apps/api", "."]
+include = ["baseline_api*", "packages*"]
 
 [tool.pytest.ini_options]
 testpaths = ["apps/api/tests"]
