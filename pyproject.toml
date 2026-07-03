@@ -8,15 +8,18 @@ dependencies = [
   "alembic>=1.17.0",
   "arq>=0.26.3",
   "fastapi>=0.124.4",
+  "prometheus-client>=0.23.1",
   "pydantic-settings>=2.12.0",
   "psycopg[binary]>=3.3.2",
   "sqlmodel>=0.0.27",
+  "structlog>=25.5.0",
   "uvicorn[standard]>=0.38.0",
 ]
 
 [dependency-groups]
 dev = [
   "coverage[toml]>=7.13.0",
+  "hypothesis>=6.148.7",
   "httpx>=0.28.1",
   "mypy>=1.19.1",
   "pre-commit>=4.5.1",
@@ -67,4 +70,8 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = ["arq.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["prometheus_client.*", "structlog.*"]
 ignore_missing_imports = true
