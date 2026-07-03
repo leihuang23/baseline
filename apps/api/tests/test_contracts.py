@@ -260,6 +260,7 @@ def test_prd_recommendation_example_validates() -> None:
             ),
         },
         "uncertainty": ["No soreness check-in was available."],
+        "safety_status": "passed",
         "safety_note": "This is wellness decision support, not medical advice.",
     }
 
@@ -271,7 +272,7 @@ def test_prd_recommendation_example_validates() -> None:
 
 @pytest.mark.parametrize(
     "field_name",
-    ["personal_evidence", "confidence", "uncertainty", "safety_note"],
+    ["personal_evidence", "confidence", "uncertainty", "safety_status", "safety_note"],
 )
 def test_recommendation_rejects_missing_mandatory_fields(field_name: str) -> None:
     payload = {
@@ -287,6 +288,7 @@ def test_recommendation_rejects_missing_mandatory_fields(field_name: str) -> Non
         ],
         "recommendation": {"primary": "Prefer upper-body strength or zone 2 work today."},
         "uncertainty": ["No soreness check-in was available."],
+        "safety_status": "passed",
         "safety_note": "This is wellness decision support, not medical advice.",
     }
     payload.pop(field_name)

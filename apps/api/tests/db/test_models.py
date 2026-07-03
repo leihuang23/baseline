@@ -18,6 +18,7 @@ from baseline_api.db.models import (
     MemorySummary,
     ModelRun,
     NormalizedHealthMetric,
+    NormalizedHealthMetricSourceSample,
     RawHealthSample,
     ReadinessAssessment,
     Recommendation,
@@ -260,6 +261,32 @@ def test_source_sample_id_provenance_round_trips(db_session, user) -> None:
     assert read_norm is not None
     assert read_norm.source_sample_ids == sample_ids
     assert all(isinstance(v, str) for v in read_norm.source_sample_ids)
+
+
+def test_provenance_link_requires_existing_raw_sample(db_session, user) -> None:
+    """FK-backed provenance rejects references to missing raw samples."""
+
+    norm = NormalizedHealthMetric(
+        user_id=user.id,
+        metric_type=MetricType.steps,
+        start_time=_now(),
+        value=10000.0,
+        unit="count",
+        source_sample_ids=[],
+        normalization_version="v1",
+    )
+    db_session.add(norm)
+    db_session.flush()
+
+    db_session.add(
+        NormalizedHealthMetricSourceSample(
+            normalized_health_metric_id=norm.id,
+            raw_health_sample_id=uuid4(),
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        db_session.flush()
 
 
 def test_fk_integrity_rejects_missing_user(db_session) -> None:

@@ -11,6 +11,7 @@ and evaluation traces. This document describes the schema implemented in
 |-------|--------|---------|
 | **Identity & Consent** | `user`, `consent_record` | Account identity and recorded consent choices. |
 | **Raw Source Data** | `raw_health_sample` | Untouched samples imported from Apple Health or other sources. |
+| **Provenance Links** | `*_source_sample`, `derived_daily_feature_source_metric` | FK-backed links from normalized/session/feature rows to their source records. |
 | **Normalized Records** | `normalized_health_metric`, `workout_session`, `sleep_session` | Canonical, unit-normalized metrics and sessions. |
 | **Manual Input** | `daily_check_in`, `goal` | User-submitted subjective context and active goals. |
 | **Derived Features** | `derived_daily_feature` | Deterministic, versioned feature bundles per day. |
@@ -341,6 +342,11 @@ All time-series access patterns are indexed on `user_id` plus the relevant time 
 - `normalized_health_metric.source_sample_ids`, `workout_session.source_sample_ids`,
   `sleep_session.source_sample_ids`, and `derived_daily_feature.source_sample_ids`
   store the UUID strings of contributing raw/normalized records as JSONB.
+- FK-backed provenance tables enforce that those source references point to
+  existing records:
+  `normalized_health_metric_source_sample`, `workout_session_source_sample`,
+  `sleep_session_source_sample`, `derived_daily_feature_source_sample`, and
+  `derived_daily_feature_source_metric`.
 - `recommendation.model_run_id` links to the LLM trace.
 - `memory_summary.source_refs` preserves references to source records for auditability.
 
