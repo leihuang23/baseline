@@ -39,6 +39,34 @@ from baseline_api.schemas.recommendation import (
 
 Score = int
 StructuredNoteValue = bool | int | float | str | None
+CLINICAL_GOAL_DETAIL_KEYS = {
+    "diagnosis",
+    "dosage",
+    "lab_result",
+    "medication",
+    "prescription",
+    "symptom",
+    "treatment",
+}
+CLINICAL_GOAL_DETAIL_TERMS = (
+    "diagnosis",
+    "diagnosed",
+    "dosage",
+    "dose",
+    "medication",
+    "prescription",
+    "symptom",
+    "treatment",
+    "lab result",
+    "blood test",
+    "injury rehab",
+    "sexual dysfunction",
+    "erectile dysfunction",
+)
+
+
+def _contains_clinical_goal_detail(value: str) -> bool:
+    return any(term in value.lower() for term in CLINICAL_GOAL_DETAIL_TERMS)
 
 
 class HealthSamplePayload(ContractModel):
@@ -143,15 +171,36 @@ class GoalRequest(ContractModel):
     success_metric: str = Field(min_length=1, max_length=160)
     constraints: dict[str, str] = Field(default_factory=dict)
 
+    @field_validator("success_metric")
+    @classmethod
+    def validate_success_metric(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Success metrics must be non-empty.")
+        if "\n" in value:
+            raise ValueError("Success metrics must be short high-level indicators.")
+        if _contains_clinical_goal_detail(normalized):
+            raise ValueError("Goal success metrics must stay high-level and non-clinical.")
+        return normalized
+
     @field_validator("constraints")
     @classmethod
     def validate_constraints(cls, value: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
         for key, constraint in value.items():
-            if not key.strip() or len(key) > 64:
+            normalized_key = key.strip()
+            normalized_constraint = constraint.strip()
+            if not normalized_key or len(normalized_key) > 64:
                 raise ValueError("Constraint keys must be non-empty and at most 64 chars.")
-            if "\n" in constraint or len(constraint) > 240:
+            if not normalized_constraint:
+                raise ValueError("Constraints must be non-empty high-level indicators.")
+            has_clinical_key = normalized_key.lower() in CLINICAL_GOAL_DETAIL_KEYS
+            if has_clinical_key or _contains_clinical_goal_detail(normalized_constraint):
+                raise ValueError("Goal constraints must stay high-level and non-clinical.")
+            if "\n" in constraint or len(normalized_constraint) > 240:
                 raise ValueError("Constraints must be short high-level indicators.")
-        return value
+            normalized[normalized_key] = normalized_constraint
+        return normalized
 
 
 class GoalResponse(ContractModel):
@@ -163,6 +212,25 @@ class GoalResponse(ContractModel):
     success_metric: str
     constraints: dict[str, str] = Field(default_factory=dict)
     active: bool
+
+
+class ActiveGoal(ContractModel):
+    goal_id: UUID
+    priority_order: int = Field(ge=1)
+    category: GoalCategory
+    priority: int = Field(ge=1, le=5)
+    time_horizon: GoalTimeHorizon
+    success_metric: str
+    constraints: dict[str, str] = Field(default_factory=dict)
+
+
+class ActiveGoalSet(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    user_id: UUID
+    goals: list[ActiveGoal] = Field(default_factory=list)
+    category_priorities: dict[str, int] = Field(default_factory=dict)
+    horizons_by_category: dict[str, list[GoalTimeHorizon]] = Field(default_factory=dict)
+    constraints_by_category: dict[str, list[dict[str, str]]] = Field(default_factory=dict)
 
 
 class DailyAnalysisRequest(ContractModel):
@@ -264,6 +332,8 @@ class DataExportResponse(ContractModel):
 
 
 __all__ = [
+    "ActiveGoal",
+    "ActiveGoalSet",
     "AssistantQueryRequest",
     "AssistantQueryResponse",
     "CandidateOption",
