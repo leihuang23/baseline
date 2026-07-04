@@ -1,6 +1,17 @@
-# Baseline Loop Engineering
+# Baseline Task Automation Guide
 
-Baseline task slices are small enough for autonomous execution, but the loop must be bounded. The controller runs one task prompt at a time, verifies it, reviews it, optionally performs one focused repair, updates the ledger, and only then advances.
+Baseline tasks are already sliced into small, reviewable prompts under
+`tasks/`. The fastest stable workflow is not a fully unattended implementation
+loop. It is a hybrid:
+
+1. Implement the task in the Codex App, where the agent has interactive context
+   and can work efficiently.
+2. Hand the resulting diff to the controller with `make task-finish`.
+3. Let the controller run gates, structured review, optional focused repair,
+   ledger update, and optional commit.
+
+This keeps the speed and context of the manual workflow while preserving the
+strict verification and autonomy of the loop.
 
 ## Source of Truth
 
@@ -8,36 +19,91 @@ Baseline task slices are small enough for autonomous execution, but the loop mus
 - Task ledger: `tasks/ledger.json`
 - Controller: `scripts/run_task_loop.py`
 - Local run logs: `.task-runs/` (ignored)
+- Quality gates: `make fmt`, `make lint`, `make typecheck`, `make test`
 
-The ledger marks `P0-01` through `P0-04` complete and starts the active cluster at `P0-foundations-finish`.
+The controller advances the ledger only after the active task passes the quality
+gates and the structured review gate.
 
-## Daily Commands
+`make test` runs DB-backed integration tests when Postgres is reachable. In
+restricted sandboxes where local TCP to Postgres is blocked, those tests are
+marked skipped and the coverage threshold is relaxed for that run. Use
+`BASELINE_REQUIRE_TEST_DB=1 make test` when a task specifically needs full DB
+coverage.
 
-Inspect progress:
+## Recommended Daily Workflow
 
-```bash
-make task-status
-```
-
-Show the next task:
+Start by checking the next task:
 
 ```bash
 make task-next
 ```
 
-Show the live or most recent loop state:
+Ask Codex App to implement that task prompt. Keep the implementation scoped to
+the task file and current ledger state.
+
+When the App has produced a diff, finish it through the controller:
 
 ```bash
-make task-current
-make task-current-watch
+make task-finish
 ```
 
-The runner writes `.task-runs/current.json` while it works. `make task-current`
-prints the active task, stage, attempt, elapsed time, timeout remaining, run
-directory, log file, git change summary, and a cleaned tail of the current log.
-Use `make task-current-watch` to refresh that view continuously until Ctrl-C.
+To finish a specific task id:
 
-Run exactly one task from the active cluster:
+```bash
+python3 scripts/run_task_loop.py finish --task P3-01
+```
+
+To finish and commit after all gates pass:
+
+```bash
+make task-finish-commit
+```
+
+The `finish` command intentionally requires an existing diff. If the tree is
+clean, it stops before running gates or review. Use this escape hatch only for a
+deliberate verification-only task:
+
+```bash
+python3 scripts/run_task_loop.py finish --task P3-01 --allow-no-changes
+```
+
+## What `finish` Does
+
+`finish` never launches a broad implementation agent. It treats the current
+working tree as the implementation candidate and then runs:
+
+1. `make fmt`
+2. `make lint`
+3. `make typecheck`
+4. `make test`
+5. structured Codex review scoped to the task prompt and changed files
+6. one optional focused Codex repair when a gate or review returns actionable
+   findings
+7. focused repair verification when the failure came from structured review
+8. ledger update, and optional commit
+
+The structured review uses JSON output constrained by
+`tasks/review-decision.schema.json`. A task passes only when the review decision
+is `pass`.
+
+Disable the repair pass when you want review findings handed back to the App
+instead of letting the controller patch:
+
+```bash
+python3 scripts/run_task_loop.py finish --task P3-01 --no-final-repair
+```
+
+Skip the review gate only for emergency local diagnostics, not for normal task
+completion:
+
+```bash
+python3 scripts/run_task_loop.py finish --task P3-01 --skip-review
+```
+
+## Fully Autonomous Lane
+
+Use the autonomous lane when a task is low-risk, self-contained, and you are
+comfortable with a cold non-interactive implementation pass.
 
 ```bash
 make task-loop-one
@@ -45,144 +111,108 @@ make task-loop-one-codex
 make task-loop-one-kimi
 ```
 
-Choose the implementation agent explicitly when needed:
+The default implementation agent is Codex:
 
 ```bash
 python3 scripts/run_task_loop.py run --codex
+```
+
+Kimi uses non-interactive prompt mode:
+
+```bash
 python3 scripts/run_task_loop.py run --kimi
 ```
 
-`--codex` is the default and runs `codex exec`. Automation uses a lean Codex
-invocation by default: no user config, ephemeral sessions, and no terminal
-color. This keeps user-level MCP startup, large skill catalogs, and persistent
-session artifacts out of task-loop runs. Use `--codex-full-config` only when a
-task truly needs the full interactive Codex profile. `--kimi` runs
-implementation attempts with Kimi Code's non-interactive `--prompt` mode. The
-final structured review gate still uses Codex because it depends on
-schema-constrained review output.
-
-Implementation attempts are capped at 3600 seconds by default, structured review
-is capped at 600 seconds, and the focused post-repair verification review is
-capped at 300 seconds, so a stalled agent cannot block the loop forever. The
-default run performs one implementation attempt, then at most one focused Codex
-repair pass for concrete gate or review findings. Override budgets only when a
-task is expected to need them:
+Automation uses a lean Codex invocation by default: no user config, ephemeral
+sessions, and no terminal color. This avoids user-level MCP startup, large skill
+catalogs, and persistent session artifacts inside task-loop runs. Use the full
+interactive Codex config only when a task truly needs it:
 
 ```bash
-python3 scripts/run_task_loop.py run --agent-timeout-seconds 7200
-python3 scripts/run_task_loop.py run --review-timeout-seconds 3600
-python3 scripts/run_task_loop.py run --repair-review-timeout-seconds 600
-python3 scripts/run_task_loop.py run --agent-timeout-seconds 0 --review-timeout-seconds 0
+python3 scripts/run_task_loop.py run --codex-full-config
+python3 scripts/run_task_loop.py finish --codex-full-config
 ```
-
-Use `0` to disable a timeout for trusted long-running agents.
 
 ## Cost Controls
 
-Implementation prompts now require the agent to end the final response with
-`TASK_LOOP_DONE` on its own line. When the controller sees that marker in the
-log, it stops waiting and moves directly to quality gates. This handles the
-common failure mode where an agent has already summarized completed work but the
-CLI process keeps running until the timeout.
+Implementation prompts require the agent to end with `TASK_LOOP_DONE` on its own
+line. When the controller sees that exact line, it stops waiting and moves to
+quality gates.
 
-The runner also applies log-size budgets:
+Default budgets:
+
+- Codex implementation attempt: 3600 seconds
+- Kimi implementation attempt: 1200 seconds
+- structured review: 600 seconds
+- focused repair: 900 seconds
+- focused repair review: 300 seconds
+- implementation/final-repair log limit: 2 MB
+- review log limit: 1 MB
+
+Override budgets only for tasks known to need them:
 
 ```bash
-python3 scripts/run_task_loop.py run --agent-log-limit-bytes 2000000
-python3 scripts/run_task_loop.py run --review-log-limit-bytes 1000000
-python3 scripts/run_task_loop.py run --agent-log-limit-bytes 0 --review-log-limit-bytes 0
+python3 scripts/run_task_loop.py run --agent-timeout-seconds 7200
+python3 scripts/run_task_loop.py finish --review-timeout-seconds 1200
+python3 scripts/run_task_loop.py finish --repair-review-timeout-seconds 600
+python3 scripts/run_task_loop.py finish --review-log-limit-bytes 2000000
 ```
 
-If an implementation hits the timeout or log budget after producing a candidate
-diff, the controller records the budget stop and still runs its own gates and
-review. If the budget stop produces no candidate diff, the task blocks for
-inspection. A clean implementation pass that exits without any candidate diff
-also blocks before gates/review; rerun with `--allow-no-changes` only for an
-intentional verification-only task.
-
-Long-running commands print a heartbeat every 30 seconds with elapsed time, pid,
-log path, and current git change count. Override or disable the heartbeat when
-needed:
+Use `0` to disable a timeout or log limit for a trusted long run:
 
 ```bash
-python3 scripts/run_task_loop.py run --heartbeat-seconds 10
-python3 scripts/run_task_loop.py run --heartbeat-seconds 0
+python3 scripts/run_task_loop.py run --agent-timeout-seconds 0
+python3 scripts/run_task_loop.py finish --review-timeout-seconds 0
 ```
 
-Run one task and commit it after all gates pass:
+If an autonomous implementation hits a timeout or log limit after producing a
+candidate diff, the controller keeps the diff and runs gates/review. If it stops
+without a candidate diff, the task blocks for inspection.
+
+## Progress And Recovery
+
+Inspect progress:
 
 ```bash
-make task-loop-one-commit
-make task-loop-one-commit-codex
-make task-loop-one-commit-kimi
+make task-status
 ```
 
-Run the rest of the current P0 cluster:
+Show the current or most recent controller state:
 
 ```bash
-make task-loop-p0-cluster
-make task-loop-p0-cluster-codex
-make task-loop-p0-cluster-kimi
-```
-
-## Quality Gates
-
-Each completed task must pass:
-
-```bash
-make fmt
-make lint
-make typecheck
-make test
-```
-
-The controller then runs a structured Codex review. That review is a static
-diff review scoped to the task prompt and changed files; it should not rerun
-builds or tests after the controller gates have already run. A task is marked
-complete only when the gates and review pass.
-
-If a gate fails or the structured review returns concrete findings, the
-controller runs one focused Codex repair pass against those details, then reruns
-the gates. If the failure came from structured review findings, the post-repair
-review verifies only that the original findings were resolved and that the repair
-did not introduce an obvious direct blocker or major regression. It is not a
-second full review that can keep moving the goalposts. If that repair
-verification fails, or if the review command times out, is interrupted, or cannot
-produce valid JSON, the task is blocked for inspection instead of launching
-another broad implementation pass.
-
-## Recovery
-
-If the loop fails, inspect the latest directory under `.task-runs/`. The runner
-does not retry broad implementation by default. It either completes after the
-initial pass, completes after one focused repair, or stops without advancing the
-ledger.
-
-For a run that looks stuck, check the live state first:
-
-```bash
+make task-current
 make task-current-watch
 ```
 
-Tune the live view when needed:
+The runner writes `.task-runs/current.json` while it works. The current view
+shows task id, stage, attempt, elapsed time, timeout remaining, run directory,
+log file, git status summary, and a cleaned log tail.
 
-```bash
-python3 scripts/run_task_loop.py current --watch --interval 1
-python3 scripts/run_task_loop.py current --watch --tail-lines 80
-```
+If a task blocks:
 
-Use a specific task when needed:
+1. Run `make task-current`.
+2. Open the run directory listed there.
+3. Read the failing gate log or `review-decision.json`.
+4. Fix the diff in Codex App.
+5. Run `make task-finish` again.
 
-```bash
-python3 scripts/run_task_loop.py run --task P0-06
-```
+Do not launch another broad autonomous implementation pass for a known review
+or gate finding. Use the existing failure details.
 
-Run a whole cluster only when you are comfortable letting Codex work for a while:
+## Cluster Discipline
+
+Run one task at a time by default. Do not run future phases as one giant loop.
+Finish a phase cluster, review the architecture, then move the active cluster
+forward in `tasks/ledger.json`.
+
+Whole-cluster execution remains available, but it is intentionally not the
+default:
 
 ```bash
 python3 scripts/run_task_loop.py run --cluster P0-foundations-finish --limit 0 --commit
 ```
 
-## Operating Rule
+## Decision Rule
 
-Do not run future phases as one giant loop. Finish a phase cluster, review the architecture, then move the active cluster forward in `tasks/ledger.json`.
+Use `finish` for normal work. Use `run` only when the cold autonomous lane is
+worth the extra token and stability risk.

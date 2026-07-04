@@ -4,6 +4,11 @@ Baseline keeps a Kimi-specific task loop instead of treating Kimi Code as a
 drop-in Codex flag. The goal is not to make Kimi do less work; it is to keep
 Kimi's long-context, agentic strengths pointed at the smallest useful slice.
 
+The definitive operating guide is `docs/automation/loop-engineering.md`. Use
+the hybrid `finish` workflow there for normal work. Use Kimi's autonomous lane
+only when a cold non-interactive implementation pass is worth the extra token
+and stability risk.
+
 ## Sources
 
 - Kimi Code CLI docs: <https://moonshotai.github.io/kimi-code/>

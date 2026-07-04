@@ -1038,6 +1038,103 @@ def run_final_repair(
     return True
 
 
+def block_task(task: dict[str, Any], base_status: dict[str, Any], message: str) -> None:
+    print(f"blocked: {task['id']}")
+    write_static_run_state(
+        CURRENT_RUN_PATH,
+        base_status,
+        status="blocked",
+        stage="blocked",
+        message=message,
+    )
+
+
+def run_finish_task(
+    ledger: dict[str, Any],
+    task: dict[str, Any],
+    args: argparse.Namespace,
+) -> bool:
+    print(f"task: {task['id']} - {task['title']}")
+    current_status_lines = git_status_lines()
+    if current_status_lines is None:
+        raise LoopError("Unable to inspect git status before finishing task.")
+    if not current_status_lines and not args.allow_no_changes:
+        raise LoopError(
+            "No existing diff to finish. Implement the task first, or rerun with "
+            "--allow-no-changes for an intentional verification-only finish."
+        )
+
+    task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-finish"
+    base_status = {
+        "task_id": task["id"],
+        "task_title": task["title"],
+        "attempt": 0,
+        "max_attempts": 0,
+        "run_dir": relative_to_root(task_run_dir),
+        "finish_existing_diff": True,
+    }
+    write_static_run_state(
+        CURRENT_RUN_PATH,
+        base_status,
+        status="running",
+        stage="finish_existing_diff",
+        message="verifying existing implementation diff",
+    )
+
+    gates_ok, gate_result = run_quality_gates(
+        task_run_dir,
+        ledger,
+        base_status,
+        args.heartbeat_seconds,
+    )
+    if not gates_ok:
+        print(f"  failed: {gate_result}")
+        if (
+            args.final_repair
+            and failure_is_actionable(gate_result)
+            and run_final_repair(ledger, task, args, gate_result)
+        ):
+            return True
+        block_task(task, base_status, "finish blocked by quality gate failure")
+        print(gate_result)
+        return False
+
+    if not args.skip_review:
+        review_ok, review_result = run_review(
+            task,
+            task_run_dir,
+            args.codex_bin,
+            args.codex_lean,
+            normalize_timeout_seconds(args.review_timeout_seconds),
+            normalize_log_limit_bytes(args.review_log_limit_bytes),
+            base_status,
+            args.heartbeat_seconds,
+        )
+        if not review_ok:
+            print(f"  failed: {review_result}")
+            if (
+                args.final_repair
+                and review_failure_is_actionable(review_result)
+                and run_final_repair(ledger, task, args, review_result)
+            ):
+                return True
+            block_task(task, base_status, "finish blocked by review failure")
+            print(review_result)
+            return False
+        print(f"  {review_result}")
+
+    complete_task(ledger, task, task_run_dir, args.commit)
+    write_static_run_state(
+        CURRENT_RUN_PATH,
+        base_status,
+        status="complete",
+        stage="complete",
+        message=f"completed {task['id']} from existing diff",
+    )
+    print(f"  complete: {task['id']}")
+    return True
+
+
 def implementation_agent_command(args: argparse.Namespace) -> tuple[str, list[str]]:
     if args.agent == AGENT_CODEX:
         lean = getattr(args, "codex_lean", True)
@@ -1327,6 +1424,71 @@ def parse_args() -> argparse.Namespace:
         help="Number of cleaned log lines to show.",
     )
 
+    finish_parser = subparsers.add_parser(
+        "finish",
+        help="Verify, review, and complete an existing implementation diff.",
+    )
+    finish_parser.add_argument("--cluster")
+    finish_parser.add_argument("--task", help="Finish one specific task id from the ledger.")
+    finish_parser.add_argument(
+        "--review-timeout-seconds",
+        type=int,
+        default=DEFAULT_REVIEW_TIMEOUT_SECONDS,
+        help="Maximum runtime for the structured review gate; 0 disables.",
+    )
+    finish_parser.add_argument(
+        "--agent-log-limit-bytes",
+        type=int,
+        default=DEFAULT_AGENT_LOG_LIMIT_BYTES,
+        help="Maximum final-repair log size before stopping; 0 disables.",
+    )
+    finish_parser.add_argument(
+        "--review-log-limit-bytes",
+        type=int,
+        default=DEFAULT_REVIEW_LOG_LIMIT_BYTES,
+        help="Maximum structured-review log size before stopping; 0 disables.",
+    )
+    finish_parser.add_argument(
+        "--final-repair-timeout-seconds",
+        type=int,
+        default=DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS,
+        help="Maximum runtime for the bounded Codex final-repair pass; 0 disables.",
+    )
+    finish_parser.add_argument(
+        "--repair-review-timeout-seconds",
+        type=int,
+        default=DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS,
+        help="Maximum runtime for the focused post-repair review gate; 0 disables.",
+    )
+    finish_parser.add_argument(
+        "--no-final-repair",
+        dest="final_repair",
+        action="store_false",
+        help="Disable the bounded Codex repair pass after actionable findings.",
+    )
+    finish_parser.set_defaults(final_repair=True)
+    finish_parser.add_argument(
+        "--heartbeat-seconds",
+        type=int,
+        default=DEFAULT_HEARTBEAT_SECONDS,
+        help="Seconds between live progress heartbeats; 0 disables heartbeat printing.",
+    )
+    finish_parser.add_argument("--commit", action="store_true", help="Commit the completed task.")
+    finish_parser.add_argument(
+        "--allow-no-changes",
+        action="store_true",
+        help="Allow gates/review even when there is no existing implementation diff.",
+    )
+    finish_parser.add_argument("--skip-review", action="store_true")
+    finish_parser.add_argument("--codex-bin", default="codex")
+    finish_parser.add_argument(
+        "--codex-full-config",
+        dest="codex_lean",
+        action="store_false",
+        help="Load full Codex user config instead of the lean automation invocation.",
+    )
+    finish_parser.set_defaults(codex_lean=True)
+
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--cluster")
     run_parser.add_argument("--task", help="Run one specific task id from the ledger.")
@@ -1478,6 +1640,18 @@ def main() -> int:
     normalize_timeout_seconds(args.repair_review_timeout_seconds)
     normalize_log_limit_bytes(args.agent_log_limit_bytes)
     normalize_log_limit_bytes(args.review_log_limit_bytes)
+    if args.command == "finish":
+        if args.task:
+            candidates = [task_map(ledger)[args.task]]
+        else:
+            cluster, candidates = pending_task_selection(ledger, args.cluster)
+            if cluster and not args.cluster:
+                ledger["active_cluster"] = cluster["id"]
+        if not candidates:
+            print("No pending tasks.")
+            return 0
+        return 0 if run_finish_task(ledger, candidates[0], args) else 1
+
     check_clean_worktree(args.allow_dirty)
     if args.task:
         candidates = [task_map(ledger)[args.task]]

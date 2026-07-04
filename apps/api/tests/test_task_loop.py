@@ -243,6 +243,22 @@ def test_run_command_accepts_manual_escape_hatches(monkeypatch) -> None:
     assert args.codex_lean is False
 
 
+def test_finish_command_defaults_to_bounded_verification(monkeypatch) -> None:
+    monkeypatch.setattr("sys.argv", ["run_task_loop.py", "finish", "--task", "P3-01"])
+
+    args = TASK_LOOP.parse_args()
+
+    assert args.command == "finish"
+    assert args.task == "P3-01"
+    assert args.review_timeout_seconds == 600
+    assert args.repair_review_timeout_seconds == 300
+    assert args.agent_log_limit_bytes == 2_000_000
+    assert args.review_log_limit_bytes == 1_000_000
+    assert args.final_repair is True
+    assert args.codex_lean is True
+    assert args.allow_no_changes is False
+
+
 def test_kimi_implementation_command_uses_prompt_mode() -> None:
     args = SimpleNamespace(agent="kimi", kimi_bin="kimi")
 
@@ -555,6 +571,75 @@ def test_final_repair_accepts_only_actionable_gate_or_review_failures() -> None:
     assert TASK_LOOP.failure_is_actionable(actionable) is True
     assert TASK_LOOP.failure_is_actionable("make test failed; see file") is True
     assert TASK_LOOP.failure_is_actionable(non_actionable) is False
+
+
+def finish_args(**overrides: object) -> SimpleNamespace:
+    values = {
+        "allow_no_changes": False,
+        "heartbeat_seconds": 0,
+        "skip_review": False,
+        "codex_bin": "codex",
+        "codex_lean": True,
+        "review_timeout_seconds": 600,
+        "review_log_limit_bytes": 1_000_000,
+        "final_repair": True,
+        "agent_log_limit_bytes": 2_000_000,
+        "final_repair_timeout_seconds": 900,
+        "repair_review_timeout_seconds": 300,
+        "commit": False,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_finish_task_requires_existing_diff_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(TASK_LOOP, "git_status_lines", lambda: [])
+    task = {"id": "P3-01", "title": "goal management"}
+
+    try:
+        TASK_LOOP.run_finish_task({"quality_gates": []}, task, finish_args())
+    except TASK_LOOP.LoopError as exc:
+        assert "No existing diff" in str(exc)
+    else:
+        raise AssertionError("finish should require an existing diff by default")
+
+
+def test_finish_task_runs_gates_review_and_complete_without_agent(monkeypatch) -> None:
+    task = {"id": "P3-01", "title": "goal management"}
+    ledger = {"quality_gates": ["make test"]}
+    calls: list[str] = []
+
+    monkeypatch.setattr(TASK_LOOP, "git_status_lines", lambda: [" M apps/api/example.py"])
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "write_static_run_state",
+        lambda *args, **kwargs: calls.append(f"state:{kwargs['stage']}"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or (True, "quality gates passed"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_review",
+        lambda *args, **kwargs: calls.append("review") or (True, "review passed"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "complete_task",
+        lambda *args, **kwargs: calls.append("complete"),
+    )
+
+    assert TASK_LOOP.run_finish_task(ledger, task, finish_args()) is True
+
+    assert calls == [
+        "state:finish_existing_diff",
+        "gates",
+        "review",
+        "complete",
+        "state:complete",
+    ]
 
 
 def test_implementation_timeout_candidate_changes_are_detected() -> None:
