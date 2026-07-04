@@ -28,6 +28,7 @@ from baseline_api.schemas.api import (
     HealthSyncRequest,
     HealthSyncResponse,
 )
+from baseline_api.schemas.enums import HealthConsentCategory
 
 SOURCE_PLATFORM = "apple_health"
 
@@ -243,6 +244,12 @@ class HealthSyncService:
                 message="Consent is missing or revoked for health ingestion.",
                 status_code=403,
             )
+        if not consent.cloud_processing_enabled:
+            raise IngestionError(
+                code="cloud_processing_disabled",
+                message="Consent does not allow server-side health ingestion.",
+                status_code=403,
+            )
 
         enabled = set(consent.health_categories_enabled)
         missing_categories = sorted(
@@ -263,9 +270,7 @@ class HealthSyncService:
 
 def _category_enabled(enabled: set[str], sample_type: str) -> bool:
     return (
-        "all" in enabled
-        or "health" in enabled
-        or sample_type in enabled
+        HealthConsentCategory.all.value in enabled
         or _CATEGORY_BY_SAMPLE_TYPE[sample_type] in enabled
     )
 

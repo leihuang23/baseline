@@ -108,12 +108,12 @@ class CheckinService:
                 status_code=404,
             )
 
+        consent = self._active_consent(user)
+        self._assert_policy_consent(consent, request.sensitive_note_policy)
         preserve_existing_note = self._should_preserve_existing_note(checkin, request)
         if preserve_existing_note:
             redacted = None
         else:
-            consent = self._active_consent(user)
-            self._assert_policy_consent(consent, request.sensitive_note_policy)
             redacted = await self._redaction.redact(
                 request.free_text_note,
                 self._model_policy(request.sensitive_note_policy),
@@ -238,6 +238,12 @@ class CheckinService:
         consent: ConsentRecord,
         policy: SensitiveNotePolicy,
     ) -> None:
+        if not consent.cloud_processing_enabled:
+            raise CheckinError(
+                code="cloud_processing_disabled",
+                message="Cloud processing is not enabled in consent.",
+                status_code=403,
+            )
         if (
             policy
             in (

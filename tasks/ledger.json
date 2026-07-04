@@ -318,10 +318,12 @@
       "title": "feedback outcome loop"
     },
     {
+      "completed_at": "2026-07-04T15:05:59Z",
       "id": "P4-04",
+      "last_run_dir": ".task-runs/2026-07-04T142501Z-P4-04-final-repair-5",
       "phase": "P4",
       "prompt": "tasks/P4-04-data-controls-consent.md",
-      "status": "pending",
+      "status": "complete",
       "title": "data controls consent"
     },
     {
@@ -367,6 +369,6 @@
       "title": "portfolio docs"
     }
   ],
-  "updated_at": "2026-07-04T12:04:34Z",
+  "updated_at": "2026-07-04T15:05:59Z",
   "version": 1
 }

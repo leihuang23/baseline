@@ -84,6 +84,17 @@ public protocol DailyBriefingAPIClient: Sendable {
     func submitAssistantQuery(_ request: AssistantQueryRequest) async throws -> AssistantQueryResponse
 }
 
+public protocol DataControlsAPIClient: Sendable {
+    func requestDataExport(_ request: DataExportRequest) async throws -> DataExportResponse
+    func downloadDataExport(from downloadURL: String) async throws -> Data
+    func downloadDecryptedDataExport(_ response: DataExportResponse) async throws -> Data
+    func deleteAllData() async throws -> DataDeleteResponse
+    func disableExternalLLM(_ request: DisableExternalLLMRequest) async throws -> DataControlConsentResponse
+    func disableCloudProcessing(_ request: ConsentRevocationRequest) async throws -> DataControlConsentResponse
+    func fetchConsentHistory() async throws -> ConsentHistoryResponse
+    func fetchModelDisclosures() async throws -> ModelDisclosureResponse
+}
+
 public struct HealthSyncBatchBuilder: Sendable {
     public init() {}
 

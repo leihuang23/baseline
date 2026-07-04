@@ -27,6 +27,8 @@ class DataExportScope(StrEnum):
     checkins = "checkins"
     briefings = "briefings"
     recommendations = "recommendations"
+    memory = "memory"
+    consent = "consent"
 
 
 class DataExportStatus(StrEnum):
@@ -35,6 +37,15 @@ class DataExportStatus(StrEnum):
     ready = "ready"
     failed = "failed"
     expired = "expired"
+
+
+class HealthConsentCategory(StrEnum):
+    all = "all"
+    heart_rate = "heart_rate"
+    activity = "activity"
+    sleep = "sleep"
+    vitals = "vitals"
+    other = "other"
 
 
 class DataScope(StrEnum):

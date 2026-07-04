@@ -100,6 +100,7 @@ def _seed_user_with_consent(
             user_id=user.id,
             consent_version="v1",
             health_categories_enabled=categories or ["all"],
+            cloud_processing_enabled=True,
             timestamp=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
             revoked_at=revoked_at,
         )

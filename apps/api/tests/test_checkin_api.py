@@ -135,6 +135,7 @@ def _client(
 def _seed_user_with_consent(
     db_session: Session,
     *,
+    cloud_processing_enabled: bool = True,
     external_llm_enabled: bool = False,
     raw_note_processing_enabled: bool = False,
 ) -> User:
@@ -149,7 +150,7 @@ def _seed_user_with_consent(
             user_id=user.id,
             consent_version="v1",
             health_categories_enabled=["all"],
-            cloud_processing_enabled=False,
+            cloud_processing_enabled=cloud_processing_enabled,
             external_llm_enabled=external_llm_enabled,
             raw_note_processing_enabled=raw_note_processing_enabled,
             timestamp=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),

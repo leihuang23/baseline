@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import XCTest
 @testable import BaselineCore
 
@@ -197,6 +198,37 @@ final class BaselineCoreTests: XCTestCase {
             URLSessionHealthSyncAPIClient.assistantQueryURL(baseURL: baseURL).absoluteString,
             "https://api.example.test/base/v1/assistant/query"
         )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.dataExportURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/data/export"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.dataExportDownloadURL(
+                baseURL: baseURL,
+                downloadURL: "/v1/data/export/00000000-0000-0000-0000-000000000001/file"
+            ).absoluteString,
+            "https://api.example.test/v1/data/export/00000000-0000-0000-0000-000000000001/file"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.deleteAllDataURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/data/all"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.consentHistoryURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/data/consent/history"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.disableExternalLLMURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/data/consent/disable-external-llm"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.revokeConsentURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/data/consent/revoke"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.modelDisclosuresURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/data/model-disclosures"
+        )
     }
 
     func testFileBriefingStorePersistsLatestBriefingForOfflineUse() throws {
@@ -207,6 +239,181 @@ final class BaselineCoreTests: XCTestCase {
         try store.saveLatestBriefing(briefing)
 
         XCTAssertEqual(try store.loadLatestBriefing(), briefing)
+    }
+
+    func testDataExportDownloadReturnsBinaryBytes() async throws {
+        let expected = Data([0, 1, 2, 3])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BinaryExportURLProtocol.self]
+        BinaryExportURLProtocol.handler = { request in
+            XCTAssertEqual(
+                request.url?.absoluteString,
+                "https://api.example.test/v1/data/export/00000000-0000-0000-0000-000000000001/file"
+            )
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/octet-stream")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/octet-stream"]
+            )
+            return (try XCTUnwrap(response), expected)
+        }
+        defer { BinaryExportURLProtocol.handler = nil }
+        let client = URLSessionHealthSyncAPIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test/base")),
+            session: URLSession(configuration: configuration)
+        )
+
+        let data = try await client.downloadDataExport(
+            from: "/v1/data/export/00000000-0000-0000-0000-000000000001/file"
+        )
+
+        XCTAssertEqual(data, expected)
+    }
+
+    func testDataExportDownloadCanDecryptEncryptedBytes() async throws {
+        let plaintext = Data("scoped export payload".utf8)
+        let key = SymmetricKey(size: .bits256)
+        let keyData = key.withUnsafeBytes { Data($0) }
+        let nonce = try AES.GCM.Nonce(data: Data(repeating: 7, count: 12))
+        let magic = Data("BASELINE-EXPORT-AES256GCM-V1".utf8)
+        let sealed = try AES.GCM.seal(plaintext, using: key, nonce: nonce, authenticating: magic)
+        var encrypted = magic
+        encrypted.append(sealed.nonce.withUnsafeBytes { Data($0) })
+        encrypted.append(sealed.tag)
+        encrypted.append(sealed.ciphertext)
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BinaryExportURLProtocol.self]
+        BinaryExportURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/octet-stream"]
+            )
+            return (try XCTUnwrap(response), encrypted)
+        }
+        defer { BinaryExportURLProtocol.handler = nil }
+        let client = URLSessionHealthSyncAPIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test/base")),
+            session: URLSession(configuration: configuration)
+        )
+        let response = DataExportResponse(
+            exportJobID: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000001")),
+            status: "ready",
+            expiresAt: "2026-07-04T08:00:00Z",
+            downloadURL: "/v1/data/export/00000000-0000-0000-0000-000000000001/file",
+            encryption: [
+                "algorithm": "AES-256-GCM",
+                "key_base64": keyData.base64EncodedString(),
+            ]
+        )
+
+        let data = try await client.downloadDecryptedDataExport(response)
+
+        XCTAssertEqual(data, plaintext)
+    }
+
+    func testDataControlPayloadsEncodeAndDecode() throws {
+        let encoder = JSONEncoder()
+        let exportRequest = DataExportRequest(
+            exportScope: .health,
+            format: .csv,
+            includeRawData: true,
+            includeModelTraces: true
+        )
+        let exportPayload = try jsonDictionary(from: encoder.encode(exportRequest))
+
+        XCTAssertEqual(exportPayload["schema_version"] as? String, "v1")
+        XCTAssertEqual(exportPayload["export_scope"] as? String, "health")
+        XCTAssertEqual(exportPayload["format"] as? String, "csv")
+        XCTAssertEqual(exportPayload["include_raw_data"] as? Bool, true)
+        XCTAssertEqual(exportPayload["include_model_traces"] as? Bool, true)
+
+        let revocationRequest = ConsentRevocationRequest(
+            consentVersion: "v2",
+            revokeCloudProcessing: false,
+            revokeExternalLLM: true,
+            revokeRawNoteProcessing: true,
+            revokeHealthCategories: ["steps"]
+        )
+        let revocationPayload = try jsonDictionary(from: encoder.encode(revocationRequest))
+        XCTAssertEqual(revocationPayload["consent_version"] as? String, "v2")
+        XCTAssertEqual(revocationPayload["revoke_cloud_processing"] as? Bool, false)
+        XCTAssertEqual(revocationPayload["revoke_external_llm"] as? Bool, true)
+        XCTAssertEqual(revocationPayload["revoke_raw_note_processing"] as? Bool, true)
+        XCTAssertEqual(revocationPayload["revoke_health_categories"] as? [String], ["steps"])
+
+        let decoder = JSONDecoder()
+        let consentRecord: [String: Any] = [
+            "schema_version": "v1",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "user_id": "00000000-0000-0000-0000-000000000002",
+            "consent_version": "v2",
+            "health_categories_enabled": ["sleep"],
+            "cloud_processing_enabled": true,
+            "external_llm_enabled": false,
+            "raw_note_processing_enabled": false,
+            "timestamp": "2026-07-04T08:00:00Z",
+            "revoked_at": NSNull(),
+        ]
+        let historyData = try JSONSerialization.data(withJSONObject: [
+            "schema_version": "v1",
+            "active_consent_version": "v2",
+            "records": [consentRecord],
+        ])
+        let history = try decoder.decode(ConsentHistoryResponse.self, from: historyData)
+        XCTAssertEqual(history.activeConsentVersion, "v2")
+        XCTAssertEqual(history.records.single?.healthCategoriesEnabled, ["sleep"])
+        XCTAssertEqual(history.records.single?.cloudProcessingEnabled, true)
+
+        let deleteData = try JSONSerialization.data(withJSONObject: [
+            "schema_version": "v1",
+            "deleted": ["daily_check_ins": 1, "model_runs": 2],
+        ])
+        let deleteResponse = try decoder.decode(DataDeleteResponse.self, from: deleteData)
+        XCTAssertEqual(deleteResponse.deleted["daily_check_ins"], 1)
+        XCTAssertEqual(deleteResponse.deleted["model_runs"], 2)
+
+        let disclosureData = try JSONSerialization.data(withJSONObject: [
+            "schema_version": "v1",
+            "runs": [
+                [
+                    "run_id": "00000000-0000-0000-0000-000000000003",
+                    "created_at": "2026-07-04T09:00:00Z",
+                    "run_type": "explanation",
+                    "provider": "external-provider",
+                    "model": "model-a",
+                    "prompt_version": "prompt-v1",
+                    "schema_version": "schema-v1",
+                    "input_hash": "input-hash",
+                    "payload_metadata": [
+                        "message_count": 1,
+                        "disclosure_payload": [
+                            "messages": [
+                                [
+                                    "role": "user",
+                                    "content": [
+                                        "task_type": "simple_explanation",
+                                        "sleep_debt_hours": 0.3,
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ])
+        let disclosure = try decoder.decode(ModelDisclosureResponse.self, from: disclosureData)
+        XCTAssertEqual(disclosure.runs.single?.provider, "external-provider")
+        XCTAssertEqual(disclosure.runs.single?.payloadMetadata["message_count"], .double(1))
+        guard case .object(let disclosurePayload)? = disclosure.runs.single?.payloadMetadata["disclosure_payload"] else {
+            XCTFail("Expected disclosure payload object")
+            return
+        }
+        XCTAssertNotNil(disclosurePayload["messages"])
     }
 
     func testPermissionFlowAllowsFullGrant() async throws {
@@ -531,6 +738,10 @@ private extension Array {
     }
 }
 
+private func jsonDictionary(from data: Data) throws -> [String: Any] {
+    try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+}
+
 private final class MockSyncAPIClient: HealthSyncAPIClient, @unchecked Sendable {
     private var results: [Result<HealthSyncResponse, Error>]
     private(set) var requests: [HealthSyncRequest] = []
@@ -544,6 +755,35 @@ private final class MockSyncAPIClient: HealthSyncAPIClient, @unchecked Sendable 
         let result = results.removeFirst()
         return try result.get()
     }
+}
+
+private final class BinaryExportURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.handler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
 
 private final class InMemoryAnchorStore: AnchorPersisting, @unchecked Sendable {

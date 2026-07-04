@@ -1,20 +1,24 @@
 import Foundation
+import CryptoKit
 
 public enum BaselineAPIError: Error, Equatable, Sendable {
     case invalidResponse
     case unsuccessfulStatus(Int)
     case missingDataEnvelope
+    case missingExportDownloadURL
+    case invalidExportEncryptionMetadata
 }
 
 public typealias HealthSyncAPIError = BaselineAPIError
 
 public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAPIClient, GoalsAPIClient,
-    DailyBriefingAPIClient
+    DailyBriefingAPIClient, DataControlsAPIClient
 {
     private let baseURL: URL
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private static let exportMagic = Data("BASELINE-EXPORT-AES256GCM-V1".utf8)
 
     public init(baseURL: URL, session: URLSession = .shared) {
         self.baseURL = baseURL
@@ -112,6 +116,89 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
         try await sendEnvelope(method: "POST", url: Self.assistantQueryURL(baseURL: baseURL), body: request)
     }
 
+    public func requestDataExport(_ request: DataExportRequest) async throws -> DataExportResponse {
+        try await sendEnvelope(method: "POST", url: Self.dataExportURL(baseURL: baseURL), body: request)
+    }
+
+    public func downloadDataExport(from downloadURL: String) async throws -> Data {
+        var urlRequest = URLRequest(url: Self.dataExportDownloadURL(baseURL: baseURL, downloadURL: downloadURL))
+        urlRequest.httpMethod = "GET"
+        urlRequest.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+        let (data, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BaselineAPIError.invalidResponse
+        }
+        guard 200 ..< 300 ~= httpResponse.statusCode else {
+            throw BaselineAPIError.unsuccessfulStatus(httpResponse.statusCode)
+        }
+        return data
+    }
+
+    public func downloadDecryptedDataExport(_ response: DataExportResponse) async throws -> Data {
+        guard let downloadURL = response.downloadURL else {
+            throw BaselineAPIError.missingExportDownloadURL
+        }
+        let encrypted = try await downloadDataExport(from: downloadURL)
+        return try Self.decryptDataExport(encrypted, encryption: response.encryption)
+    }
+
+    public static func decryptDataExport(_ encrypted: Data, encryption: [String: String]) throws -> Data {
+        guard encryption["algorithm"] == "AES-256-GCM",
+              let keyBase64 = encryption["key_base64"],
+              let keyData = Data(base64Encoded: keyBase64),
+              keyData.count == 32,
+              encrypted.starts(with: exportMagic)
+        else {
+            throw BaselineAPIError.invalidExportEncryptionMetadata
+        }
+
+        let headerLength = exportMagic.count
+        let nonceLength = 12
+        let tagLength = 16
+        guard encrypted.count >= headerLength + nonceLength + tagLength else {
+            throw BaselineAPIError.invalidExportEncryptionMetadata
+        }
+
+        let nonceStart = headerLength
+        let tagStart = nonceStart + nonceLength
+        let ciphertextStart = tagStart + tagLength
+        do {
+            let nonce = try AES.GCM.Nonce(data: Data(encrypted[nonceStart ..< tagStart]))
+            let sealedBox = try AES.GCM.SealedBox(
+                nonce: nonce,
+                ciphertext: Data(encrypted[ciphertextStart...]),
+                tag: Data(encrypted[tagStart ..< ciphertextStart])
+            )
+            return try AES.GCM.open(
+                sealedBox,
+                using: SymmetricKey(data: keyData),
+                authenticating: exportMagic
+            )
+        } catch {
+            throw BaselineAPIError.invalidExportEncryptionMetadata
+        }
+    }
+
+    public func deleteAllData() async throws -> DataDeleteResponse {
+        try await sendEnvelope(method: "DELETE", url: Self.deleteAllDataURL(baseURL: baseURL), body: Optional<String>.none)
+    }
+
+    public func disableExternalLLM(_ request: DisableExternalLLMRequest) async throws -> DataControlConsentResponse {
+        try await sendEnvelope(method: "POST", url: Self.disableExternalLLMURL(baseURL: baseURL), body: request)
+    }
+
+    public func disableCloudProcessing(_ request: ConsentRevocationRequest) async throws -> DataControlConsentResponse {
+        try await sendEnvelope(method: "POST", url: Self.revokeConsentURL(baseURL: baseURL), body: request)
+    }
+
+    public func fetchConsentHistory() async throws -> ConsentHistoryResponse {
+        try await sendEnvelope(method: "GET", url: Self.consentHistoryURL(baseURL: baseURL), body: Optional<String>.none)
+    }
+
+    public func fetchModelDisclosures() async throws -> ModelDisclosureResponse {
+        try await sendEnvelope(method: "GET", url: Self.modelDisclosuresURL(baseURL: baseURL), body: Optional<String>.none)
+    }
+
     public static func healthSyncURL(baseURL: URL) -> URL {
         baseURL.appendingPathComponent("v1/health/sync")
     }
@@ -162,6 +249,40 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
 
     public static func assistantQueryURL(baseURL: URL) -> URL {
         baseURL.appendingPathComponent("v1/assistant/query")
+    }
+
+    public static func dataExportURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/data/export")
+    }
+
+    public static func dataExportDownloadURL(baseURL: URL, downloadURL: String) -> URL {
+        if let url = URL(string: downloadURL), url.scheme != nil {
+            return url
+        }
+        if downloadURL.hasPrefix("/"), let url = URL(string: downloadURL, relativeTo: baseURL) {
+            return url.absoluteURL
+        }
+        return baseURL.appendingPathComponent(downloadURL)
+    }
+
+    public static func deleteAllDataURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/data/all")
+    }
+
+    public static func consentHistoryURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/data/consent/history")
+    }
+
+    public static func disableExternalLLMURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/data/consent/disable-external-llm")
+    }
+
+    public static func revokeConsentURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/data/consent/revoke")
+    }
+
+    public static func modelDisclosuresURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/data/model-disclosures")
     }
 
     private func sendEnvelope<Response: Codable & Sendable, Body: Encodable>(

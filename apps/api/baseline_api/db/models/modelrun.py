@@ -44,3 +44,7 @@ class ModelRun(BaseDBModel, table=True):
         sa_type=JSONB,
         default_factory=dict,
     )
+    input_metadata: dict[str, Any] = Field(
+        sa_type=JSONB,
+        default_factory=dict,
+    )
