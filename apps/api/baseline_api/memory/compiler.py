@@ -1,4 +1,4 @@
-"""Deterministic daily and weekly memory compilers."""
+"""Deterministic personal memory compilers."""
 
 from __future__ import annotations
 
@@ -47,6 +47,8 @@ _RISK_HYPOTHESES = {
     "hard_safety_illness": "Recent illness may disrupt normal readiness baselines.",
     "hard_safety_injury": "Recent injury may disrupt normal readiness baselines.",
 }
+
+_TREND_METRIC_KEYS = ("vo2_max", "sleep_debt_hours")
 
 
 class MemoryCompiler:
@@ -149,6 +151,138 @@ class MemoryCompiler:
             source_refs=preserved_refs,
             sensitive_fields_excluded=_unique_strings(
                 field for summary in dailies for field in summary.sensitive_fields_excluded
+            ),
+        )
+
+    def compile_monthly(
+        self,
+        *,
+        user_id: UUID,
+        start_date: dt.date,
+        end_date: dt.date,
+        daily_summaries: Sequence[MemorySummary],
+        weekly_summaries: Sequence[MemorySummary] = (),
+    ) -> MemorySummary:
+        """Compile a monthly summary from daily records and in-period weekly summaries."""
+
+        if end_date < start_date:
+            raise ValueError("end_date must be on or after start_date")
+        if not daily_summaries and not weekly_summaries:
+            raise ValueError("monthly compiler requires daily or weekly summaries")
+
+        dailies = sorted(daily_summaries, key=lambda item: item.start_date)
+        weeklies = sorted(weekly_summaries, key=lambda item: item.start_date)
+        _validate_compaction_inputs(
+            dailies,
+            user_id=user_id,
+            period_type=PeriodType.daily,
+            start_date=start_date,
+            end_date=end_date,
+            label="daily",
+        )
+        _validate_compaction_inputs(
+            weeklies,
+            user_id=user_id,
+            period_type=PeriodType.weekly,
+            start_date=start_date,
+            end_date=end_date,
+            label="weekly",
+        )
+
+        dailies, weeklies = _reconcile_monthly_inputs(dailies=dailies, weeklies=weeklies)
+        lower_summaries = [*dailies, *weeklies]
+        preserved_refs = _summary_source_refs(lower_summaries)
+        observations = self._monthly_observations(
+            dailies=dailies,
+            weeklies=weeklies,
+            start_date=start_date,
+            end_date=end_date,
+            source_refs=preserved_refs,
+        )
+        hypotheses = self._monthly_hypotheses(
+            dailies=dailies,
+            weeklies=weeklies,
+            source_refs=preserved_refs,
+        )
+
+        return MemorySummary(
+            user_id=user_id,
+            period_type=PeriodType.monthly,
+            start_date=start_date,
+            end_date=end_date,
+            summary_version=MEMORY_SUMMARY_VERSION,
+            observations=observations,
+            hypotheses=hypotheses,
+            confidence=_aggregate_confidence(observations, hypotheses),
+            source_refs=preserved_refs,
+            sensitive_fields_excluded=_unique_strings(
+                field for summary in lower_summaries for field in summary.sensitive_fields_excluded
+            ),
+        )
+
+    def compile_quarterly(
+        self,
+        *,
+        user_id: UUID,
+        start_date: dt.date,
+        end_date: dt.date,
+        monthly_summaries: Sequence[MemorySummary],
+    ) -> MemorySummary:
+        """Compile a quarterly summary from monthly memory summaries."""
+
+        if end_date < start_date:
+            raise ValueError("end_date must be on or after start_date")
+        if not monthly_summaries:
+            raise ValueError("monthly_summaries must not be empty")
+
+        monthlies = sorted(monthly_summaries, key=lambda item: item.start_date)
+        _validate_compaction_inputs(
+            monthlies,
+            user_id=user_id,
+            period_type=PeriodType.monthly,
+            start_date=start_date,
+            end_date=end_date,
+            label="monthly",
+        )
+        _validate_calendar_quarter_period(start_date=start_date, end_date=end_date)
+        _validate_contiguous_coverage(
+            monthlies,
+            start_date=start_date,
+            end_date=end_date,
+            label="monthly",
+        )
+        _validate_calendar_monthly_inputs(
+            monthlies,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        monthly_refs = [_memory_summary_ref(summary) for summary in monthlies]
+        monthly_source_refs = [ref for row in monthlies for ref in row.source_refs]
+        preserved_refs = _unique_refs([*monthly_refs, *monthly_source_refs])
+        observations = self._quarterly_observations(
+            monthlies=monthlies,
+            start_date=start_date,
+            end_date=end_date,
+            source_refs=preserved_refs,
+        )
+        hypotheses = self._quarterly_hypotheses(
+            monthlies=monthlies,
+            source_refs=preserved_refs,
+        )
+
+        return MemorySummary(
+            user_id=user_id,
+            period_type=PeriodType.quarterly,
+            start_date=start_date,
+            end_date=end_date,
+            summary_version=MEMORY_SUMMARY_VERSION,
+            observations=observations,
+            hypotheses=hypotheses,
+            confidence=_aggregate_confidence(observations, hypotheses),
+            source_refs=preserved_refs,
+            sensitive_fields_excluded=_unique_strings(
+                field for summary in monthlies for field in summary.sensitive_fields_excluded
             ),
         )
 
@@ -342,6 +476,250 @@ class MemoryCompiler:
             )
         return hypotheses
 
+    def _monthly_observations(
+        self,
+        *,
+        dailies: Sequence[MemorySummary],
+        weeklies: Sequence[MemorySummary],
+        start_date: dt.date,
+        end_date: dt.date,
+        source_refs: list[JsonDict],
+    ) -> list[JsonDict]:
+        readiness_counts = _readiness_counts(dailies=dailies, period_summaries=weeklies)
+        risk_counts = _risk_counts(dailies=dailies, period_summaries=weeklies)
+        expected_days = _inclusive_day_count(start_date, end_date)
+        daily_count = len(dailies)
+        covered_daily_count = _covered_daily_count(dailies=dailies, weeklies=weeklies)
+        confidence = _average_confidence([*dailies, *weeklies])
+        observations = [
+            _memory_item(
+                kind="observation",
+                key="monthly_compaction_sources",
+                text=(f"Compiled {daily_count} daily and {len(weeklies)} weekly memory summaries."),
+                value={
+                    "daily_summary_count": daily_count,
+                    "weekly_summary_count": len(weeklies),
+                    "covered_daily_summary_count": covered_daily_count,
+                },
+                confidence=confidence,
+                source_refs=source_refs,
+            ),
+            _memory_item(
+                kind="observation",
+                key="monthly_readiness_arc",
+                text="Monthly readiness arc: " + _counter_text(readiness_counts) + ".",
+                value={"readiness_state_counts": dict(readiness_counts)},
+                confidence=confidence,
+                source_refs=source_refs,
+            ),
+            _memory_item(
+                kind="observation",
+                key="monthly_consistency",
+                text=(
+                    f"Monthly memory coverage: {covered_daily_count}/{expected_days} "
+                    "daily summaries."
+                ),
+                value={
+                    "daily_summary_count": covered_daily_count,
+                    "expected_day_count": expected_days,
+                    "daily_coverage_ratio": _ratio(covered_daily_count, expected_days),
+                },
+                confidence=confidence,
+                source_refs=source_refs,
+            ),
+        ]
+        if risk_counts:
+            observations.append(
+                _memory_item(
+                    kind="observation",
+                    key="monthly_risk_patterns",
+                    text="Monthly risk pattern counts: " + _counter_text(risk_counts) + ".",
+                    value={"risk_flag_counts": dict(risk_counts)},
+                    confidence=confidence,
+                    source_refs=source_refs,
+                )
+            )
+        metric_deltas = _metric_deltas_from_dailies(dailies)
+        if metric_deltas:
+            observations.append(
+                _memory_item(
+                    kind="observation",
+                    key="monthly_medium_term_deltas",
+                    text="Monthly metric deltas: " + _metric_delta_text(metric_deltas) + ".",
+                    value={"metrics": metric_deltas},
+                    confidence=confidence,
+                    source_refs=_summary_source_refs(dailies),
+                )
+            )
+        return observations
+
+    def _monthly_hypotheses(
+        self,
+        *,
+        dailies: Sequence[MemorySummary],
+        weeklies: Sequence[MemorySummary],
+        source_refs: list[JsonDict],
+    ) -> list[JsonDict]:
+        risk_counts = _risk_counts(dailies=dailies, period_summaries=weeklies)
+        observed_days = _covered_daily_count(dailies=dailies, weeklies=weeklies)
+        if observed_days == 0:
+            return []
+        threshold = max(3, round(observed_days * 0.2))
+        confidence = max(0.2, _average_confidence([*dailies, *weeklies]) - 0.1)
+        hypotheses: list[JsonDict] = []
+        for risk_flag, count in sorted(risk_counts.items()):
+            if count < threshold:
+                continue
+            hypotheses.append(
+                _memory_item(
+                    kind="hypothesis",
+                    key="durable_monthly_pattern",
+                    text=(
+                        "Learned pattern: "
+                        f"{_risk_pattern_text(risk_flag)} It appeared on {count} days "
+                        "this month."
+                    ),
+                    value={
+                        "pattern": risk_flag,
+                        "days_observed": count,
+                        "observed_day_count": observed_days,
+                    },
+                    confidence=confidence,
+                    source_refs=source_refs,
+                )
+            )
+        return hypotheses
+
+    def _quarterly_observations(
+        self,
+        *,
+        monthlies: Sequence[MemorySummary],
+        start_date: dt.date,
+        end_date: dt.date,
+        source_refs: list[JsonDict],
+    ) -> list[JsonDict]:
+        readiness_counts = _period_counts(
+            monthlies,
+            item_key="monthly_readiness_arc",
+            value_key="readiness_state_counts",
+        )
+        risk_counts = _period_counts(
+            monthlies,
+            item_key="monthly_risk_patterns",
+            value_key="risk_flag_counts",
+        )
+        daily_count = _period_numeric_total(
+            monthlies,
+            item_key="monthly_consistency",
+            value_key="daily_summary_count",
+        )
+        expected_days = _inclusive_day_count(start_date, end_date)
+        confidence = _average_confidence(monthlies)
+        observations = [
+            _memory_item(
+                kind="observation",
+                key="quarterly_compaction_sources",
+                text=f"Compiled {len(monthlies)} monthly memory summaries.",
+                value={"monthly_summary_count": len(monthlies)},
+                confidence=confidence,
+                source_refs=source_refs,
+            ),
+            _memory_item(
+                kind="observation",
+                key="quarterly_readiness_arc",
+                text="Quarterly readiness arc: " + _counter_text(readiness_counts) + ".",
+                value={"readiness_state_counts": dict(readiness_counts)},
+                confidence=confidence,
+                source_refs=source_refs,
+            ),
+            _memory_item(
+                kind="observation",
+                key="quarterly_consistency",
+                text=(f"Quarterly memory coverage: {daily_count}/{expected_days} daily summaries."),
+                value={
+                    "daily_summary_count": daily_count,
+                    "expected_day_count": expected_days,
+                    "daily_coverage_ratio": _ratio(daily_count, expected_days),
+                    "monthly_summary_count": len(monthlies),
+                },
+                confidence=confidence,
+                source_refs=source_refs,
+            ),
+        ]
+        if risk_counts:
+            observations.append(
+                _memory_item(
+                    kind="observation",
+                    key="quarterly_risk_patterns",
+                    text="Quarterly risk pattern counts: " + _counter_text(risk_counts) + ".",
+                    value={"risk_flag_counts": dict(risk_counts)},
+                    confidence=confidence,
+                    source_refs=source_refs,
+                )
+            )
+        metric_deltas = _metric_deltas_from_monthlies(monthlies)
+        if metric_deltas:
+            observations.append(
+                _memory_item(
+                    kind="observation",
+                    key="quarterly_medium_term_deltas",
+                    text="Quarterly metric deltas: " + _metric_delta_text(metric_deltas) + ".",
+                    value={"metrics": metric_deltas},
+                    confidence=confidence,
+                    source_refs=source_refs,
+                )
+            )
+        return observations
+
+    def _quarterly_hypotheses(
+        self,
+        *,
+        monthlies: Sequence[MemorySummary],
+        source_refs: list[JsonDict],
+    ) -> list[JsonDict]:
+        risk_counts = _period_counts(
+            monthlies,
+            item_key="monthly_risk_patterns",
+            value_key="risk_flag_counts",
+        )
+        daily_count = _period_numeric_total(
+            monthlies,
+            item_key="monthly_consistency",
+            value_key="daily_summary_count",
+        )
+        threshold = max(6, round(daily_count * 0.2))
+        month_counts = _pattern_period_counts(
+            monthlies,
+            item_key="monthly_risk_patterns",
+            value_key="risk_flag_counts",
+        )
+        confidence = max(0.2, _average_confidence(monthlies) - 0.1)
+        hypotheses: list[JsonDict] = []
+        for risk_flag, count in sorted(risk_counts.items()):
+            months_observed = month_counts.get(risk_flag, 0)
+            if count < threshold and months_observed < 2:
+                continue
+            hypotheses.append(
+                _memory_item(
+                    kind="hypothesis",
+                    key="durable_quarterly_pattern",
+                    text=(
+                        "Learned durable pattern: "
+                        f"{_risk_pattern_text(risk_flag)} It appeared on {count} days "
+                        f"across {months_observed} months this quarter."
+                    ),
+                    value={
+                        "pattern": risk_flag,
+                        "days_observed": count,
+                        "months_observed": months_observed,
+                        "observed_day_count": daily_count,
+                    },
+                    confidence=confidence,
+                    source_refs=source_refs,
+                )
+            )
+        return hypotheses
+
 
 def _checkin_observation(checkin: DailyCheckIn) -> JsonDict:
     source_ref = _source_ref("daily_check_in", checkin.id)
@@ -486,6 +864,392 @@ def _daily_risk_flags(summary: MemorySummary) -> list[str]:
     return _unique_strings(flags)
 
 
+def _validate_compaction_inputs(
+    summaries: Sequence[MemorySummary],
+    *,
+    user_id: UUID,
+    period_type: PeriodType,
+    start_date: dt.date,
+    end_date: dt.date,
+    label: str,
+) -> None:
+    for summary in summaries:
+        if summary.user_id != user_id:
+            raise ValueError(f"{label} summary must belong to user_id")
+        if summary.period_type != period_type:
+            raise ValueError(f"compiler only accepts {label} summaries")
+        if summary.start_date < start_date or summary.end_date > end_date:
+            raise ValueError(f"{label} summary is outside compaction period")
+
+
+def _validate_contiguous_coverage(
+    summaries: Sequence[MemorySummary],
+    *,
+    start_date: dt.date,
+    end_date: dt.date,
+    label: str,
+) -> None:
+    if not summaries:
+        raise ValueError(f"{label} summaries must cover requested period")
+
+    ordered = sorted(summaries, key=lambda summary: summary.start_date)
+    if ordered[0].start_date != start_date or ordered[-1].end_date != end_date:
+        raise ValueError(f"{label} summaries must cover requested period")
+
+    previous_end = ordered[0].end_date
+    for summary in ordered[1:]:
+        if summary.start_date != previous_end + dt.timedelta(days=1):
+            raise ValueError(f"{label} summaries must cover requested period without gaps")
+        previous_end = summary.end_date
+
+
+def _reconcile_monthly_inputs(
+    *,
+    dailies: Sequence[MemorySummary],
+    weeklies: Sequence[MemorySummary],
+) -> tuple[list[MemorySummary], list[MemorySummary]]:
+    daily_dates = {summary.start_date for summary in dailies}
+    reconciled_weeklies: list[MemorySummary] = []
+    for weekly in weeklies:
+        weekly_dates = _weekly_coverage_dates(weekly)
+        overlap = daily_dates & weekly_dates
+        if not overlap:
+            reconciled_weeklies.append(weekly)
+            continue
+        if weekly_dates <= daily_dates:
+            continue
+        raise ValueError("weekly summaries must not partially overlap daily summaries")
+    return list(dailies), reconciled_weeklies
+
+
+def _weekly_coverage_dates(summary: MemorySummary) -> set[dt.date]:
+    covered_count = _weekly_daily_count(summary)
+    ref_dates = _daily_memory_ref_dates(summary)
+    if ref_dates:
+        if len(ref_dates) != covered_count:
+            raise ValueError("weekly source refs must reconcile with daily compaction count")
+        return ref_dates
+
+    range_dates = _date_set(summary.start_date, summary.end_date)
+    if len(range_dates) != covered_count:
+        raise ValueError("weekly summaries must include daily source refs for partial coverage")
+    return range_dates
+
+
+def _daily_memory_ref_dates(summary: MemorySummary) -> set[dt.date]:
+    dates: set[dt.date] = set()
+    for ref in summary.source_refs:
+        if not isinstance(ref, Mapping):
+            continue
+        if ref.get("table") != "memory_summary" or ref.get("period_type") != PeriodType.daily.value:
+            continue
+        start_date = _date_ref(ref.get("start_date"))
+        end_date = _date_ref(ref.get("end_date"))
+        if start_date is None or end_date is None or start_date != end_date:
+            continue
+        dates.add(start_date)
+    return dates
+
+
+def _validate_calendar_quarter_period(
+    *,
+    start_date: dt.date,
+    end_date: dt.date,
+) -> None:
+    if start_date.day != 1 or start_date.month not in {1, 4, 7, 10}:
+        raise ValueError("quarterly summaries must use calendar quarter boundaries")
+    if end_date != _month_end(_add_months(start_date, 2)):
+        raise ValueError("quarterly summaries must use calendar quarter boundaries")
+
+
+def _validate_calendar_monthly_inputs(
+    summaries: Sequence[MemorySummary],
+    *,
+    start_date: dt.date,
+    end_date: dt.date,
+) -> None:
+    expected_bounds = _calendar_month_bounds(start_date=start_date, end_date=end_date)
+    actual_bounds = [(summary.start_date, summary.end_date) for summary in summaries]
+    if actual_bounds != expected_bounds:
+        raise ValueError("monthly summaries must match calendar months in requested quarter")
+
+
+def _covered_daily_count(
+    *,
+    dailies: Sequence[MemorySummary],
+    weeklies: Sequence[MemorySummary],
+) -> int:
+    return len(dailies) + sum(_weekly_daily_count(weekly) for weekly in weeklies)
+
+
+def _weekly_daily_count(summary: MemorySummary) -> int:
+    for item in summary.observations:
+        if item.get("key") != "weekly_compaction_sources":
+            continue
+        value = item.get("value")
+        if not isinstance(value, Mapping):
+            break
+        raw_count = value.get("daily_summary_count")
+        if isinstance(raw_count, int | float) and not isinstance(raw_count, bool):
+            count = int(raw_count)
+            if count > 0:
+                return count
+            break
+    raise ValueError("weekly summaries must include daily compaction source counts")
+
+
+def _readiness_counts(
+    *,
+    dailies: Sequence[MemorySummary],
+    period_summaries: Sequence[MemorySummary],
+) -> Counter[str]:
+    counts = Counter(
+        state for summary in dailies if (state := _daily_readiness_state(summary)) is not None
+    )
+    counts.update(
+        _period_counts(
+            period_summaries,
+            item_key="weekly_readiness_arc",
+            value_key="readiness_state_counts",
+        )
+    )
+    return counts
+
+
+def _risk_counts(
+    *,
+    dailies: Sequence[MemorySummary],
+    period_summaries: Sequence[MemorySummary],
+) -> Counter[str]:
+    counts = Counter(risk_flag for summary in dailies for risk_flag in _daily_risk_flags(summary))
+    counts.update(
+        _period_counts(
+            period_summaries,
+            item_key="weekly_notable_patterns",
+            value_key="risk_flag_counts",
+        )
+    )
+    return counts
+
+
+def _period_counts(
+    summaries: Sequence[MemorySummary],
+    *,
+    item_key: str,
+    value_key: str,
+) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for summary in summaries:
+        for item in summary.observations:
+            if item.get("key") != item_key:
+                continue
+            value = item.get("value")
+            if not isinstance(value, Mapping):
+                continue
+            raw_counts = value.get(value_key)
+            if not isinstance(raw_counts, Mapping):
+                continue
+            for raw_key, raw_count in raw_counts.items():
+                if isinstance(raw_count, int | float) and not isinstance(raw_count, bool):
+                    counts[str(raw_key)] += int(raw_count)
+    return counts
+
+
+def _period_numeric_total(
+    summaries: Sequence[MemorySummary],
+    *,
+    item_key: str,
+    value_key: str,
+) -> int:
+    total = 0
+    for summary in summaries:
+        for item in summary.observations:
+            if item.get("key") != item_key:
+                continue
+            value = item.get("value")
+            if not isinstance(value, Mapping):
+                continue
+            raw = value.get(value_key)
+            if isinstance(raw, int | float) and not isinstance(raw, bool):
+                total += int(raw)
+            break
+    return total
+
+
+def _pattern_period_counts(
+    summaries: Sequence[MemorySummary],
+    *,
+    item_key: str,
+    value_key: str,
+) -> Counter[str]:
+    counts: Counter[str] = Counter()
+    for summary in summaries:
+        period_counts = _period_counts([summary], item_key=item_key, value_key=value_key)
+        for pattern, count in period_counts.items():
+            if count > 0:
+                counts[pattern] += 1
+    return counts
+
+
+def _metric_deltas_from_dailies(dailies: Sequence[MemorySummary]) -> JsonDict:
+    metrics: JsonDict = {}
+    ordered = sorted(dailies, key=lambda summary: summary.start_date)
+    for metric_key in _TREND_METRIC_KEYS:
+        values = [
+            value
+            for summary in ordered
+            if (value := _daily_metric_value(summary, metric_key)) is not None
+        ]
+        if not values:
+            continue
+        first_value = values[0]
+        last_value = values[-1]
+        metrics[metric_key] = {
+            "first_value": _rounded_metric(first_value),
+            "last_value": _rounded_metric(last_value),
+            "delta": _rounded_metric(last_value - first_value),
+            "sample_count": len(values),
+        }
+    return metrics
+
+
+def _metric_deltas_from_monthlies(monthlies: Sequence[MemorySummary]) -> JsonDict:
+    metrics: JsonDict = {}
+    for summary in sorted(monthlies, key=lambda item: item.start_date):
+        monthly_metrics = _summary_metric_deltas(summary)
+        for metric_key, delta in monthly_metrics.items():
+            if not isinstance(delta, Mapping):
+                continue
+            first_value = _numeric_value(delta.get("first_value"))
+            last_value = _numeric_value(delta.get("last_value"))
+            sample_count = _numeric_value(delta.get("sample_count"))
+            if first_value is None or last_value is None:
+                continue
+            if metric_key not in metrics:
+                metrics[metric_key] = {
+                    "first_value": _rounded_metric(first_value),
+                    "last_value": _rounded_metric(last_value),
+                    "delta": _rounded_metric(last_value - first_value),
+                    "sample_count": int(sample_count or 0),
+                }
+                continue
+            metrics[metric_key]["last_value"] = _rounded_metric(last_value)
+            metrics[metric_key]["delta"] = _rounded_metric(
+                metrics[metric_key]["last_value"] - metrics[metric_key]["first_value"]
+            )
+            metrics[metric_key]["sample_count"] += int(sample_count or 0)
+    return metrics
+
+
+def _summary_metric_deltas(summary: MemorySummary) -> Mapping[str, Any]:
+    for item in summary.observations:
+        if item.get("key") != "monthly_medium_term_deltas":
+            continue
+        value = item.get("value")
+        if not isinstance(value, Mapping):
+            return {}
+        metrics = value.get("metrics")
+        return metrics if isinstance(metrics, Mapping) else {}
+    return {}
+
+
+def _daily_metric_value(summary: MemorySummary, metric_key: str) -> float | None:
+    for item in summary.observations:
+        if item.get("key") != metric_key:
+            continue
+        raw_value = item.get("value")
+        if isinstance(raw_value, Mapping):
+            return _numeric_value(raw_value.get(metric_key))
+        return _numeric_value(raw_value)
+    return None
+
+
+def _numeric_value(raw: Any) -> float | None:
+    if isinstance(raw, int | float) and not isinstance(raw, bool):
+        return float(raw)
+    return None
+
+
+def _metric_delta_text(metrics: Mapping[str, Any]) -> str:
+    parts: list[str] = []
+    for metric_key, raw_delta in sorted(metrics.items()):
+        if not isinstance(raw_delta, Mapping):
+            continue
+        parts.append(
+            f"{metric_key} {raw_delta.get('first_value')}->{raw_delta.get('last_value')} "
+            f"(delta {raw_delta.get('delta')})"
+        )
+    return ", ".join(parts) if parts else "none observed"
+
+
+def _risk_pattern_text(risk_flag: str) -> str:
+    return _RISK_HYPOTHESES.get(
+        risk_flag,
+        f"Repeated {risk_flag} may be a durable personal pattern.",
+    )
+
+
+def _inclusive_day_count(start_date: dt.date, end_date: dt.date) -> int:
+    return (end_date - start_date).days + 1
+
+
+def _date_set(start_date: dt.date, end_date: dt.date) -> set[dt.date]:
+    return {
+        start_date + dt.timedelta(days=offset)
+        for offset in range(_inclusive_day_count(start_date, end_date))
+    }
+
+
+def _date_ref(raw: Any) -> dt.date | None:
+    if isinstance(raw, dt.datetime):
+        return raw.date()
+    if isinstance(raw, dt.date):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return dt.date.fromisoformat(raw)
+        except ValueError:
+            return None
+    return None
+
+
+def _calendar_month_bounds(
+    *,
+    start_date: dt.date,
+    end_date: dt.date,
+) -> list[tuple[dt.date, dt.date]]:
+    bounds: list[tuple[dt.date, dt.date]] = []
+    current = start_date
+    while current <= end_date:
+        month_end = _month_end(current)
+        bounds.append((current, month_end))
+        current = month_end + dt.timedelta(days=1)
+    return bounds
+
+
+def _add_months(value: dt.date, months: int) -> dt.date:
+    month_index = value.month - 1 + months
+    year = value.year + (month_index // 12)
+    month = (month_index % 12) + 1
+    return dt.date(year, month, min(value.day, _month_end(dt.date(year, month, 1)).day))
+
+
+def _month_end(value: dt.date) -> dt.date:
+    if value.month == 12:
+        return dt.date(value.year, 12, 31)
+    return dt.date(value.year, value.month + 1, 1) - dt.timedelta(days=1)
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return _bounded_confidence(numerator / denominator)
+
+
+def _rounded_metric(value: float) -> float:
+    return round(value, 3)
+
+
 def _counter_text(counter: Mapping[str, int]) -> str:
     if not counter:
         return "none observed"
@@ -532,6 +1296,12 @@ def _memory_summary_ref(summary: MemorySummary) -> JsonDict:
         "start_date": summary.start_date.isoformat(),
         "end_date": summary.end_date.isoformat(),
     }
+
+
+def _summary_source_refs(summaries: Sequence[MemorySummary]) -> list[JsonDict]:
+    summary_refs = [_memory_summary_ref(summary) for summary in summaries]
+    source_refs = [ref for row in summaries for ref in row.source_refs]
+    return _unique_refs([*summary_refs, *source_refs])
 
 
 def _source_sample_refs(feature: DerivedDailyFeature) -> list[JsonDict]:

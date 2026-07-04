@@ -1,5 +1,5 @@
 {
-  "active_cluster": "P3-core-loop",
+  "active_cluster": "P4-memory-data-controls",
   "clusters": [
     {
       "cluster_review_required": true,
@@ -300,10 +300,12 @@
       "title": "memory daily weekly"
     },
     {
+      "completed_at": "2026-07-04T10:28:15Z",
       "id": "P4-02",
+      "last_run_dir": ".task-runs/2026-07-04T101922Z-P4-02-final-repair-2",
       "phase": "P4",
       "prompt": "tasks/P4-02-memory-monthly-quarterly.md",
-      "status": "pending",
+      "status": "complete",
       "title": "memory monthly quarterly"
     },
     {
@@ -363,6 +365,6 @@
       "title": "portfolio docs"
     }
   ],
-  "updated_at": "2026-07-04T10:00:45Z",
+  "updated_at": "2026-07-04T10:28:15Z",
   "version": 1
 }
