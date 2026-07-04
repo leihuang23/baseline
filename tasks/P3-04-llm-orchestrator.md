@@ -3,14 +3,14 @@
 **Phase:** 3 — Reasoning, briefing, safety | **Depends on:** P0-04, P0-06 | **Parallelizable with:** P3-02, P3-05 | **Surface:** backend
 
 ## Context (self-contained)
-In Baseline the LLM **explains and summarizes bounded structured context — it does not compute features, invent data, or override safety.** Every call is logged as a `ModelRun` (provider, model, prompt_version, input/output hashes, tokens, cost, latency, safety_result) so recommendations are reproducible and cost-visible. Provider-agnostic; default Anthropic Claude (`claude-haiku-4-5` cheap tier, `claude-opus-4-8` strong tier).
+In Baseline the LLM **explains and summarizes bounded structured context — it does not compute features, invent data, or override safety.** Every call is logged as a `ModelRun` (provider, model, prompt_version, input/output hashes, tokens, cost, latency, safety_result) so recommendations are reproducible and cost-visible. Provider-agnostic; default DeepSeek V4 Pro.
 
 ## Goal
 Build the provider-agnostic LLM orchestrator: prompt templating with the safety boundary, schema-valid structured outputs, model routing, retries/fallback, and full `ModelRun` telemetry — testable against mock/recorded responses.
 
 ## Scope
 In:
-- A thin provider interface + Anthropic implementation; pluggable for others; **no live calls in tests/CI** (mock/record).
+- A thin provider interface + DeepSeek implementation; pluggable for others; **no live calls in tests/CI** (mock/record).
 - Prompt templates (versioned) that always include: product safety boundary, the structured feature/assessment object, retrieved evidence *only*, explicit-uncertainty requirement, no-diagnosis/treatment instruction, citation requirement for external knowledge, and a schema-valid-output requirement (§21.4).
 - Structured output via Pydantic JSON schema with **validation + repair/retry**; on repeated schema failure, degrade gracefully (surface deterministic assessment without LLM prose).
 - Model routing: cheap model for classification/summarization/simple explanation; strong model for complex longitudinal/planning (§21.3). Provider fallback on failure.
