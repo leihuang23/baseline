@@ -14,6 +14,7 @@ from baseline_api.db.models import (
     DerivedDailyFeature,
     EvaluationCase,
     Goal,
+    KnowledgeChunk,
     KnowledgeSource,
     MemorySummary,
     ModelRun,
@@ -46,6 +47,7 @@ from baseline_api.db.models.enums import (
     TimeHorizon,
     TrustLevel,
 )
+from baseline_api.db.models.knowledge import KNOWLEDGE_EMBEDDING_DIMENSION
 
 
 @pytest.fixture
@@ -90,6 +92,19 @@ def _today():
 def test_insert_and_read_each_entity(db_session, user, model_run) -> None:
     """All PRD §15 entities can be persisted and read back."""
     trace_id = uuid4()
+    knowledge_source = KnowledgeSource(
+        title="Exercise Physiology Reference",
+        author_or_org="Test Journal",
+        source_type=KnowledgeSourceType.research_paper,
+        url_or_identifier="doi:10.0000/test-reference",
+        license_status="CC-BY-4.0",
+        published_at=_today(),
+        ingested_at=_now(),
+        version="v1",
+        trust_level=TrustLevel.peer_reviewed,
+    )
+    db_session.add(knowledge_source)
+    db_session.flush()
     entities = [
         ConsentRecord(
             user_id=user.id,
@@ -214,12 +229,19 @@ def test_insert_and_read_each_entity(db_session, user, model_run) -> None:
             source_refs=[{"table": "sleep_session"}],
             sensitive_fields_excluded=["free_text_note"],
         ),
-        KnowledgeSource(
-            title="Exercise Physiology Reference",
-            source_type=KnowledgeSourceType.research_paper,
-            ingested_at=_now(),
-            version="v1",
-            trust_level=TrustLevel.peer_reviewed,
+        knowledge_source,
+        KnowledgeChunk(
+            source_id=knowledge_source.id,
+            source_version="v1",
+            chunk_index=0,
+            text="General external reference content.",
+            content_hash="chunk-hash",
+            embedding=[0.1] * KNOWLEDGE_EMBEDDING_DIMENSION,
+            source_metadata={
+                "source_id": str(knowledge_source.id),
+                "title": knowledge_source.title,
+                "trust_level": TrustLevel.peer_reviewed.value,
+            },
         ),
         EvaluationCase(
             scenario_name="high_readiness",
