@@ -1,7 +1,7 @@
 """Versioned contract stubs for API endpoints whose behavior lands in later slices."""
 
 import datetime as dt
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
@@ -12,6 +12,7 @@ from sqlmodel import Session
 from baseline_api.briefing import BriefingError, DailyBriefingService, LLMExplainer
 from baseline_api.config import Settings
 from baseline_api.db.session import get_db_session
+from baseline_api.feedback import FeedbackError, FeedbackService
 from baseline_api.llm.factory import build_default_router
 from baseline_api.llm.orchestrator import LLMOrchestrator
 from baseline_api.schemas.api import (
@@ -27,6 +28,13 @@ from baseline_api.schemas.api import (
 from baseline_api.schemas.common import APIEnvelope, APIError, not_implemented_envelope
 
 router = APIRouter(prefix="/v1", tags=["contracts"])
+
+FEEDBACK_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_404_NOT_FOUND: {
+        "model": APIEnvelope[None],
+        "description": "Recommendation was not found.",
+    },
+}
 
 
 def _stub(response: Response) -> APIEnvelope[None]:
@@ -49,6 +57,17 @@ def _llm_explainer(request: Request, session: Session) -> LLMExplainer | None:
 
 
 def _error_response(error: BriefingError) -> JSONResponse:
+    envelope: APIEnvelope[None] = APIEnvelope(
+        status="error",
+        error=APIError(code=error.code, message=error.message, details=error.details),
+    )
+    return JSONResponse(
+        status_code=error.status_code,
+        content=envelope.model_dump(mode="json"),
+    )
+
+
+def _feedback_error_response(error: FeedbackError) -> JSONResponse:
     envelope: APIEnvelope[None] = APIEnvelope(
         status="error",
         error=APIError(code=error.code, message=error.message, details=error.details),
@@ -137,13 +156,19 @@ async def get_daily_briefing(
 @router.post(
     "/recommendations/{id}/feedback",
     response_model=APIEnvelope[RecommendationFeedbackResponse],
+    responses=FEEDBACK_ERROR_RESPONSES,
 )
 async def submit_recommendation_feedback(
     id: UUID,
-    request: RecommendationFeedbackRequest,
-    response: Response,
-) -> APIEnvelope[None]:
-    return _stub(response)
+    payload: RecommendationFeedbackRequest,
+    session: Annotated[Session, Depends(get_db_session)],
+) -> APIEnvelope[RecommendationFeedbackResponse] | JSONResponse:
+    service = FeedbackService(session)
+    try:
+        data = service.submit_feedback(id, payload)
+    except FeedbackError as error:
+        return _feedback_error_response(error)
+    return APIEnvelope(status="success", data=data)
 
 
 @router.post("/data/export", response_model=APIEnvelope[DataExportResponse])

@@ -384,6 +384,16 @@
               }
             }
           },
+          "404": {
+            "description": "Recommendation was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -2414,6 +2424,33 @@
         ],
         "title": "FeedbackActionTaken"
       },
+      "FeedbackContradictionAlert": {
+        "properties": {
+          "contradiction_key": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Contradiction Key"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 2.0,
+            "title": "Count"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "contradiction_key",
+          "count",
+          "message"
+        ],
+        "title": "FeedbackContradictionAlert"
+      },
       "FeedbackRating": {
         "type": "string",
         "enum": [
@@ -2943,7 +2980,9 @@
           "reason": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 240,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2954,7 +2993,9 @@
           "outcome_notes": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 240,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2989,6 +3030,16 @@
           },
           "eval_queue_status": {
             "$ref": "#/components/schemas/EvalQueueStatus"
+          },
+          "contradiction_alert": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackContradictionAlert"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
