@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Annotated
 from uuid import UUID
 
@@ -19,7 +20,11 @@ from baseline_api.checkin import (
 )
 from baseline_api.config import Settings
 from baseline_api.db.session import get_db_session
-from baseline_api.schemas.api import DailyCheckInRequest, DailyCheckInResponse
+from baseline_api.schemas.api import (
+    DailyCheckInDetailResponse,
+    DailyCheckInRequest,
+    DailyCheckInResponse,
+)
 from baseline_api.schemas.common import APIEnvelope, APIError
 
 router = APIRouter(prefix="/v1/checkins", tags=["checkins"])
@@ -78,6 +83,26 @@ async def update_daily_checkin(
     service = CheckinService(session, redaction, queue)
     try:
         data = await service.update_checkin(checkin_id, request)
+    except CheckinError as error:
+        return _error_response(
+            status_code=error.status_code,
+            code=error.code,
+            message=error.message,
+            details=error.details,
+        )
+    return APIEnvelope(status="success", data=data)
+
+
+@router.get("/daily/by-date/{checkin_date}", response_model=APIEnvelope[DailyCheckInDetailResponse])
+def get_daily_checkin(
+    checkin_date: dt.date,
+    session: Annotated[Session, Depends(get_db_session)],
+    redaction: Annotated[NoteRedactionService, Depends(get_redaction_service)],
+    queue: Annotated[AnalysisJobQueue, Depends(get_analysis_queue)],
+) -> APIEnvelope[DailyCheckInDetailResponse] | JSONResponse:
+    service = CheckinService(session, redaction, queue)
+    try:
+        data = service.get_checkin_for_date(checkin_date)
     except CheckinError as error:
         return _error_response(
             status_code=error.status_code,

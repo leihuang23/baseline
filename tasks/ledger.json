@@ -222,7 +222,9 @@
       "title": "ios checkin goals ui",
       "prompt": "tasks/P2-05-ios-checkin-goals-ui.md",
       "phase": "P2",
-      "status": "pending"
+      "status": "complete",
+      "completed_at": "2026-07-04T01:24:43Z",
+      "last_run_dir": ".task-runs/2026-07-04T012443Z-P2-05-final-review-9"
     },
     {
       "id": "P3-01",

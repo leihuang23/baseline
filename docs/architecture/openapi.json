@@ -1,488 +1,9 @@
 {
-  "openapi": "3.1.0",
-  "info": {
-    "title": "Baseline",
-    "version": "0.1.0"
-  },
-  "paths": {
-    "/health": {
-      "get": {
-        "summary": "Health",
-        "operationId": "health_health_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object",
-                  "title": "Response Health Health Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/health/ping": {
-      "get": {
-        "tags": [
-          "health"
-        ],
-        "summary": "Ping",
-        "operationId": "ping_v1_health_ping_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "type": "object",
-                  "title": "Response Ping V1 Health Ping Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/health/sync": {
-      "post": {
-        "tags": [
-          "health"
-        ],
-        "summary": "Sync Health",
-        "operationId": "sync_health_v1_health_sync_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HealthSyncRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_HealthSyncResponse_"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Consent is missing, revoked, invalid, or does not allow a sample category.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The sync request conflicts with idempotency or ingestion state.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Raw samples were persisted, but normalization could not be queued.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/analysis/daily": {
-      "post": {
-        "tags": [
-          "contracts"
-        ],
-        "summary": "Generate Daily Analysis",
-        "operationId": "generate_daily_analysis_v1_analysis_daily_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DailyAnalysisRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyAnalysisResponse_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/briefings/{date}": {
-      "get": {
-        "tags": [
-          "contracts"
-        ],
-        "summary": "Get Daily Briefing",
-        "operationId": "get_daily_briefing_v1_briefings__date__get",
-        "parameters": [
-          {
-            "name": "date",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "date",
-              "title": "Date"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyBriefingResponse_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/assistant/query": {
-      "post": {
-        "tags": [
-          "contracts"
-        ],
-        "summary": "Ask Assistant",
-        "operationId": "ask_assistant_v1_assistant_query_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssistantQueryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_AssistantQueryResponse_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/recommendations/{id}/feedback": {
-      "post": {
-        "tags": [
-          "contracts"
-        ],
-        "summary": "Submit Recommendation Feedback",
-        "operationId": "submit_recommendation_feedback_v1_recommendations__id__feedback_post",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RecommendationFeedbackRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_RecommendationFeedbackResponse_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/data/export": {
-      "post": {
-        "tags": [
-          "contracts"
-        ],
-        "summary": "Export Data",
-        "operationId": "export_data_v1_data_export_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DataExportRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DataExportResponse_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/checkins/daily": {
-      "post": {
-        "tags": [
-          "checkins"
-        ],
-        "summary": "Submit Daily Checkin",
-        "operationId": "submit_daily_checkin_v1_checkins_daily_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DailyCheckInRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/checkins/daily/{checkin_id}": {
-      "put": {
-        "tags": [
-          "checkins"
-        ],
-        "summary": "Update Daily Checkin",
-        "operationId": "update_daily_checkin_v1_checkins_daily__checkin_id__put",
-        "parameters": [
-          {
-            "name": "checkin_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Checkin Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DailyCheckInRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "checkins"
-        ],
-        "summary": "Delete Daily Checkin",
-        "operationId": "delete_daily_checkin_v1_checkins_daily__checkin_id__delete",
-        "parameters": [
-          {
-            "name": "checkin_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Checkin Id"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  },
   "components": {
     "schemas": {
       "APIEnvelope_AssistantQueryResponse_": {
+        "additionalProperties": false,
         "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "success",
-              "error"
-            ],
-            "title": "Status"
-          },
           "data": {
             "anyOf": [
               {
@@ -505,25 +26,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[AssistantQueryResponse]"
-      },
-      "APIEnvelope_DailyAnalysisResponse_": {
-        "properties": {
+          },
           "status": {
-            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status"
-          },
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[AssistantQueryResponse]",
+        "type": "object"
+      },
+      "APIEnvelope_DailyAnalysisResponse_": {
+        "additionalProperties": false,
+        "properties": {
           "data": {
             "anyOf": [
               {
@@ -546,25 +67,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[DailyAnalysisResponse]"
-      },
-      "APIEnvelope_DailyBriefingResponse_": {
-        "properties": {
+          },
           "status": {
-            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status"
-          },
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DailyAnalysisResponse]",
+        "type": "object"
+      },
+      "APIEnvelope_DailyBriefingResponse_": {
+        "additionalProperties": false,
+        "properties": {
           "data": {
             "anyOf": [
               {
@@ -587,25 +108,66 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[DailyBriefingResponse]"
-      },
-      "APIEnvelope_DailyCheckInResponse_": {
-        "properties": {
+          },
           "status": {
-            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status"
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DailyBriefingResponse]",
+        "type": "object"
+      },
+      "APIEnvelope_DailyCheckInDetailResponse_": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DailyCheckInDetailResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/APIResponseMeta"
+          },
+          "status": {
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DailyCheckInDetailResponse]",
+        "type": "object"
+      },
+      "APIEnvelope_DailyCheckInResponse_": {
+        "additionalProperties": false,
+        "properties": {
           "data": {
             "anyOf": [
               {
@@ -628,25 +190,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[DailyCheckInResponse]"
-      },
-      "APIEnvelope_DataExportResponse_": {
-        "properties": {
+          },
           "status": {
-            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status"
-          },
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DailyCheckInResponse]",
+        "type": "object"
+      },
+      "APIEnvelope_DataExportResponse_": {
+        "additionalProperties": false,
+        "properties": {
           "data": {
             "anyOf": [
               {
@@ -669,25 +231,66 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[DataExportResponse]"
-      },
-      "APIEnvelope_HealthSyncResponse_": {
-        "properties": {
+          },
           "status": {
-            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status"
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DataExportResponse]",
+        "type": "object"
+      },
+      "APIEnvelope_GoalResponse_": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GoalResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/APIResponseMeta"
+          },
+          "status": {
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[GoalResponse]",
+        "type": "object"
+      },
+      "APIEnvelope_HealthSyncResponse_": {
+        "additionalProperties": false,
+        "properties": {
           "data": {
             "anyOf": [
               {
@@ -710,28 +313,28 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[HealthSyncResponse]"
-      },
-      "APIEnvelope_NoneType_": {
-        "properties": {
+          },
           "status": {
-            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status"
-          },
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[HealthSyncResponse]",
+        "type": "object"
+      },
+      "APIEnvelope_NoneType_": {
+        "additionalProperties": false,
+        "properties": {
           "data": {
-            "type": "null",
-            "title": "Data"
+            "title": "Data",
+            "type": "null"
           },
           "error": {
             "anyOf": [
@@ -745,25 +348,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[NoneType]"
-      },
-      "APIEnvelope_RecommendationFeedbackResponse_": {
-        "properties": {
+          },
           "status": {
-            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status"
-          },
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[NoneType]",
+        "type": "object"
+      },
+      "APIEnvelope_RecommendationFeedbackResponse_": {
+        "additionalProperties": false,
+        "properties": {
           "data": {
             "anyOf": [
               {
@@ -786,26 +389,74 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
+          },
+          "status": {
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "status"
         ],
-        "title": "APIEnvelope[RecommendationFeedbackResponse]"
+        "title": "APIEnvelope[RecommendationFeedbackResponse]",
+        "type": "object"
+      },
+      "APIEnvelope_list_GoalResponse__": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/GoalResponse"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/APIResponseMeta"
+          },
+          "status": {
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[list[GoalResponse]]",
+        "type": "object"
       },
       "APIError": {
+        "additionalProperties": false,
         "properties": {
           "code": {
-            "type": "string",
             "minLength": 1,
-            "title": "Code"
-          },
-          "message": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Message"
+            "title": "Code",
+            "type": "string"
           },
           "details": {
             "anyOf": [
@@ -818,22 +469,34 @@
               }
             ],
             "title": "Details"
+          },
+          "message": {
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "code",
           "message"
         ],
-        "title": "APIError"
+        "title": "APIError",
+        "type": "object"
       },
       "APIResponseMeta": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "title": "Schema Version",
-            "default": "v1"
+          "generated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
           },
           "request_id": {
             "anyOf": [
@@ -846,6 +509,11 @@
             ],
             "title": "Request Id"
           },
+          "schema_version": {
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
           "trace_id": {
             "anyOf": [
               {
@@ -856,52 +524,37 @@
               }
             ],
             "title": "Trace Id"
-          },
-          "generated_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Generated At"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "APIResponseMeta"
+        "title": "APIResponseMeta",
+        "type": "object"
       },
       "AnalysisJobStatus": {
-        "type": "string",
         "enum": [
           "queued",
           "running",
           "completed",
           "failed"
         ],
-        "title": "AnalysisJobStatus"
+        "title": "AnalysisJobStatus",
+        "type": "string"
       },
       "AssistantQueryRequest": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
-          },
-          "question": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Question"
+          "allowed_data_scope": {
+            "items": {
+              "$ref": "#/components/schemas/DataScope"
+            },
+            "minItems": 1,
+            "title": "Allowed Data Scope",
+            "type": "array"
           },
           "date_context": {
             "anyOf": [
               {
-                "type": "string",
-                "format": "date"
+                "format": "date",
+                "type": "string"
               },
               {
                 "type": "null"
@@ -909,82 +562,83 @@
             ],
             "title": "Date Context"
           },
-          "allowed_data_scope": {
-            "items": {
-              "$ref": "#/components/schemas/DataScope"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Allowed Data Scope"
-          },
           "include_external_knowledge": {
-            "type": "boolean",
+            "default": false,
             "title": "Include External Knowledge",
-            "default": false
+            "type": "boolean"
           },
           "privacy_mode": {
             "$ref": "#/components/schemas/PrivacyMode"
+          },
+          "question": {
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "question",
           "allowed_data_scope",
           "privacy_mode"
         ],
-        "title": "AssistantQueryRequest"
+        "title": "AssistantQueryRequest",
+        "type": "object"
       },
       "AssistantQueryResponse": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
-          },
           "answer": {
-            "type": "string",
             "minLength": 1,
-            "title": "Answer"
+            "title": "Answer",
+            "type": "string"
           },
-          "personal_evidence": {
-            "items": {
-              "$ref": "#/components/schemas/PersonalEvidence"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Personal Evidence"
+          "confidence": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
           },
           "external_sources": {
             "items": {
               "$ref": "#/components/schemas/ExternalCitation"
             },
-            "type": "array",
-            "title": "External Sources"
+            "title": "External Sources",
+            "type": "array"
           },
-          "confidence": {
-            "$ref": "#/components/schemas/ConfidenceLevel"
+          "personal_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalEvidence"
+            },
+            "minItems": 1,
+            "title": "Personal Evidence",
+            "type": "array"
+          },
+          "safety_status": {
+            "$ref": "#/components/schemas/SafetyStatus"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "trace_id": {
+            "format": "uuid",
+            "title": "Trace Id",
+            "type": "string"
           },
           "uncertainty": {
             "items": {
               "type": "string"
             },
-            "type": "array",
             "minItems": 1,
-            "title": "Uncertainty"
-          },
-          "safety_status": {
-            "$ref": "#/components/schemas/SafetyStatus"
-          },
-          "trace_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Trace Id"
+            "title": "Uncertainty",
+            "type": "array"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "answer",
           "personal_evidence",
@@ -993,123 +647,118 @@
           "safety_status",
           "trace_id"
         ],
-        "title": "AssistantQueryResponse"
+        "title": "AssistantQueryResponse",
+        "type": "object"
       },
       "CandidateOption": {
+        "additionalProperties": false,
         "properties": {
           "label": {
-            "type": "string",
             "minLength": 1,
-            "title": "Label"
+            "title": "Label",
+            "type": "string"
+          },
+          "rationale": {
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
           },
           "recommendation_band": {
             "$ref": "#/components/schemas/RecommendationBand"
-          },
-          "rationale": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Rationale"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "label",
           "recommendation_band",
           "rationale"
         ],
-        "title": "CandidateOption"
+        "title": "CandidateOption",
+        "type": "object"
       },
       "ConfidenceLevel": {
-        "type": "string",
         "enum": [
           "low",
           "medium",
           "high"
         ],
-        "title": "ConfidenceLevel"
+        "title": "ConfidenceLevel",
+        "type": "string"
       },
       "DailyAnalysisRequest": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
-          },
           "date": {
-            "type": "string",
             "format": "date",
-            "title": "Date"
+            "title": "Date",
+            "type": "string"
           },
           "force_recompute": {
-            "type": "boolean",
+            "default": false,
             "title": "Force Recompute",
-            "default": false
+            "type": "boolean"
           },
           "include_external_knowledge": {
-            "type": "boolean",
+            "default": false,
             "title": "Include External Knowledge",
-            "default": false
+            "type": "boolean"
           },
           "privacy_mode": {
             "$ref": "#/components/schemas/PrivacyMode"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "date",
           "privacy_mode"
         ],
-        "title": "DailyAnalysisRequest"
+        "title": "DailyAnalysisRequest",
+        "type": "object"
       },
       "DailyAnalysisResponse": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
-          },
           "analysis_job_id": {
-            "type": "string",
             "format": "uuid",
-            "title": "Analysis Job Id"
+            "title": "Analysis Job Id",
+            "type": "string"
+          },
+          "estimated_completion_seconds": {
+            "minimum": 0.0,
+            "title": "Estimated Completion Seconds",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
           },
           "status": {
             "$ref": "#/components/schemas/AnalysisJobStatus"
-          },
-          "estimated_completion_seconds": {
-            "type": "integer",
-            "minimum": 0.0,
-            "title": "Estimated Completion Seconds"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "analysis_job_id",
           "status",
           "estimated_completion_seconds"
         ],
-        "title": "DailyAnalysisResponse"
+        "title": "DailyAnalysisResponse",
+        "type": "object"
       },
       "DailyBriefingResponse": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
-          },
-          "date": {
-            "type": "string",
-            "format": "date",
-            "title": "Date"
-          },
-          "readiness_state": {
-            "$ref": "#/components/schemas/ReadinessState"
+          "candidate_options": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateOption"
+            },
+            "title": "Candidate Options",
+            "type": "array"
           },
           "confidence": {
             "$ref": "#/components/schemas/ConfidenceLevel"
@@ -1117,60 +766,65 @@
           "data_freshness": {
             "$ref": "#/components/schemas/DataFreshness"
           },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
           "evidence": {
             "items": {
               "$ref": "#/components/schemas/PersonalEvidence"
             },
-            "type": "array",
             "minItems": 1,
-            "title": "Evidence"
+            "title": "Evidence",
+            "type": "array"
           },
-          "recommendation_band": {
-            "$ref": "#/components/schemas/RecommendationBand"
-          },
-          "candidate_options": {
-            "items": {
-              "$ref": "#/components/schemas/CandidateOption"
-            },
-            "type": "array",
-            "title": "Candidate Options"
+          "generated_at": {
+            "format": "date-time",
+            "title": "Generated At",
+            "type": "string"
           },
           "goal_tradeoffs": {
             "items": {
               "$ref": "#/components/schemas/GoalTradeoff"
             },
-            "type": "array",
-            "title": "Goal Tradeoffs"
+            "title": "Goal Tradeoffs",
+            "type": "array"
           },
-          "uncertainty": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Uncertainty"
+          "readiness_state": {
+            "$ref": "#/components/schemas/ReadinessState"
+          },
+          "recommendation_band": {
+            "$ref": "#/components/schemas/RecommendationBand"
           },
           "safety_notes": {
             "items": {
               "type": "string"
             },
-            "type": "array",
             "minItems": 1,
-            "title": "Safety Notes"
+            "title": "Safety Notes",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
           },
           "trace_id": {
-            "type": "string",
             "format": "uuid",
-            "title": "Trace Id"
+            "title": "Trace Id",
+            "type": "string"
           },
-          "generated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Generated At"
+          "uncertainty": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Uncertainty",
+            "type": "array"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "date",
           "readiness_state",
@@ -1183,20 +837,52 @@
           "trace_id",
           "generated_at"
         ],
-        "title": "DailyBriefingResponse"
+        "title": "DailyBriefingResponse",
+        "type": "object"
+      },
+      "DailyCheckInDetailResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checkin_id": {
+            "format": "uuid",
+            "title": "Checkin Id",
+            "type": "string"
+          },
+          "has_free_text_note": {
+            "default": false,
+            "title": "Has Free Text Note",
+            "type": "boolean"
+          },
+          "request": {
+            "$ref": "#/components/schemas/DailyCheckInRequest"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkin_id",
+          "request"
+        ],
+        "title": "DailyCheckInDetailResponse",
+        "type": "object"
       },
       "DailyCheckInFlags": {
+        "additionalProperties": false,
         "properties": {
           "alcohol": {
-            "type": "boolean",
+            "default": false,
             "title": "Alcohol",
-            "default": false
+            "type": "boolean"
           },
           "caffeine_notes": {
             "anyOf": [
               {
-                "type": "string",
-                "maxLength": 80
+                "maxLength": 80,
+                "type": "string"
               },
               {
                 "type": "null"
@@ -1205,44 +891,38 @@
             "title": "Caffeine Notes"
           },
           "illness": {
-            "type": "boolean",
+            "default": false,
             "title": "Illness",
-            "default": false
+            "type": "boolean"
           },
           "injury": {
-            "type": "boolean",
+            "default": false,
             "title": "Injury",
-            "default": false
+            "type": "boolean"
           },
           "travel": {
-            "type": "boolean",
+            "default": false,
             "title": "Travel",
-            "default": false
+            "type": "boolean"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "DailyCheckInFlags"
+        "title": "DailyCheckInFlags",
+        "type": "object"
       },
       "DailyCheckInRequest": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
-          },
           "date": {
-            "type": "string",
             "format": "date",
-            "title": "Date"
+            "title": "Date",
+            "type": "string"
           },
           "energy_score": {
             "anyOf": [
               {
-                "type": "integer",
                 "maximum": 10.0,
-                "minimum": 1.0
+                "minimum": 1.0,
+                "type": "integer"
               },
               {
                 "type": "null"
@@ -1250,12 +930,39 @@
             ],
             "title": "Energy Score"
           },
+          "flags": {
+            "$ref": "#/components/schemas/DailyCheckInFlags"
+          },
+          "food_quality_score": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Food Quality Score"
+          },
+          "free_text_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Text Note"
+          },
           "mood_score": {
             "anyOf": [
               {
-                "type": "integer",
                 "maximum": 10.0,
-                "minimum": 1.0
+                "minimum": 1.0,
+                "type": "integer"
               },
               {
                 "type": "null"
@@ -1263,12 +970,35 @@
             ],
             "title": "Mood Score"
           },
+          "perceived_recovery_score": {
+            "anyOf": [
+              {
+                "maximum": 10.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Perceived Recovery Score"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "sensitive_note_policy": {
+            "$ref": "#/components/schemas/SensitiveNotePolicy",
+            "default": "exclude_from_external_llm"
+          },
           "soreness_score": {
             "anyOf": [
               {
-                "type": "integer",
                 "maximum": 10.0,
-                "minimum": 1.0
+                "minimum": 1.0,
+                "type": "integer"
               },
               {
                 "type": "null"
@@ -1279,44 +1009,15 @@
           "stress_score": {
             "anyOf": [
               {
-                "type": "integer",
                 "maximum": 10.0,
-                "minimum": 1.0
+                "minimum": 1.0,
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
             "title": "Stress Score"
-          },
-          "perceived_recovery_score": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 10.0,
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Perceived Recovery Score"
-          },
-          "food_quality_score": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "maximum": 10.0,
-                "minimum": 1.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Food Quality Score"
-          },
-          "flags": {
-            "$ref": "#/components/schemas/DailyCheckInFlags"
           },
           "structured_notes": {
             "additionalProperties": {
@@ -1338,151 +1039,134 @@
                 }
               ]
             },
-            "type": "object",
-            "title": "Structured Notes"
+            "title": "Structured Notes",
+            "type": "object"
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "title": "DailyCheckInRequest",
+        "type": "object"
+      },
+      "DailyCheckInResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Fields",
+            "type": "array"
           },
-          "free_text_note": {
+          "analysis_job_id": {
             "anyOf": [
               {
+                "format": "uuid",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Free Text Note"
-          },
-          "sensitive_note_policy": {
-            "$ref": "#/components/schemas/SensitiveNotePolicy",
-            "default": "exclude_from_external_llm"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "date"
-        ],
-        "title": "DailyCheckInRequest"
-      },
-      "DailyCheckInResponse": {
-        "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
+            "title": "Analysis Job Id"
           },
           "checkin_id": {
-            "type": "string",
             "format": "uuid",
-            "title": "Checkin Id"
-          },
-          "accepted_fields": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Accepted Fields"
+            "title": "Checkin Id",
+            "type": "string"
           },
           "redaction_status": {
             "$ref": "#/components/schemas/RedactionStatus"
           },
-          "analysis_job_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Analysis Job Id"
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "checkin_id",
           "accepted_fields",
           "redaction_status"
         ],
-        "title": "DailyCheckInResponse"
+        "title": "DailyCheckInResponse",
+        "type": "object"
       },
       "DataExportFormat": {
-        "type": "string",
         "enum": [
           "json",
           "csv"
         ],
-        "title": "DataExportFormat"
+        "title": "DataExportFormat",
+        "type": "string"
       },
       "DataExportRequest": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
-          },
           "export_scope": {
             "$ref": "#/components/schemas/DataExportScope"
           },
           "format": {
             "$ref": "#/components/schemas/DataExportFormat"
           },
-          "include_raw_data": {
-            "type": "boolean",
-            "title": "Include Raw Data",
-            "default": false
-          },
           "include_model_traces": {
-            "type": "boolean",
+            "default": false,
             "title": "Include Model Traces",
-            "default": false
+            "type": "boolean"
+          },
+          "include_raw_data": {
+            "default": false,
+            "title": "Include Raw Data",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "export_scope",
           "format"
         ],
-        "title": "DataExportRequest"
+        "title": "DataExportRequest",
+        "type": "object"
       },
       "DataExportResponse": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
           },
           "export_job_id": {
-            "type": "string",
             "format": "uuid",
-            "title": "Export Job Id"
+            "title": "Export Job Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
           },
           "status": {
             "$ref": "#/components/schemas/DataExportStatus"
-          },
-          "expires_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Expires At"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "export_job_id",
           "status",
           "expires_at"
         ],
-        "title": "DataExportResponse"
+        "title": "DataExportResponse",
+        "type": "object"
       },
       "DataExportScope": {
-        "type": "string",
         "enum": [
           "all",
           "health",
@@ -1490,10 +1174,10 @@
           "briefings",
           "recommendations"
         ],
-        "title": "DataExportScope"
+        "title": "DataExportScope",
+        "type": "string"
       },
       "DataExportStatus": {
-        "type": "string",
         "enum": [
           "queued",
           "running",
@@ -1501,27 +1185,17 @@
           "failed",
           "expired"
         ],
-        "title": "DataExportStatus"
+        "title": "DataExportStatus",
+        "type": "string"
       },
       "DataFreshness": {
+        "additionalProperties": false,
         "properties": {
-          "latest_sample_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Latest Sample At"
-          },
           "latest_checkin_date": {
             "anyOf": [
               {
-                "type": "string",
-                "format": "date"
+                "format": "date",
+                "type": "string"
               },
               {
                 "type": "null"
@@ -1529,19 +1203,31 @@
             ],
             "title": "Latest Checkin Date"
           },
+          "latest_sample_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Sample At"
+          },
           "stale_sources": {
             "items": {
               "type": "string"
             },
-            "type": "array",
-            "title": "Stale Sources"
+            "title": "Stale Sources",
+            "type": "array"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "DataFreshness"
+        "title": "DataFreshness",
+        "type": "object"
       },
       "DataQualityNote": {
+        "additionalProperties": false,
         "properties": {
           "metric": {
             "anyOf": [
@@ -1555,59 +1241,57 @@
             "title": "Metric"
           },
           "note": {
-            "type": "string",
             "minLength": 1,
-            "title": "Note"
+            "title": "Note",
+            "type": "string"
           },
           "severity": {
             "$ref": "#/components/schemas/DataQualitySeverity",
             "default": "info"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "note"
         ],
-        "title": "DataQualityNote"
+        "title": "DataQualityNote",
+        "type": "object"
       },
       "DataQualitySeverity": {
-        "type": "string",
         "enum": [
           "info",
           "warning",
           "degraded"
         ],
-        "title": "DataQualitySeverity"
+        "title": "DataQualitySeverity",
+        "type": "string"
       },
       "DataQualitySummary": {
+        "additionalProperties": false,
         "properties": {
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/DataQualityNote"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
           "status": {
-            "type": "string",
             "enum": [
               "ok",
               "degraded",
               "insufficient"
             ],
-            "title": "Status"
-          },
-          "notes": {
-            "items": {
-              "$ref": "#/components/schemas/DataQualityNote"
-            },
-            "type": "array",
-            "title": "Notes"
+            "title": "Status",
+            "type": "string"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "status"
         ],
-        "title": "DataQualitySummary"
+        "title": "DataQualitySummary",
+        "type": "object"
       },
       "DataScope": {
-        "type": "string",
         "enum": [
           "briefing_trace",
           "recent_health",
@@ -1616,98 +1300,217 @@
           "goals",
           "external_knowledge"
         ],
-        "title": "DataScope"
+        "title": "DataScope",
+        "type": "string"
       },
       "EvalQueueStatus": {
-        "type": "string",
         "enum": [
           "queued",
           "skipped",
           "failed"
         ],
-        "title": "EvalQueueStatus"
+        "title": "EvalQueueStatus",
+        "type": "string"
       },
       "ExternalCitation": {
+        "additionalProperties": false,
         "properties": {
-          "title": {
-            "type": "string",
+          "cited_claim": {
             "minLength": 1,
-            "title": "Title"
+            "title": "Cited Claim",
+            "type": "string"
           },
           "source": {
-            "type": "string",
             "minLength": 1,
-            "title": "Source"
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
           },
           "url": {
             "anyOf": [
               {
-                "type": "string",
+                "format": "uri",
                 "maxLength": 2083,
                 "minLength": 1,
-                "format": "uri"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
             "title": "Url"
-          },
-          "cited_claim": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Cited Claim"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "title",
           "source",
           "cited_claim"
         ],
-        "title": "ExternalCitation"
+        "title": "ExternalCitation",
+        "type": "object"
       },
       "FeedbackActionTaken": {
-        "type": "string",
         "enum": [
           "followed",
           "partially_followed",
           "ignored",
           "planned"
         ],
-        "title": "FeedbackActionTaken"
+        "title": "FeedbackActionTaken",
+        "type": "string"
       },
       "FeedbackRating": {
-        "type": "string",
         "enum": [
           "useful",
           "somewhat_useful",
           "not_useful",
           "unsafe_or_wrong"
         ],
-        "title": "FeedbackRating"
+        "title": "FeedbackRating",
+        "type": "string"
       },
-      "GoalTradeoff": {
+      "GoalCategory": {
+        "enum": [
+          "cognitive_performance",
+          "vo2_max",
+          "strength",
+          "recovery",
+          "sleep",
+          "long_term_wellness"
+        ],
+        "title": "GoalCategory",
+        "type": "string"
+      },
+      "GoalRequest": {
+        "additionalProperties": false,
         "properties": {
-          "goal": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Goal"
+          "category": {
+            "$ref": "#/components/schemas/GoalCategory"
           },
-          "tradeoff": {
-            "type": "string",
+          "constraints": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Constraints",
+            "type": "object"
+          },
+          "priority": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "success_metric": {
+            "maxLength": 160,
             "minLength": 1,
-            "title": "Tradeoff"
+            "title": "Success Metric",
+            "type": "string"
+          },
+          "time_horizon": {
+            "$ref": "#/components/schemas/GoalTimeHorizon"
           }
         },
+        "required": [
+          "category",
+          "priority",
+          "time_horizon",
+          "success_metric"
+        ],
+        "title": "GoalRequest",
+        "type": "object"
+      },
+      "GoalResponse": {
         "additionalProperties": false,
-        "type": "object",
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "category": {
+            "$ref": "#/components/schemas/GoalCategory"
+          },
+          "constraints": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Constraints",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "priority": {
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Priority",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "success_metric": {
+            "title": "Success Metric",
+            "type": "string"
+          },
+          "time_horizon": {
+            "$ref": "#/components/schemas/GoalTimeHorizon"
+          }
+        },
+        "required": [
+          "id",
+          "category",
+          "priority",
+          "time_horizon",
+          "success_metric",
+          "active"
+        ],
+        "title": "GoalResponse",
+        "type": "object"
+      },
+      "GoalTimeHorizon": {
+        "enum": [
+          "short_term",
+          "medium_term",
+          "long_term"
+        ],
+        "title": "GoalTimeHorizon",
+        "type": "string"
+      },
+      "GoalTradeoff": {
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "minLength": 1,
+            "title": "Goal",
+            "type": "string"
+          },
+          "tradeoff": {
+            "minLength": 1,
+            "title": "Tradeoff",
+            "type": "string"
+          }
+        },
         "required": [
           "goal",
           "tradeoff"
         ],
-        "title": "GoalTradeoff"
+        "title": "GoalTradeoff",
+        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1715,33 +1518,21 @@
             "items": {
               "$ref": "#/components/schemas/ValidationError"
             },
-            "type": "array",
-            "title": "Detail"
+            "title": "Detail",
+            "type": "array"
           }
         },
-        "type": "object",
-        "title": "HTTPValidationError"
+        "title": "HTTPValidationError",
+        "type": "object"
       },
       "HealthSamplePayload": {
+        "additionalProperties": false,
         "properties": {
-          "source_sample_id": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Source Sample Id"
-          },
-          "sample_type": {
-            "$ref": "#/components/schemas/MetricType"
-          },
-          "start_time": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Start Time"
-          },
           "end_time": {
             "anyOf": [
               {
-                "type": "string",
-                "format": "date-time"
+                "format": "date-time",
+                "type": "string"
               },
               {
                 "type": "null"
@@ -1749,23 +1540,34 @@
             ],
             "title": "End Time"
           },
-          "value": {
-            "type": "number",
-            "title": "Value"
-          },
-          "unit": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Unit"
+          "sample_type": {
+            "$ref": "#/components/schemas/MetricType"
           },
           "source_metadata": {
             "additionalProperties": true,
-            "type": "object",
-            "title": "Source Metadata"
+            "title": "Source Metadata",
+            "type": "object"
+          },
+          "source_sample_id": {
+            "minLength": 1,
+            "title": "Source Sample Id",
+            "type": "string"
+          },
+          "start_time": {
+            "format": "date-time",
+            "title": "Start Time",
+            "type": "string"
+          },
+          "unit": {
+            "minLength": 1,
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "source_sample_id",
           "sample_type",
@@ -1773,37 +1575,26 @@
           "value",
           "unit"
         ],
-        "title": "HealthSamplePayload"
+        "title": "HealthSamplePayload",
+        "type": "object"
       },
       "HealthSyncRequest": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
-          },
           "client_sync_id": {
-            "type": "string",
             "minLength": 1,
-            "title": "Client Sync Id"
+            "title": "Client Sync Id",
+            "type": "string"
+          },
+          "consent_version": {
+            "minLength": 1,
+            "title": "Consent Version",
+            "type": "string"
           },
           "device_id": {
-            "type": "string",
             "minLength": 1,
-            "title": "Device Id"
-          },
-          "timezone": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Timezone"
-          },
-          "samples": {
-            "items": {
-              "$ref": "#/components/schemas/HealthSamplePayload"
-            },
-            "type": "array",
-            "title": "Samples"
+            "title": "Device Id",
+            "type": "string"
           },
           "last_anchor": {
             "anyOf": [
@@ -1816,14 +1607,25 @@
             ],
             "title": "Last Anchor"
           },
-          "consent_version": {
-            "type": "string",
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/HealthSamplePayload"
+            },
+            "title": "Samples",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "timezone": {
             "minLength": 1,
-            "title": "Consent Version"
+            "title": "Timezone",
+            "type": "string"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "client_sync_id",
           "device_id",
@@ -1831,53 +1633,53 @@
           "samples",
           "consent_version"
         ],
-        "title": "HealthSyncRequest"
+        "title": "HealthSyncRequest",
+        "type": "object"
       },
       "HealthSyncResponse": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
-          },
-          "sync_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Sync Id"
-          },
           "accepted_count": {
-            "type": "integer",
             "minimum": 0.0,
-            "title": "Accepted Count"
+            "title": "Accepted Count",
+            "type": "integer"
+          },
+          "data_quality_summary": {
+            "$ref": "#/components/schemas/DataQualitySummary"
           },
           "duplicate_count": {
-            "type": "integer",
             "minimum": 0.0,
-            "title": "Duplicate Count"
+            "title": "Duplicate Count",
+            "type": "integer"
+          },
+          "next_anchor": {
+            "title": "Next Anchor",
+            "type": "string"
           },
           "rejected_count": {
-            "type": "integer",
             "minimum": 0.0,
-            "title": "Rejected Count"
+            "title": "Rejected Count",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "sync_id": {
+            "format": "uuid",
+            "title": "Sync Id",
+            "type": "string"
           },
           "warnings": {
             "items": {
               "type": "string"
             },
-            "type": "array",
-            "title": "Warnings"
-          },
-          "next_anchor": {
-            "type": "string",
-            "title": "Next Anchor"
-          },
-          "data_quality_summary": {
-            "$ref": "#/components/schemas/DataQualitySummary"
+            "title": "Warnings",
+            "type": "array"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "sync_id",
           "accepted_count",
@@ -1886,20 +1688,20 @@
           "next_anchor",
           "data_quality_summary"
         ],
-        "title": "HealthSyncResponse"
+        "title": "HealthSyncResponse",
+        "type": "object"
       },
       "MemoryUpdateStatus": {
-        "type": "string",
         "enum": [
           "queued",
           "applied",
           "skipped",
           "failed"
         ],
-        "title": "MemoryUpdateStatus"
+        "title": "MemoryUpdateStatus",
+        "type": "string"
       },
       "MetricType": {
-        "type": "string",
         "enum": [
           "heart_rate_variability",
           "resting_heart_rate",
@@ -1912,14 +1714,32 @@
           "workout",
           "other"
         ],
-        "title": "MetricType"
+        "title": "MetricType",
+        "type": "string"
       },
       "PersonalEvidence": {
+        "additionalProperties": false,
         "properties": {
-          "metric": {
-            "type": "string",
+          "interpretation": {
             "minLength": 1,
-            "title": "Metric"
+            "title": "Interpretation",
+            "type": "string"
+          },
+          "metric": {
+            "minLength": 1,
+            "title": "Metric",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
           },
           "value": {
             "anyOf": [
@@ -1937,44 +1757,26 @@
               }
             ],
             "title": "Value"
-          },
-          "interpretation": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Interpretation"
-          },
-          "source": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "metric",
           "value",
           "interpretation"
         ],
-        "title": "PersonalEvidence"
+        "title": "PersonalEvidence",
+        "type": "object"
       },
       "PrivacyMode": {
-        "type": "string",
         "enum": [
           "local_only",
           "cloud_assisted",
           "hybrid"
         ],
-        "title": "PrivacyMode"
+        "title": "PrivacyMode",
+        "type": "string"
       },
       "ReadinessState": {
-        "type": "string",
         "enum": [
           "high",
           "moderate",
@@ -1982,10 +1784,10 @@
           "mixed",
           "insufficient_data"
         ],
-        "title": "ReadinessState"
+        "title": "ReadinessState",
+        "type": "string"
       },
       "RecommendationBand": {
-        "type": "string",
         "enum": [
           "hard_training_ok",
           "moderate",
@@ -1996,21 +1798,28 @@
           "rest",
           "insufficient_data"
         ],
-        "title": "RecommendationBand"
+        "title": "RecommendationBand",
+        "type": "string"
       },
       "RecommendationFeedbackRequest": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
+          "action_taken": {
+            "$ref": "#/components/schemas/FeedbackActionTaken"
+          },
+          "outcome_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Notes"
           },
           "rating": {
             "$ref": "#/components/schemas/FeedbackRating"
-          },
-          "action_taken": {
-            "$ref": "#/components/schemas/FeedbackActionTaken"
           },
           "reason": {
             "anyOf": [
@@ -2023,85 +1832,86 @@
             ],
             "title": "Reason"
           },
-          "outcome_notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Outcome Notes"
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "rating",
           "action_taken"
         ],
-        "title": "RecommendationFeedbackRequest"
+        "title": "RecommendationFeedbackRequest",
+        "type": "object"
       },
       "RecommendationFeedbackResponse": {
+        "additionalProperties": false,
         "properties": {
-          "schema_version": {
-            "type": "string",
-            "const": "v1",
-            "title": "Schema Version",
-            "default": "v1"
+          "eval_queue_status": {
+            "$ref": "#/components/schemas/EvalQueueStatus"
           },
           "feedback_id": {
-            "type": "string",
             "format": "uuid",
-            "title": "Feedback Id"
+            "title": "Feedback Id",
+            "type": "string"
           },
           "memory_update_status": {
             "$ref": "#/components/schemas/MemoryUpdateStatus"
           },
-          "eval_queue_status": {
-            "$ref": "#/components/schemas/EvalQueueStatus"
+          "schema_version": {
+            "const": "v1",
+            "default": "v1",
+            "title": "Schema Version",
+            "type": "string"
           }
         },
-        "additionalProperties": false,
-        "type": "object",
         "required": [
           "feedback_id",
           "memory_update_status",
           "eval_queue_status"
         ],
-        "title": "RecommendationFeedbackResponse"
+        "title": "RecommendationFeedbackResponse",
+        "type": "object"
       },
       "RedactionStatus": {
-        "type": "string",
         "enum": [
           "redacted",
           "partial",
           "none"
         ],
-        "title": "RedactionStatus"
+        "title": "RedactionStatus",
+        "type": "string"
       },
       "SafetyStatus": {
-        "type": "string",
         "enum": [
           "passed",
           "blocked",
           "rewritten",
           "escalated"
         ],
-        "title": "SafetyStatus"
+        "title": "SafetyStatus",
+        "type": "string"
       },
       "SensitiveNotePolicy": {
-        "type": "string",
         "enum": [
           "exclude_from_external_llm",
           "summarize_before_external_llm",
           "allow_external_llm"
         ],
-        "title": "SensitiveNotePolicy"
+        "title": "SensitiveNotePolicy",
+        "type": "string"
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
@@ -2113,32 +1923,643 @@
                 }
               ]
             },
-            "type": "array",
-            "title": "Location"
+            "title": "Location",
+            "type": "array"
           },
           "msg": {
-            "type": "string",
-            "title": "Message"
+            "title": "Message",
+            "type": "string"
           },
           "type": {
-            "type": "string",
-            "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
+            "title": "Error Type",
+            "type": "string"
           }
         },
-        "type": "object",
         "required": [
           "loc",
           "msg",
           "type"
         ],
-        "title": "ValidationError"
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Baseline",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/v1/analysis/daily": {
+      "post": {
+        "operationId": "generate_daily_analysis_v1_analysis_daily_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyAnalysisResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Generate Daily Analysis",
+        "tags": [
+          "contracts"
+        ]
+      }
+    },
+    "/v1/assistant/query": {
+      "post": {
+        "operationId": "ask_assistant_v1_assistant_query_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_AssistantQueryResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ask Assistant",
+        "tags": [
+          "contracts"
+        ]
+      }
+    },
+    "/v1/briefings/{date}": {
+      "get": {
+        "operationId": "get_daily_briefing_v1_briefings__date__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "date",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyBriefingResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Daily Briefing",
+        "tags": [
+          "contracts"
+        ]
+      }
+    },
+    "/v1/checkins/daily": {
+      "post": {
+        "operationId": "submit_daily_checkin_v1_checkins_daily_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyCheckInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Daily Checkin",
+        "tags": [
+          "checkins"
+        ]
+      }
+    },
+    "/v1/checkins/daily/by-date/{checkin_date}": {
+      "get": {
+        "operationId": "get_daily_checkin_v1_checkins_daily_by_date__checkin_date__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "checkin_date",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Checkin Date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInDetailResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Daily Checkin",
+        "tags": [
+          "checkins"
+        ]
+      }
+    },
+    "/v1/checkins/daily/{checkin_id}": {
+      "delete": {
+        "operationId": "delete_daily_checkin_v1_checkins_daily__checkin_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "checkin_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Checkin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Daily Checkin",
+        "tags": [
+          "checkins"
+        ]
+      },
+      "put": {
+        "operationId": "update_daily_checkin_v1_checkins_daily__checkin_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "checkin_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Checkin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyCheckInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Daily Checkin",
+        "tags": [
+          "checkins"
+        ]
+      }
+    },
+    "/v1/data/export": {
+      "post": {
+        "operationId": "export_data_v1_data_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DataExportResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Data",
+        "tags": [
+          "contracts"
+        ]
+      }
+    },
+    "/v1/goals": {
+      "get": {
+        "operationId": "list_goals_v1_goals_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_list_GoalResponse__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Goals",
+        "tags": [
+          "goals"
+        ]
+      },
+      "post": {
+        "operationId": "create_goal_v1_goals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Goal",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/v1/goals/{goal_id}/pause": {
+      "post": {
+        "operationId": "pause_goal_v1_goals__goal_id__pause_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "goal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Goal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pause Goal",
+        "tags": [
+          "goals"
+        ]
+      }
+    },
+    "/v1/health/ping": {
+      "get": {
+        "operationId": "ping_v1_health_ping_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Ping V1 Health Ping Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ping",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/v1/health/sync": {
+      "post": {
+        "operationId": "sync_health_v1_health_sync_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HealthSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_HealthSyncResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            },
+            "description": "Consent is missing, revoked, invalid, or does not allow a sample category."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            },
+            "description": "The sync request conflicts with idempotency or ingestion state."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            },
+            "description": "Raw samples were persisted, but normalization could not be queued."
+          }
+        },
+        "summary": "Sync Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/v1/recommendations/{id}/feedback": {
+      "post": {
+        "operationId": "submit_recommendation_feedback_v1_recommendations__id__feedback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendationFeedbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_RecommendationFeedbackResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Recommendation Feedback",
+        "tags": [
+          "contracts"
+        ]
       }
     }
   }

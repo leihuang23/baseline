@@ -278,6 +278,385 @@ public struct APIEnvelope<T: Codable & Sendable>: Codable, Sendable {
     public var data: T?
 }
 
+public enum SensitiveNotePolicy: String, Codable, Sendable {
+    case excludeFromExternalLLM = "exclude_from_external_llm"
+    case summarizeBeforeExternalLLM = "summarize_before_external_llm"
+    case allowExternalLLM = "allow_external_llm"
+}
+
+public enum RedactionStatus: String, Codable, Sendable {
+    case redacted
+    case partial
+    case none
+}
+
+public struct DailyCheckInFlags: Codable, Equatable, Sendable {
+    public var alcohol: Bool
+    public var caffeineNotes: String?
+    public var illness: Bool
+    public var injury: Bool
+    public var travel: Bool
+
+    public init(
+        alcohol: Bool = false,
+        caffeineNotes: String? = nil,
+        illness: Bool = false,
+        injury: Bool = false,
+        travel: Bool = false
+    ) {
+        self.alcohol = alcohol
+        self.caffeineNotes = caffeineNotes
+        self.illness = illness
+        self.injury = injury
+        self.travel = travel
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case alcohol
+        case caffeineNotes = "caffeine_notes"
+        case illness
+        case injury
+        case travel
+    }
+}
+
+public enum StructuredNoteValue: Codable, Equatable, Sendable {
+    case bool(Bool)
+    case int(Int)
+    case double(Double)
+    case string(String)
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else {
+            self = try .string(container.decode(String.self))
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .bool(let value):
+            try container.encode(value)
+        case .int(let value):
+            try container.encode(value)
+        case .double(let value):
+            try container.encode(value)
+        case .string(let value):
+            try container.encode(value)
+        }
+    }
+}
+
+public struct DailyCheckInRequest: Codable, Equatable, Sendable {
+    public var schemaVersion = "v1"
+    public var date: String
+    public var energyScore: Int?
+    public var moodScore: Int?
+    public var sorenessScore: Int?
+    public var stressScore: Int?
+    public var perceivedRecoveryScore: Int?
+    public var foodQualityScore: Int?
+    public var flags: DailyCheckInFlags
+    public var structuredNotes: [String: StructuredNoteValue]
+    public var freeTextNote: String?
+    public var sensitiveNotePolicy: SensitiveNotePolicy
+    public var encodesFlags: Bool
+    public var encodesStructuredNotes: Bool
+    public var encodesFreeTextNote: Bool
+
+    public init(
+        date: String,
+        energyScore: Int? = nil,
+        moodScore: Int? = nil,
+        sorenessScore: Int? = nil,
+        stressScore: Int? = nil,
+        perceivedRecoveryScore: Int? = nil,
+        foodQualityScore: Int? = nil,
+        flags: DailyCheckInFlags = DailyCheckInFlags(),
+        structuredNotes: [String: StructuredNoteValue] = [:],
+        freeTextNote: String? = nil,
+        sensitiveNotePolicy: SensitiveNotePolicy = .excludeFromExternalLLM,
+        encodesFlags: Bool = true,
+        encodesStructuredNotes: Bool = true,
+        encodesFreeTextNote: Bool = false
+    ) {
+        self.date = date
+        self.energyScore = energyScore
+        self.moodScore = moodScore
+        self.sorenessScore = sorenessScore
+        self.stressScore = stressScore
+        self.perceivedRecoveryScore = perceivedRecoveryScore
+        self.foodQualityScore = foodQualityScore
+        self.flags = flags
+        self.structuredNotes = structuredNotes
+        self.freeTextNote = freeTextNote
+        self.sensitiveNotePolicy = sensitiveNotePolicy
+        self.encodesFlags = encodesFlags
+        self.encodesStructuredNotes = encodesStructuredNotes
+        self.encodesFreeTextNote = encodesFreeTextNote
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case date
+        case energyScore = "energy_score"
+        case moodScore = "mood_score"
+        case sorenessScore = "soreness_score"
+        case stressScore = "stress_score"
+        case perceivedRecoveryScore = "perceived_recovery_score"
+        case foodQualityScore = "food_quality_score"
+        case flags
+        case structuredNotes = "structured_notes"
+        case freeTextNote = "free_text_note"
+        case sensitiveNotePolicy = "sensitive_note_policy"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(String.self, forKey: .schemaVersion) ?? "v1"
+        date = try container.decode(String.self, forKey: .date)
+        energyScore = try container.decodeIfPresent(Int.self, forKey: .energyScore)
+        moodScore = try container.decodeIfPresent(Int.self, forKey: .moodScore)
+        sorenessScore = try container.decodeIfPresent(Int.self, forKey: .sorenessScore)
+        stressScore = try container.decodeIfPresent(Int.self, forKey: .stressScore)
+        perceivedRecoveryScore = try container.decodeIfPresent(
+            Int.self,
+            forKey: .perceivedRecoveryScore
+        )
+        foodQualityScore = try container.decodeIfPresent(Int.self, forKey: .foodQualityScore)
+        flags = try container.decodeIfPresent(DailyCheckInFlags.self, forKey: .flags)
+            ?? DailyCheckInFlags()
+        structuredNotes = try container.decodeIfPresent(
+            [String: StructuredNoteValue].self,
+            forKey: .structuredNotes
+        ) ?? [:]
+        freeTextNote = try container.decodeIfPresent(String.self, forKey: .freeTextNote)
+        sensitiveNotePolicy = try container.decodeIfPresent(
+            SensitiveNotePolicy.self,
+            forKey: .sensitiveNotePolicy
+        ) ?? .excludeFromExternalLLM
+        encodesFlags = true
+        encodesStructuredNotes = true
+        encodesFreeTextNote = false
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(date, forKey: .date)
+        try container.encodeIfPresent(energyScore, forKey: .energyScore)
+        try container.encodeIfPresent(moodScore, forKey: .moodScore)
+        try container.encodeIfPresent(sorenessScore, forKey: .sorenessScore)
+        try container.encodeIfPresent(stressScore, forKey: .stressScore)
+        try container.encodeIfPresent(perceivedRecoveryScore, forKey: .perceivedRecoveryScore)
+        try container.encodeIfPresent(foodQualityScore, forKey: .foodQualityScore)
+        if encodesFlags {
+            try container.encode(flags, forKey: .flags)
+        }
+        if encodesStructuredNotes {
+            try container.encode(structuredNotes, forKey: .structuredNotes)
+        }
+        if encodesFreeTextNote {
+            try container.encode(freeTextNote, forKey: .freeTextNote)
+        } else {
+            try container.encodeIfPresent(freeTextNote, forKey: .freeTextNote)
+        }
+        try container.encode(sensitiveNotePolicy, forKey: .sensitiveNotePolicy)
+    }
+}
+
+public struct DailyCheckInResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var checkinID: UUID
+    public var acceptedFields: [String]
+    public var redactionStatus: RedactionStatus
+    public var analysisJobID: UUID?
+
+    public init(
+        schemaVersion: String = "v1",
+        checkinID: UUID,
+        acceptedFields: [String],
+        redactionStatus: RedactionStatus,
+        analysisJobID: UUID? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.checkinID = checkinID
+        self.acceptedFields = acceptedFields
+        self.redactionStatus = redactionStatus
+        self.analysisJobID = analysisJobID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case checkinID = "checkin_id"
+        case acceptedFields = "accepted_fields"
+        case redactionStatus = "redaction_status"
+        case analysisJobID = "analysis_job_id"
+    }
+}
+
+public struct DailyCheckInDetailResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var checkinID: UUID
+    public var request: DailyCheckInRequest
+    public var hasFreeTextNote: Bool
+
+    public init(
+        schemaVersion: String = "v1",
+        checkinID: UUID,
+        request: DailyCheckInRequest,
+        hasFreeTextNote: Bool = false
+    ) {
+        self.schemaVersion = schemaVersion
+        self.checkinID = checkinID
+        self.request = request
+        self.hasFreeTextNote = hasFreeTextNote
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case checkinID = "checkin_id"
+        case request
+        case hasFreeTextNote = "has_free_text_note"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(String.self, forKey: .schemaVersion) ?? "v1"
+        checkinID = try container.decode(UUID.self, forKey: .checkinID)
+        request = try container.decode(DailyCheckInRequest.self, forKey: .request)
+        hasFreeTextNote = try container.decodeIfPresent(Bool.self, forKey: .hasFreeTextNote) ?? false
+    }
+}
+
+public enum GoalCategory: String, CaseIterable, Codable, Identifiable, Sendable {
+    case cognitivePerformance = "cognitive_performance"
+    case vo2Max = "vo2_max"
+    case strength
+    case recovery
+    case sleep
+    case longTermWellness = "long_term_wellness"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .cognitivePerformance:
+            "Cognitive performance"
+        case .vo2Max:
+            "VO2 max"
+        case .strength:
+            "Strength"
+        case .recovery:
+            "Recovery"
+        case .sleep:
+            "Sleep"
+        case .longTermWellness:
+            "Long-term wellness"
+        }
+    }
+}
+
+public enum GoalTimeHorizon: String, CaseIterable, Codable, Identifiable, Sendable {
+    case shortTerm = "short_term"
+    case mediumTerm = "medium_term"
+    case longTerm = "long_term"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .shortTerm:
+            "Short-term"
+        case .mediumTerm:
+            "Medium-term"
+        case .longTerm:
+            "Long-term"
+        }
+    }
+}
+
+public struct GoalRequest: Codable, Equatable, Sendable {
+    public var schemaVersion = "v1"
+    public var category: GoalCategory
+    public var priority: Int
+    public var timeHorizon: GoalTimeHorizon
+    public var successMetric: String
+    public var constraints: [String: String]
+
+    public init(
+        category: GoalCategory,
+        priority: Int,
+        timeHorizon: GoalTimeHorizon,
+        successMetric: String,
+        constraints: [String: String] = [:]
+    ) {
+        self.category = category
+        self.priority = priority
+        self.timeHorizon = timeHorizon
+        self.successMetric = successMetric
+        self.constraints = constraints
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case category
+        case priority
+        case timeHorizon = "time_horizon"
+        case successMetric = "success_metric"
+        case constraints
+    }
+}
+
+public struct GoalResponse: Codable, Equatable, Identifiable, Sendable {
+    public var schemaVersion: String
+    public var id: UUID
+    public var category: GoalCategory
+    public var priority: Int
+    public var timeHorizon: GoalTimeHorizon
+    public var successMetric: String
+    public var constraints: [String: String]
+    public var active: Bool
+
+    public init(
+        schemaVersion: String = "v1",
+        id: UUID,
+        category: GoalCategory,
+        priority: Int,
+        timeHorizon: GoalTimeHorizon,
+        successMetric: String,
+        constraints: [String: String] = [:],
+        active: Bool = true
+    ) {
+        self.schemaVersion = schemaVersion
+        self.id = id
+        self.category = category
+        self.priority = priority
+        self.timeHorizon = timeHorizon
+        self.successMetric = successMetric
+        self.constraints = constraints
+        self.active = active
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case id
+        case category
+        case priority
+        case timeHorizon = "time_horizon"
+        case successMetric = "success_metric"
+        case constraints
+        case active
+    }
+}
+
 public struct HealthSyncResponse: Codable, Equatable, Sendable {
     public var schemaVersion: String
     public var syncID: UUID

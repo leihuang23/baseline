@@ -19,6 +19,7 @@ from baseline_api.schemas.api import (
     DailyAnalysisRequest,
     DailyAnalysisResponse,
     DailyBriefingResponse,
+    DailyCheckInDetailResponse,
     DailyCheckInRequest,
     DailyCheckInResponse,
     DataExportRequest,
@@ -124,6 +125,21 @@ def _contract_cases() -> Iterable[tuple[type[BaseModel], dict[str, Any]]]:
                 "accepted_fields": ["energy_score", "mood_score"],
                 "redaction_status": "partial",
                 "analysis_job_id": str(FIXED_TRACE_UUID),
+            },
+        ),
+        (
+            DailyCheckInDetailResponse,
+            {
+                "checkin_id": str(FIXED_UUID),
+                "request": {
+                    "date": FIXED_DATE.isoformat(),
+                    "energy_score": 7,
+                    "flags": {"travel": True},
+                    "structured_notes": {"private_lifestyle_indicator": True},
+                    "free_text_note": None,
+                    "sensitive_note_policy": "exclude_from_external_llm",
+                },
+                "has_free_text_note": True,
             },
         ),
         (

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -26,7 +26,12 @@ from baseline_api.db.models.user import ConsentRecord, User
 from baseline_api.db.repositories.audit import AuditEventRepository
 from baseline_api.db.repositories.checkin import DailyCheckInRepository
 from baseline_api.observability.logging import log_event
-from baseline_api.schemas.api import DailyCheckInRequest, DailyCheckInResponse
+from baseline_api.schemas.api import (
+    DailyCheckInDetailResponse,
+    DailyCheckInFlags,
+    DailyCheckInRequest,
+    DailyCheckInResponse,
+)
 from baseline_api.schemas.enums import RedactionStatus, SensitiveNotePolicy
 
 
@@ -103,15 +108,24 @@ class CheckinService:
                 status_code=404,
             )
 
-        consent = self._active_consent(user)
-        self._assert_policy_consent(consent, request.sensitive_note_policy)
-        redacted = await self._redaction.redact(
-            request.free_text_note,
-            self._model_policy(request.sensitive_note_policy),
-        )
+        preserve_existing_note = self._should_preserve_existing_note(checkin, request)
+        if preserve_existing_note:
+            redacted = None
+        else:
+            consent = self._active_consent(user)
+            self._assert_policy_consent(consent, request.sensitive_note_policy)
+            redacted = await self._redaction.redact(
+                request.free_text_note,
+                self._model_policy(request.sensitive_note_policy),
+            )
 
         original = self._snapshot_checkin(checkin)
-        self._apply_update(checkin, request, redacted)
+        self._apply_update(
+            checkin,
+            request,
+            redacted,
+            preserve_existing_note=preserve_existing_note,
+        )
         try:
             checkin.analysis_job_id = await self._enqueue_analysis(checkin)
         except CheckinError:
@@ -160,6 +174,29 @@ class CheckinService:
                 "checkin_id": str(checkin_id),
                 "date": checkin_date.isoformat(),
             },
+        )
+
+    def get_checkin_for_date(self, checkin_date: date) -> DailyCheckInDetailResponse:
+        user = self._get_single_user()
+        checkin = self._session.exec(
+            select(DailyCheckIn).where(
+                DailyCheckIn.user_id == user.id,
+                DailyCheckIn.date == checkin_date,
+            )
+        ).first()
+        if checkin is None:
+            raise CheckinError(
+                code="checkin_not_found",
+                message="Check-in not found.",
+                status_code=404,
+            )
+        return DailyCheckInDetailResponse(
+            checkin_id=checkin.id,
+            request=self._request_from_model(checkin),
+            has_free_text_note=(
+                checkin.free_text_note_reference is not None
+                or checkin.free_text_note_summary is not None
+            ),
         )
 
     def _get_single_user(self) -> User:
@@ -262,24 +299,65 @@ class CheckinService:
         checkin: DailyCheckIn,
         request: DailyCheckInRequest,
         redacted: Any,
+        *,
+        preserve_existing_note: bool = False,
     ) -> None:
         checkin.date = request.date
-        checkin.energy_score = request.energy_score
-        checkin.mood_score = request.mood_score
-        checkin.soreness_score = request.soreness_score
-        checkin.stress_score = request.stress_score
-        checkin.perceived_recovery_score = request.perceived_recovery_score
-        checkin.food_quality_score = request.food_quality_score
-        checkin.alcohol_flag = request.flags.alcohol
-        checkin.caffeine_notes = request.flags.caffeine_notes
-        checkin.illness_flag = request.flags.illness
-        checkin.injury_flag = request.flags.injury
-        checkin.travel_flag = request.flags.travel
-        checkin.sensitive_note_policy = self._model_policy(request.sensitive_note_policy)
-        checkin.redaction_status = self._model_redaction_status(redacted.status)
-        checkin.structured_notes = request.structured_notes
-        checkin.free_text_note_reference = redacted.reference
-        checkin.free_text_note_summary = redacted.summary
+        checkin.energy_score = self._update_value(request, "energy_score", checkin.energy_score)
+        checkin.mood_score = self._update_value(request, "mood_score", checkin.mood_score)
+        checkin.soreness_score = self._update_value(
+            request,
+            "soreness_score",
+            checkin.soreness_score,
+        )
+        checkin.stress_score = self._update_value(request, "stress_score", checkin.stress_score)
+        checkin.perceived_recovery_score = self._update_value(
+            request,
+            "perceived_recovery_score",
+            checkin.perceived_recovery_score,
+        )
+        checkin.food_quality_score = self._update_value(
+            request,
+            "food_quality_score",
+            checkin.food_quality_score,
+        )
+        if "flags" in request.model_fields_set:
+            checkin.alcohol_flag = request.flags.alcohol
+            checkin.caffeine_notes = request.flags.caffeine_notes
+            checkin.illness_flag = request.flags.illness
+            checkin.injury_flag = request.flags.injury
+            checkin.travel_flag = request.flags.travel
+        if "structured_notes" in request.model_fields_set:
+            checkin.structured_notes = request.structured_notes
+        if not preserve_existing_note:
+            checkin.sensitive_note_policy = self._model_policy(request.sensitive_note_policy)
+            checkin.redaction_status = self._model_redaction_status(redacted.status)
+            checkin.free_text_note_reference = redacted.reference
+            checkin.free_text_note_summary = redacted.summary
+
+    def _should_preserve_existing_note(
+        self,
+        checkin: DailyCheckIn,
+        request: DailyCheckInRequest,
+    ) -> bool:
+        return (
+            "free_text_note" not in request.model_fields_set
+            and self._model_policy(request.sensitive_note_policy) == checkin.sensitive_note_policy
+            and (
+                checkin.free_text_note_reference is not None
+                or checkin.free_text_note_summary is not None
+            )
+        )
+
+    def _update_value(
+        self,
+        request: DailyCheckInRequest,
+        field: str,
+        current_value: Any,
+    ) -> Any:
+        if field in request.model_fields_set:
+            return getattr(request, field)
+        return current_value
 
     def _snapshot_checkin(self, checkin: DailyCheckIn) -> dict[str, Any]:
         return {
@@ -432,6 +510,27 @@ class CheckinService:
             accepted_fields=self._accepted_fields(request),
             redaction_status=self._response_redaction_status(checkin),
             analysis_job_id=checkin.analysis_job_id,
+        )
+
+    def _request_from_model(self, checkin: DailyCheckIn) -> DailyCheckInRequest:
+        return DailyCheckInRequest(
+            date=checkin.date,
+            energy_score=checkin.energy_score,
+            mood_score=checkin.mood_score,
+            soreness_score=checkin.soreness_score,
+            stress_score=checkin.stress_score,
+            perceived_recovery_score=checkin.perceived_recovery_score,
+            food_quality_score=checkin.food_quality_score,
+            flags=DailyCheckInFlags(
+                alcohol=checkin.alcohol_flag,
+                caffeine_notes=checkin.caffeine_notes,
+                illness=checkin.illness_flag,
+                injury=checkin.injury_flag,
+                travel=checkin.travel_flag,
+            ),
+            structured_notes=checkin.structured_notes,
+            free_text_note=None,
+            sensitive_note_policy=SensitiveNotePolicy(checkin.sensitive_note_policy.value),
         )
 
     def _response_redaction_status(self, checkin: DailyCheckIn) -> RedactionStatus:

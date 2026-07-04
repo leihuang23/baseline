@@ -23,6 +23,10 @@ final class BaselineAppModel: ObservableObject {
     private let apiBaseURL: URL
     private var syncEngine: HealthSyncEngine?
 
+    var currentAPIBaseURL: URL {
+        apiBaseURL
+    }
+
     init(apiBaseURL: URL = BaselineAppConfiguration.resolvedCurrentAPIBaseURL()) {
         self.apiBaseURL = apiBaseURL
         healthKitClient = HealthKitClient()

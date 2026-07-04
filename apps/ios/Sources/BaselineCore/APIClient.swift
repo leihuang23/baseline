@@ -1,12 +1,14 @@
 import Foundation
 
-public enum HealthSyncAPIError: Error, Equatable, Sendable {
+public enum BaselineAPIError: Error, Equatable, Sendable {
     case invalidResponse
     case unsuccessfulStatus(Int)
     case missingDataEnvelope
 }
 
-public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient {
+public typealias HealthSyncAPIError = BaselineAPIError
+
+public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAPIClient, GoalsAPIClient {
     private let baseURL: URL
     private let session: URLSession
     private let encoder: JSONEncoder
@@ -22,26 +24,109 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient {
     }
 
     public func postHealthSync(_ request: HealthSyncRequest) async throws -> HealthSyncResponse {
-        var urlRequest = URLRequest(url: Self.healthSyncURL(baseURL: baseURL))
-        urlRequest.httpMethod = "POST"
-        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        urlRequest.httpBody = try encoder.encode(request)
+        try await sendEnvelope(method: "POST", url: Self.healthSyncURL(baseURL: baseURL), body: request)
+    }
 
-        let (data, response) = try await session.data(for: urlRequest)
+    public func submitDailyCheckIn(_ request: DailyCheckInRequest) async throws -> DailyCheckInResponse {
+        try await sendEnvelope(method: "POST", url: Self.dailyCheckInURL(baseURL: baseURL), body: request)
+    }
+
+    public func fetchDailyCheckIn(date: String) async throws -> DailyCheckInDetailResponse {
+        try await sendEnvelope(
+            method: "GET",
+            url: Self.dailyCheckInURL(baseURL: baseURL, date: date),
+            body: Optional<String>.none
+        )
+    }
+
+    public func updateDailyCheckIn(
+        id: UUID,
+        request: DailyCheckInRequest
+    ) async throws -> DailyCheckInResponse {
+        try await sendEnvelope(
+            method: "PUT",
+            url: Self.dailyCheckInURL(baseURL: baseURL, id: id),
+            body: request
+        )
+    }
+
+    public func deleteDailyCheckIn(id: UUID) async throws {
+        var urlRequest = URLRequest(url: Self.dailyCheckInURL(baseURL: baseURL, id: id))
+        urlRequest.httpMethod = "DELETE"
+        let (_, response) = try await session.data(for: urlRequest)
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw HealthSyncAPIError.invalidResponse
+            throw BaselineAPIError.invalidResponse
         }
         guard 200 ..< 300 ~= httpResponse.statusCode else {
-            throw HealthSyncAPIError.unsuccessfulStatus(httpResponse.statusCode)
+            throw BaselineAPIError.unsuccessfulStatus(httpResponse.statusCode)
         }
-        let envelope = try decoder.decode(APIEnvelope<HealthSyncResponse>.self, from: data)
-        guard let syncResponse = envelope.data else {
-            throw HealthSyncAPIError.missingDataEnvelope
-        }
-        return syncResponse
+    }
+
+    public func listGoals() async throws -> [GoalResponse] {
+        try await sendEnvelope(method: "GET", url: Self.goalsURL(baseURL: baseURL), body: Optional<String>.none)
+    }
+
+    public func createGoal(_ request: GoalRequest) async throws -> GoalResponse {
+        try await sendEnvelope(method: "POST", url: Self.goalsURL(baseURL: baseURL), body: request)
+    }
+
+    public func pauseGoal(id: UUID) async throws -> GoalResponse {
+        try await sendEnvelope(
+            method: "POST",
+            url: Self.pauseGoalURL(baseURL: baseURL, id: id),
+            body: Optional<String>.none
+        )
     }
 
     public static func healthSyncURL(baseURL: URL) -> URL {
         baseURL.appendingPathComponent("v1/health/sync")
+    }
+
+    public static func dailyCheckInURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/checkins/daily")
+    }
+
+    public static func dailyCheckInURL(baseURL: URL, id: UUID) -> URL {
+        dailyCheckInURL(baseURL: baseURL).appendingPathComponent(id.uuidString)
+    }
+
+    public static func dailyCheckInURL(baseURL: URL, date: String) -> URL {
+        dailyCheckInURL(baseURL: baseURL)
+            .appendingPathComponent("by-date")
+            .appendingPathComponent(date)
+    }
+
+    public static func goalsURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/goals")
+    }
+
+    public static func pauseGoalURL(baseURL: URL, id: UUID) -> URL {
+        goalsURL(baseURL: baseURL).appendingPathComponent(id.uuidString).appendingPathComponent("pause")
+    }
+
+    private func sendEnvelope<Response: Codable & Sendable, Body: Encodable>(
+        method: String,
+        url: URL,
+        body: Body?
+    ) async throws -> Response {
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = method
+        if let body {
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            urlRequest.httpBody = try encoder.encode(body)
+        }
+
+        let (data, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BaselineAPIError.invalidResponse
+        }
+        guard 200 ..< 300 ~= httpResponse.statusCode else {
+            throw BaselineAPIError.unsuccessfulStatus(httpResponse.statusCode)
+        }
+        let envelope = try decoder.decode(APIEnvelope<Response>.self, from: data)
+        guard let response = envelope.data else {
+            throw BaselineAPIError.missingDataEnvelope
+        }
+        return response
     }
 }

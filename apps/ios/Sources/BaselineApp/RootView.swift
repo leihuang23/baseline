@@ -8,7 +8,10 @@ struct RootView: View {
     var body: some View {
         NavigationStack {
             if model.onboardingComplete {
-                SyncSettingsView()
+                BaselineHomeView(
+                    apiBaseURL: model.currentAPIBaseURL,
+                    privacyMode: { model.privacyMode }
+                )
             } else {
                 OnboardingView()
             }
@@ -76,6 +79,124 @@ struct OnboardingView: View {
             }
         }
         .navigationTitle("Baseline")
+    }
+}
+
+struct BaselineHomeView: View {
+    @StateObject private var checkInModel: DailyCheckInViewModel
+    @StateObject private var goalsModel: GoalsViewModel
+    private let privacyMode: () -> PrivacyMode
+
+    init(apiBaseURL: URL, privacyMode: @escaping () -> PrivacyMode) {
+        let apiClient = URLSessionHealthSyncAPIClient(baseURL: apiBaseURL)
+        self.privacyMode = privacyMode
+        _checkInModel = StateObject(
+            wrappedValue: DailyCheckInViewModel(apiClient: apiClient, privacyMode: privacyMode)
+        )
+        _goalsModel = StateObject(wrappedValue: GoalsViewModel(apiClient: apiClient))
+    }
+
+    var body: some View {
+        TabView {
+            DailyCheckInView(viewModel: checkInModel, privacyMode: privacyMode)
+                .tabItem {
+                    Label("Check-in", systemImage: "checkmark.circle")
+                }
+            GoalsView(viewModel: goalsModel)
+                .tabItem {
+                    Label("Goals", systemImage: "target")
+                }
+            SyncSettingsView()
+                .tabItem {
+                    Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                }
+        }
+    }
+}
+
+struct GoalsView: View {
+    @ObservedObject var viewModel: GoalsViewModel
+
+    var body: some View {
+        List {
+            Section("New goal") {
+                Picker("Category", selection: $viewModel.selectedCategory) {
+                    ForEach(GoalCategory.allCases) { category in
+                        Text(category.title).tag(category)
+                    }
+                }
+                Stepper("Priority \(viewModel.priority)", value: $viewModel.priority, in: 1...5)
+                Picker("Horizon", selection: $viewModel.selectedHorizon) {
+                    ForEach(GoalTimeHorizon.allCases) { horizon in
+                        Text(horizon.title).tag(horizon)
+                    }
+                }
+                TextField("Success indicator", text: $viewModel.successIndicator)
+                TextField("Constraints", text: $viewModel.constraints, axis: .vertical)
+                    .lineLimit(1...3)
+                Button {
+                    Task { await viewModel.createGoal() }
+                } label: {
+                    if viewModel.isSaving {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text("Create goal")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.isSaving)
+            }
+
+            Section("Goals") {
+                if viewModel.goals.isEmpty {
+                    Text("No goals yet.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(viewModel.goals) { goal in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(goal.category.title)
+                                .font(.headline)
+                            Spacer()
+                            Text(goal.active ? "Active" : "Paused")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(goal.successMetric)
+                        Text("Priority \(goal.priority) | \(goal.timeHorizon.title)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let notes = goal.constraints["notes"], !notes.isEmpty {
+                            Text(notes)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if goal.active {
+                            Button("Pause goal") {
+                                Task { await viewModel.pauseGoal(id: goal.id) }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Section {
+                Text(viewModel.statusMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if let error = viewModel.errorMessage {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .navigationTitle("Goals")
+        .task {
+            await viewModel.loadGoals()
+        }
     }
 }
 

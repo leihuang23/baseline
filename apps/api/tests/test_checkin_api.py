@@ -423,6 +423,148 @@ def test_edit_checkin_updates_fields_and_emits_audit(db_session: Session) -> Non
     ]
 
 
+def test_get_checkin_by_date_returns_editable_payload_without_raw_note(
+    db_session: Session,
+) -> None:
+    _seed_user_with_consent(db_session, external_llm_enabled=True)
+    client = _client(db_session)
+
+    create = client.post(
+        "/v1/checkins/daily",
+        json=_payload(
+            date="2026-01-15",
+            energy_score=5,
+            mood_score=6,
+            flags={"alcohol": True, "travel": True},
+            structured_notes={"private_lifestyle_indicator": True},
+            free_text_note="Private morning note",
+            sensitive_note_policy="summarize_before_external_llm",
+        ),
+    )
+    checkin_id = create.json()["data"]["checkin_id"]
+
+    response = client.get("/v1/checkins/daily/by-date/2026-01-15")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["checkin_id"] == checkin_id
+    assert data["request"]["date"] == "2026-01-15"
+    assert data["request"]["energy_score"] == 5
+    assert data["request"]["mood_score"] == 6
+    assert data["request"]["flags"]["alcohol"] is True
+    assert data["request"]["flags"]["travel"] is True
+    assert data["request"]["structured_notes"] == {"private_lifestyle_indicator": True}
+    assert data["request"]["free_text_note"] is None
+    assert data["request"]["sensitive_note_policy"] == "summarize_before_external_llm"
+    assert data["has_free_text_note"] is True
+
+
+def test_update_from_loaded_checkin_preserves_hidden_note_metadata(
+    db_session: Session,
+) -> None:
+    _seed_user_with_consent(db_session, external_llm_enabled=True)
+    client = _client(db_session)
+
+    create = client.post(
+        "/v1/checkins/daily",
+        json=_payload(
+            energy_score=5,
+            free_text_note="Private morning note",
+            sensitive_note_policy="summarize_before_external_llm",
+        ),
+    )
+    assert create.status_code == 200
+    checkin_id = create.json()["data"]["checkin_id"]
+    row = _checkin_rows(db_session)[0]
+    original_reference = row.free_text_note_reference
+    original_summary = row.free_text_note_summary
+    assert original_reference is not None
+    assert original_summary is not None
+
+    loaded = client.get("/v1/checkins/daily/by-date/2026-01-15")
+    assert loaded.status_code == 200
+    update_payload = loaded.json()["data"]["request"]
+    update_payload.pop("free_text_note")
+    update_payload["energy_score"] = 8
+
+    update = client.put(f"/v1/checkins/daily/{checkin_id}", json=update_payload)
+
+    assert update.status_code == 200
+    updated_row = _checkin_rows(db_session)[0]
+    assert updated_row.energy_score == 8
+    assert updated_row.free_text_note_reference == original_reference
+    assert updated_row.free_text_note_summary == original_summary
+    assert updated_row.sensitive_note_policy == SensitiveNotePolicy.summarize_before_external_llm
+    assert updated_row.redaction_status == ModelRedactionStatus.partial
+
+
+def test_update_explicit_null_note_clears_hidden_note_metadata(
+    db_session: Session,
+) -> None:
+    _seed_user_with_consent(db_session, external_llm_enabled=True)
+    client = _client(db_session)
+
+    create = client.post(
+        "/v1/checkins/daily",
+        json=_payload(
+            energy_score=5,
+            free_text_note="Private morning note",
+            sensitive_note_policy="summarize_before_external_llm",
+        ),
+    )
+    assert create.status_code == 200
+    checkin_id = create.json()["data"]["checkin_id"]
+
+    update_payload = _payload(
+        energy_score=5,
+        free_text_note=None,
+        sensitive_note_policy="exclude_from_external_llm",
+    )
+    update = client.put(f"/v1/checkins/daily/{checkin_id}", json=update_payload)
+
+    assert update.status_code == 200
+    updated_row = _checkin_rows(db_session)[0]
+    assert updated_row.free_text_note_reference is None
+    assert updated_row.free_text_note_summary is None
+    assert updated_row.sensitive_note_policy == SensitiveNotePolicy.exclude_from_external_llm
+    assert updated_row.redaction_status == ModelRedactionStatus.none
+
+
+def test_partial_update_preserves_omitted_saved_scores(db_session: Session) -> None:
+    _seed_user_with_consent(db_session)
+    client = _client(db_session)
+
+    create = client.post(
+        "/v1/checkins/daily",
+        json=_payload(
+            energy_score=5,
+            mood_score=6,
+            stress_score=4,
+            flags={"travel": True},
+            structured_notes={"private_lifestyle_indicator": True},
+            sensitive_note_policy="exclude_from_external_llm",
+        ),
+    )
+    assert create.status_code == 200
+    checkin_id = create.json()["data"]["checkin_id"]
+
+    update = client.put(
+        f"/v1/checkins/daily/{checkin_id}",
+        json={
+            "date": "2026-01-15",
+            "sensitive_note_policy": "exclude_from_external_llm",
+        },
+    )
+
+    assert update.status_code == 200
+    updated_row = _checkin_rows(db_session)[0]
+    assert updated_row.energy_score == 5
+    assert updated_row.mood_score == 6
+    assert updated_row.stress_score == 4
+    assert updated_row.travel_flag is True
+    assert updated_row.structured_notes == {"private_lifestyle_indicator": True}
+
+
 def test_delete_checkin_removes_row_and_emits_audit(db_session: Session) -> None:
     _seed_user_with_consent(db_session)
     client = _client(db_session)

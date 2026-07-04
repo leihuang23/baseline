@@ -123,6 +123,21 @@ class RedactionStatus(StrEnum):
     none = "none"
 
 
+class GoalCategory(StrEnum):
+    cognitive_performance = "cognitive_performance"
+    vo2_max = "vo2_max"
+    strength = "strength"
+    recovery = "recovery"
+    sleep = "sleep"
+    long_term_wellness = "long_term_wellness"
+
+
+class GoalTimeHorizon(StrEnum):
+    short_term = "short_term"
+    medium_term = "medium_term"
+    long_term = "long_term"
+
+
 class SafetyStatus(StrEnum):
     passed = "passed"
     blocked = "blocked"

@@ -19,6 +19,8 @@ from baseline_api.schemas.enums import (
     EvalQueueStatus,
     FeedbackActionTaken,
     FeedbackRating,
+    GoalCategory,
+    GoalTimeHorizon,
     MemoryUpdateStatus,
     MetricType,
     PrivacyMode,
@@ -124,6 +126,43 @@ class DailyCheckInResponse(ContractModel):
     accepted_fields: list[str]
     redaction_status: RedactionStatus
     analysis_job_id: UUID | None = None
+
+
+class DailyCheckInDetailResponse(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    checkin_id: UUID
+    request: DailyCheckInRequest
+    has_free_text_note: bool = False
+
+
+class GoalRequest(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    category: GoalCategory
+    priority: int = Field(ge=1, le=5)
+    time_horizon: GoalTimeHorizon
+    success_metric: str = Field(min_length=1, max_length=160)
+    constraints: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("constraints")
+    @classmethod
+    def validate_constraints(cls, value: dict[str, str]) -> dict[str, str]:
+        for key, constraint in value.items():
+            if not key.strip() or len(key) > 64:
+                raise ValueError("Constraint keys must be non-empty and at most 64 chars.")
+            if "\n" in constraint or len(constraint) > 240:
+                raise ValueError("Constraints must be short high-level indicators.")
+        return value
+
+
+class GoalResponse(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    id: UUID
+    category: GoalCategory
+    priority: int = Field(ge=1, le=5)
+    time_horizon: GoalTimeHorizon
+    success_metric: str
+    constraints: dict[str, str] = Field(default_factory=dict)
+    active: bool
 
 
 class DailyAnalysisRequest(ContractModel):
@@ -237,6 +276,8 @@ __all__ = [
     "DataExportResponse",
     "DataFreshness",
     "DataQualitySummary",
+    "GoalRequest",
+    "GoalResponse",
     "GoalTradeoff",
     "HealthSamplePayload",
     "HealthSyncRequest",
