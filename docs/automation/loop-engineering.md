@@ -10,10 +10,6 @@ Baseline task slices are small enough for autonomous execution, but the loop mus
 - Local run logs: `.task-runs/` (ignored)
 
 The ledger marks `P0-01` through `P0-04` complete and starts the active cluster at `P0-foundations-finish`.
-Task selection is dependency-aware. Dependencies are read from each task prompt's
-`Depends on` header, so the loop skips pending tasks whose prerequisites are not
-complete and advances to the first runnable task that unlocks the graph. For
-example, `P2-05` is not runnable until `P3-01` is complete.
 
 ## Daily Commands
 
@@ -180,10 +176,6 @@ Use a specific task when needed:
 ```bash
 python3 scripts/run_task_loop.py run --task P0-06
 ```
-
-Explicit task runs still enforce dependencies. If the named task is waiting on
-another slice, the runner exits before launching an implementation agent and
-prints the unmet dependency list.
 
 Run a whole cluster only when you are comfortable letting Codex work for a while:
 

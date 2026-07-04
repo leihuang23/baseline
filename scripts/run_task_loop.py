@@ -36,9 +36,6 @@ CURRENT_LOG_TAIL_LINES = 40
 AGENT_CODEX = "codex"
 AGENT_KIMI = "kimi"
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\a]*(?:\a|\x1b\\))")
-TASK_ID_RE = re.compile(r"\bP\d+-\d+\b")
-DEPENDS_ON_RE = re.compile(r"\*\*Depends on:\*\*\s*([^|\n]+)")
-NO_DEPENDENCY_VALUES = {"none", "n/a", "na", "-", "\u2014"}
 KIMI_INITIAL_GUIDANCE = """Kimi-specific execution contract:
 - This is one non-interactive prompt. Keep the pass focused and stop once the task is ready
   for the controller gates.
@@ -313,51 +310,6 @@ def task_map(ledger: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {task["id"]: task for task in ledger["tasks"]}
 
 
-def parse_dependencies_from_text(text: str) -> list[str]:
-    match = DEPENDS_ON_RE.search(text)
-    if not match:
-        return []
-    value = match.group(1).strip()
-    if value.lower() in NO_DEPENDENCY_VALUES:
-        return []
-    return TASK_ID_RE.findall(value)
-
-
-def task_dependencies(task: dict[str, Any]) -> list[str]:
-    prompt_path = ROOT / task["prompt"]
-    try:
-        return parse_dependencies_from_text(prompt_path.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise LoopError(f"Could not read task prompt for {task['id']}: {exc}") from exc
-
-
-def unmet_dependencies(task: dict[str, Any], tasks: dict[str, dict[str, Any]]) -> list[str]:
-    missing: list[str] = []
-    for dependency_id in task_dependencies(task):
-        dependency = tasks.get(dependency_id)
-        if dependency is None or dependency.get("status") != "complete":
-            missing.append(dependency_id)
-    return missing
-
-
-def runnable_pending_tasks(
-    cluster: dict[str, Any],
-    tasks: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    return [
-        task
-        for task in (tasks[task_id] for task_id in cluster["tasks"])
-        if task["status"] != "complete" and not unmet_dependencies(task, tasks)
-    ]
-
-
-def format_unmet_dependencies(task: dict[str, Any], tasks: dict[str, dict[str, Any]]) -> str:
-    missing = unmet_dependencies(task, tasks)
-    if not missing:
-        return ""
-    return f"{task['id']} is waiting for incomplete dependencies: {', '.join(missing)}"
-
-
 def cluster_map(ledger: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {cluster["id"]: cluster for cluster in ledger["clusters"]}
 
@@ -389,7 +341,9 @@ def pending_task_selection(
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     tasks = task_map(ledger)
     for cluster in cluster_queue(ledger, cluster_id):
-        pending = runnable_pending_tasks(cluster, tasks)
+        pending = [
+            tasks[task_id] for task_id in cluster["tasks"] if tasks[task_id]["status"] != "complete"
+        ]
         if pending:
             return cluster, pending
     return None, []
@@ -1347,15 +1301,7 @@ def print_status(ledger: dict[str, Any], cluster_id: str | None) -> None:
         print(f"{cluster['id']}: {cluster['description']}")
         for task_id in cluster["tasks"]:
             task = tasks[task_id]
-            dependency_note = format_unmet_dependencies(task, tasks)
-            suffix = f" ({dependency_note})" if dependency_note else ""
-            print(f"  {task['status']:>8}  {task['id']}  {task['title']}{suffix}")
-
-
-def ensure_task_runnable(task: dict[str, Any], tasks: dict[str, dict[str, Any]]) -> None:
-    dependency_note = format_unmet_dependencies(task, tasks)
-    if dependency_note:
-        raise LoopError(dependency_note)
+            print(f"  {task['status']:>8}  {task['id']}  {task['title']}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -1533,14 +1479,8 @@ def main() -> int:
     normalize_log_limit_bytes(args.agent_log_limit_bytes)
     normalize_log_limit_bytes(args.review_log_limit_bytes)
     check_clean_worktree(args.allow_dirty)
-    tasks_by_id = task_map(ledger)
     if args.task:
-        try:
-            task = tasks_by_id[args.task]
-        except KeyError as exc:
-            raise LoopError(f"Unknown task {args.task!r}") from exc
-        ensure_task_runnable(task, tasks_by_id)
-        candidates = [task]
+        candidates = [task_map(ledger)[args.task]]
     else:
         cluster, candidates = pending_task_selection(ledger, args.cluster)
         if cluster and not args.cluster:

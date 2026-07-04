@@ -35,15 +35,8 @@ def test_default_pending_tasks_advance_past_completed_active_cluster() -> None:
             },
         ],
         "tasks": [
-            {"id": "P0-02", "status": "complete"},
-            {"id": "P0-04", "status": "complete"},
-            {"id": "P0-06", "status": "complete"},
             {"id": "P0-05", "status": "complete"},
-            {
-                "id": "P1-01",
-                "prompt": "tasks/P1-01-health-sync-api.md",
-                "status": "pending",
-            },
+            {"id": "P1-01", "status": "pending"},
         ],
     }
 
@@ -76,80 +69,6 @@ def test_explicit_completed_cluster_does_not_advance_to_next_cluster() -> None:
     tasks = TASK_LOOP.pending_tasks(ledger, cluster_id="P0-foundations-finish")
 
     assert tasks == []
-
-
-def test_parse_dependencies_from_task_header() -> None:
-    text = "# P2-05\n\n**Phase:** 2 | **Depends on:** P2-01, P3-01 | **Parallelizable with:** P2-04"
-
-    assert TASK_LOOP.parse_dependencies_from_text(text) == ["P2-01", "P3-01"]
-    assert TASK_LOOP.parse_dependencies_from_text("**Depends on:** none | **Surface:** docs") == []
-
-
-def test_pending_tasks_skip_unmet_dependencies_and_advance_to_unlocking_task() -> None:
-    ledger = {
-        "active_cluster": "P2-feature-checkin",
-        "clusters": [
-            {
-                "id": "P2-feature-checkin",
-                "description": "Add daily check-ins.",
-                "tasks": ["P2-05"],
-            },
-            {
-                "id": "P3-core-loop",
-                "description": "Build core loop.",
-                "tasks": ["P3-01"],
-            },
-        ],
-        "tasks": [
-            {"id": "P0-02", "status": "complete"},
-            {"id": "P0-04", "status": "complete"},
-            {"id": "P2-01", "status": "complete"},
-            {
-                "id": "P2-05",
-                "title": "ios checkin goals ui",
-                "prompt": "tasks/P2-05-ios-checkin-goals-ui.md",
-                "status": "pending",
-            },
-            {
-                "id": "P3-01",
-                "title": "goal management",
-                "prompt": "tasks/P3-01-goal-management.md",
-                "status": "pending",
-            },
-        ],
-    }
-
-    tasks = TASK_LOOP.pending_tasks(ledger, cluster_id=None)
-
-    assert [task["id"] for task in tasks] == ["P3-01"]
-
-
-def test_explicit_unrunnable_task_reports_unmet_dependencies() -> None:
-    ledger = {
-        "tasks": [
-            {"id": "P2-01", "status": "complete"},
-            {
-                "id": "P2-05",
-                "title": "ios checkin goals ui",
-                "prompt": "tasks/P2-05-ios-checkin-goals-ui.md",
-                "status": "pending",
-            },
-            {
-                "id": "P3-01",
-                "title": "goal management",
-                "prompt": "tasks/P3-01-goal-management.md",
-                "status": "pending",
-            },
-        ],
-    }
-    tasks = TASK_LOOP.task_map(ledger)
-
-    try:
-        TASK_LOOP.ensure_task_runnable(tasks["P2-05"], tasks)
-    except TASK_LOOP.LoopError as exc:
-        assert "P3-01" in str(exc)
-    else:
-        raise AssertionError("unmet task dependencies should fail")
 
 
 def test_run_command_defaults_to_one_attempt_with_bounded_review(monkeypatch) -> None:
