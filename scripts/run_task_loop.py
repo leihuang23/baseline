@@ -49,7 +49,7 @@ PROTECTED_NON_AUTOMATION_PATHS = (
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\a]*(?:\a|\x1b\\))")
 TOKEN_USAGE_RE = re.compile(r"tokens used\s*\n\s*([0-9][0-9,]*)", re.IGNORECASE)
 CODEX_REPAIR_GUIDANCE = """Repair mode:
-- Treat the existing working tree as the previous attempt's draft.
+- Treat the existing working tree as the current draft.
 - Start from the concrete failure details below and any cited files or lines.
 - Do not restart broad repo discovery unless the failure text is missing required context.
 - Do not reread the full PRD, task corpus, or broad docs unless the cited failure lacks the
@@ -1008,10 +1008,21 @@ def render_current_run(line_count: int = CURRENT_LOG_TAIL_LINES) -> str:
         f"status: {state.get('status', 'unknown')} ({live})",
         f"task: {state.get('task_id', 'unknown')} - {state.get('task_title', 'unknown')}",
         f"stage: {state.get('stage', 'unknown')}",
-        f"attempt: {state.get('attempt', '?')}/{state.get('max_attempts', '?')}",
         f"command: {state.get('command_label', 'unknown')}",
         f"elapsed: {current_elapsed(state)}",
     ]
+    pass_label = state.get("pass_label")
+    if isinstance(pass_label, str):
+        lines.insert(3, f"pass: {pass_label}")
+    elif state.get("final_repair"):
+        repair_attempt = state.get("repair_attempt", "?")
+        repair_attempts = state.get("final_repair_attempts", "?")
+        repair_kind = state.get("repair_failure_kind", "unknown")
+        lines.insert(3, f"repair: {repair_attempt}/{repair_attempts} ({repair_kind})")
+    elif state.get("attempt") is not None:
+        max_attempts = state.get("max_attempts", "?")
+        if max_attempts and max_attempts != 1:
+            lines.insert(3, f"implementation retry: {state.get('attempt', '?')}/{max_attempts}")
     timeout_remaining = current_timeout_remaining(state)
     if timeout_remaining is not None:
         lines.append(f"timeout remaining: {timeout_remaining}")
@@ -1154,10 +1165,29 @@ def implementation_guidance(attempt: int, previous_failure: str | None) -> str:
     return f"\n{CODEX_REPAIR_GUIDANCE}" if attempt > 1 or previous_failure else ""
 
 
+def implementation_pass_label(
+    attempt: int,
+    max_attempts: int,
+    previous_failure: str | None,
+) -> str:
+    if previous_failure:
+        return f"implementation retry {attempt}"
+    if max_attempts > 1:
+        return f"implementation {attempt}/{max_attempts}"
+    return "implementation"
+
+
+def implementation_run_suffix(attempt: int, max_attempts: int) -> str:
+    if max_attempts > 1:
+        return f"implementation-{attempt}"
+    return "implementation"
+
+
 def implementation_prompt(
     task: dict[str, Any],
     attempt: int,
     previous_failure: str | None,
+    pass_label: str | None = None,
 ) -> str:
     task_prompt = task_prompt_text(task)
     failure_block = ""
@@ -1168,10 +1198,13 @@ def implementation_prompt(
             f"{previous_failure}\n"
         )
     guidance_block = implementation_guidance(attempt, previous_failure)
+    resolved_pass_label = pass_label or (
+        f"implementation retry {attempt}" if previous_failure else "implementation"
+    )
     return f"""You are executing one bounded Baseline task slice.
 
 Task: {task["id"]} - {task["title"]}
-Attempt: {attempt}
+Pass: {resolved_pass_label}
 
 Rules:
 - Stay inside this task's scope.
@@ -1714,7 +1747,13 @@ def run_final_repair(
         task_run_dir = (
             RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-final-repair-{repair_index}"
         )
-        prompt = implementation_prompt(task, max_attempts + repair_index, current_failure)
+        repair_pass_label = f"focused repair {repair_index}"
+        prompt = implementation_prompt(
+            task,
+            max_attempts + repair_index,
+            current_failure,
+            repair_pass_label,
+        )
         command = [
             *codex_exec_command(args.codex_bin, "workspace-write", lean=args.codex_lean),
             "-",
@@ -1724,6 +1763,7 @@ def run_final_repair(
             "task_title": task["title"],
             "attempt": max_attempts + repair_index,
             "max_attempts": max_attempts,
+            "pass_label": repair_pass_label,
             "run_dir": relative_to_root(task_run_dir),
             "final_repair": True,
             "repair_attempt": repair_index,
@@ -2084,7 +2124,7 @@ def run_finish_task(
 
 def implementation_agent_command(args: argparse.Namespace) -> tuple[str, list[str]]:
     lean = getattr(args, "codex_lean", False)
-    label = "codex exec (lean)" if lean else "codex exec"
+    label = "implementation (lean)" if lean else "implementation"
     command = [*codex_exec_command(args.codex_bin, "workspace-write", lean=lean), "-"]
     return label, command
 
@@ -2389,8 +2429,12 @@ def run_task(
     agent_log_limit_bytes = normalize_log_limit_bytes(args.agent_log_limit_bytes)
     review_log_limit_bytes = normalize_log_limit_bytes(args.review_log_limit_bytes)
     for attempt in range(1, args.max_attempts + 1):
-        task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-attempt-{attempt}"
-        prompt = implementation_prompt(task, attempt, previous_failure)
+        pass_label = implementation_pass_label(attempt, args.max_attempts, previous_failure)
+        task_run_dir = (
+            RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-"
+            f"{implementation_run_suffix(attempt, args.max_attempts)}"
+        )
+        prompt = implementation_prompt(task, attempt, previous_failure, pass_label)
         agent_label, command, input_text, logged_command = implementation_agent_invocation(
             args,
             prompt,
@@ -2400,10 +2444,11 @@ def run_task(
             "task_title": task["title"],
             "attempt": attempt,
             "max_attempts": args.max_attempts,
+            "pass_label": pass_label,
             "run_dir": relative_to_root(task_run_dir),
         }
         initial_status_lines = git_status_lines()
-        print(f"  attempt {attempt}: {agent_label} -> run {relative_to_root(task_run_dir)}")
+        print(f"  {pass_label}: {agent_label} -> run {relative_to_root(task_run_dir)}")
         prompt_file = write_prompt_snapshot(
             task_run_dir,
             "codex-implementation-prompt.md",

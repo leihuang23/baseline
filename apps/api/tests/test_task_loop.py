@@ -391,6 +391,37 @@ def test_current_command_accepts_watch_options(monkeypatch) -> None:
     assert args.tail_lines == 80
 
 
+def test_current_view_uses_repair_label_instead_of_attempt_count(monkeypatch, tmp_path) -> None:
+    current_path = tmp_path / "current.json"
+    current_path.write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "stage": "final_repair",
+                "task_id": "P4-04",
+                "task_title": "data controls consent",
+                "final_repair": True,
+                "repair_attempt": 1,
+                "final_repair_attempts": 2,
+                "repair_failure_kind": "gate",
+                "command_label": "codex final repair",
+                "elapsed": "1m 00s",
+                "pid": None,
+                "run_dir": ".task-runs/example",
+                "log_file": ".task-runs/example/codex-final-repair.log",
+                "git_status": {"summary": "clean"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(TASK_LOOP, "CURRENT_RUN_PATH", current_path)
+
+    rendered = TASK_LOOP.render_current_run()
+
+    assert "repair: 1/2 (gate)" in rendered
+    assert "attempt:" not in rendered
+
+
 def test_negative_timeout_is_rejected() -> None:
     try:
         TASK_LOOP.normalize_timeout_seconds(-1)
@@ -513,6 +544,8 @@ def test_initial_prompt_includes_codex_loop_contract() -> None:
     prompt = TASK_LOOP.implementation_prompt(task, 1, None)
 
     assert "You are executing one bounded Baseline task slice" in prompt
+    assert "Pass: implementation" in prompt
+    assert "Attempt:" not in prompt
     assert "The controller will run make fmt" in prompt
     assert "TASK_LOOP_DONE" in prompt
 
@@ -760,7 +793,7 @@ def test_codex_implementation_command_uses_lean_exec_by_default() -> None:
 
     label, command = TASK_LOOP.implementation_agent_command(args)
 
-    assert label == "codex exec (lean)"
+    assert label == "implementation (lean)"
     assert command[:2] == ["codex", "exec"]
     assert "--ignore-user-config" in command
     assert "--ephemeral" in command
@@ -774,7 +807,7 @@ def test_codex_implementation_command_can_load_full_config() -> None:
 
     label, command = TASK_LOOP.implementation_agent_command(args)
 
-    assert label == "codex exec"
+    assert label == "implementation"
     assert "--ignore-user-config" not in command
     assert "--ephemeral" not in command
 
@@ -787,7 +820,7 @@ def test_codex_invocation_keeps_prompt_on_stdin() -> None:
         "do the task",
     )
 
-    assert label == "codex exec (lean)"
+    assert label == "implementation (lean)"
     assert command == logged_command
     assert input_text == "do the task"
 
@@ -1274,7 +1307,7 @@ def test_final_repair_allows_finish_args_without_max_attempts(monkeypatch) -> No
     monkeypatch.setattr(
         TASK_LOOP,
         "implementation_prompt",
-        lambda _task, attempt, _failure: calls.append(f"attempt:{attempt}") or "fix",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
     )
     monkeypatch.setattr(
         TASK_LOOP,
@@ -1372,7 +1405,7 @@ def test_final_repair_retries_actionable_audit_findings(monkeypatch) -> None:
     monkeypatch.setattr(
         TASK_LOOP,
         "implementation_prompt",
-        lambda _task, attempt, _failure: calls.append(f"attempt:{attempt}") or "fix",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
     )
     monkeypatch.setattr(
         TASK_LOOP,
@@ -1470,7 +1503,7 @@ def test_final_repair_keeps_decision_budget_after_gate_repairs(monkeypatch) -> N
     monkeypatch.setattr(
         TASK_LOOP,
         "implementation_prompt",
-        lambda _task, attempt, _failure: calls.append(f"attempt:{attempt}") or "fix",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
     )
     monkeypatch.setattr(
         TASK_LOOP,
@@ -1581,7 +1614,7 @@ def test_final_repair_reuses_prompt_pack_when_scope_is_unchanged(monkeypatch) ->
     monkeypatch.setattr(
         TASK_LOOP,
         "implementation_prompt",
-        lambda _task, attempt, _failure: calls.append(f"attempt:{attempt}") or "fix",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
     )
     monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
     monkeypatch.setattr(
@@ -1676,7 +1709,7 @@ def test_final_repair_regenerates_prompt_pack_when_scope_expands(monkeypatch) ->
     monkeypatch.setattr(
         TASK_LOOP,
         "implementation_prompt",
-        lambda _task, attempt, _failure: calls.append(f"attempt:{attempt}") or "fix",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
     )
     monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
     monkeypatch.setattr(

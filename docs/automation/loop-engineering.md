@@ -213,11 +213,13 @@ python3 scripts/run_task_loop.py finish --codex-lean
 
 Implementation prompts require the agent to end with `TASK_LOOP_DONE` on its own
 line. When the controller sees that exact line, it stops waiting and moves to
-quality gates.
+quality gates. Run directories for the first edit pass are named
+`...-implementation`; focused post-gate/review/audit repairs remain named
+`...-final-repair-N`.
 
 Default budgets:
 
-- Codex implementation attempt: 3600 seconds
+- Codex implementation pass: 3600 seconds
 - prompt-pack generation/review/audit: 600 seconds
 - focused repair: 900 seconds
 - focused repair review: 300 seconds
@@ -270,8 +272,9 @@ make task-current-watch
 ```
 
 The runner writes `.task-runs/current.json` while it works. The current view
-shows task id, stage, attempt, elapsed time, timeout remaining, run directory,
-log file, prompt file, git status summary, and a cleaned log tail. Each run
+shows task id, stage, implementation pass or focused repair count, elapsed time,
+timeout remaining, run directory, log file, prompt file, git status summary,
+and a cleaned log tail. Each run
 directory keeps the exact implementation, review, audit, and repair prompts that
 were sent to Codex. It also writes `run-summary.json`, a compact machine-readable
 stage list with elapsed seconds, log sizes, exit codes, and token counts when
