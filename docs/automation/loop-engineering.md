@@ -47,6 +47,29 @@ When the App has produced a diff, finish it through the controller:
 make task-finish
 ```
 
+If Codex App already ran some or all quality gates, save its verification
+summary to a local text file and let `finish` reuse only the gates that are
+explicitly shown as passed:
+
+```bash
+python3 scripts/run_task_loop.py finish --prior-verification-file .task-runs/app-verification.txt
+```
+
+For example, this evidence skips `make lint`, `make typecheck`, and `make test`,
+but still runs `make fmt` because it is not mentioned:
+
+```text
+Verification:
+make lint passed.
+make typecheck passed.
+make test passed: 210 passed, 86 skipped, 1 warning.
+DB-backed tests were skipped because local Postgres was unavailable.
+```
+
+Use this path only when the evidence belongs to the current diff. If you edit
+files after the App verification, rerun the affected gates or omit
+`--prior-verification-file`.
+
 To finish a specific task id:
 
 ```bash
@@ -72,15 +95,18 @@ python3 scripts/run_task_loop.py finish --task P3-01 --allow-no-changes
 `finish` never launches a broad implementation agent. It treats the current
 working tree as the implementation candidate and then runs:
 
-1. `make fmt`
-2. `make lint`
-3. `make typecheck`
-4. `make test`
-5. structured Codex review scoped to the task prompt and changed files
-6. one optional focused Codex repair when a gate or review returns actionable
+1. quality gates not already proven by `--prior-verification-file`
+   (`make fmt`, `make lint`, `make typecheck`, `make test` by default)
+2. structured Codex review scoped to the task prompt and changed files
+3. one optional focused Codex repair when a gate or review returns actionable
    findings
-7. focused repair verification when the failure came from structured review
-8. ledger update, and optional commit
+4. focused repair verification when the failure came from structured review
+5. ledger update, and optional commit
+
+Prior verification is intentionally per gate, not all-or-nothing. The controller
+skips a gate only when the evidence file contains the exact gate command and a
+nearby pass/success term. Missing gates still run. After a final repair, all
+quality gates run again because the diff has changed.
 
 The structured review uses JSON output constrained by
 `tasks/review-decision.schema.json`. A task passes only when the review decision

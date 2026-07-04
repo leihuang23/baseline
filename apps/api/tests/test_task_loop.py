@@ -115,6 +115,23 @@ def test_run_command_accepts_disabled_timeouts_and_log_limits(monkeypatch) -> No
     assert TASK_LOOP.normalize_log_limit_bytes(args.review_log_limit_bytes) is None
 
 
+def test_finish_command_accepts_prior_verification_file(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run_task_loop.py",
+            "finish",
+            "--prior-verification-file",
+            ".task-runs/app-verification.txt",
+        ],
+    )
+
+    args = TASK_LOOP.parse_args()
+
+    assert args.command == "finish"
+    assert args.prior_verification_file == ".task-runs/app-verification.txt"
+
+
 def test_current_command_is_available(monkeypatch) -> None:
     monkeypatch.setattr("sys.argv", ["run_task_loop.py", "current"])
 
@@ -576,6 +593,7 @@ def test_final_repair_accepts_only_actionable_gate_or_review_failures() -> None:
 def finish_args(**overrides: object) -> SimpleNamespace:
     values = {
         "allow_no_changes": False,
+        "prior_verification_file": None,
         "heartbeat_seconds": 0,
         "skip_review": False,
         "codex_bin": "codex",
@@ -590,6 +608,69 @@ def finish_args(**overrides: object) -> SimpleNamespace:
     }
     values.update(overrides)
     return SimpleNamespace(**values)
+
+
+def test_prior_verification_evidence_matches_only_proven_gates(tmp_path) -> None:
+    evidence_file = tmp_path / "verification.txt"
+    evidence_file.write_text(
+        "\n".join(
+            [
+                "Verification:",
+                "make lint passed.",
+                "make typecheck passed.",
+                "make test passed: 210 passed, 86 skipped, 1 warning.",
+                "DB-backed tests were skipped because local Postgres was unavailable.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ledger = {
+        "quality_gates": [
+            "make fmt",
+            "make lint",
+            "make typecheck",
+            "make test",
+        ]
+    }
+
+    verified, path = TASK_LOOP.prior_verified_gates(ledger, str(evidence_file))
+
+    assert path == evidence_file
+    assert verified == {"make lint", "make typecheck", "make test"}
+
+
+def test_quality_gates_reuse_prior_evidence_for_matching_gates(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    ledger = {"quality_gates": ["make fmt", "make lint", "make typecheck", "make test"]}
+    evidence_file = tmp_path / "verification.txt"
+    evidence_file.write_text("make lint passed\nmake typecheck passed\nmake test passed\n")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_logged",
+        lambda command, *args, **kwargs: calls.append(command) or 0,
+    )
+
+    ok, result = TASK_LOOP.run_quality_gates(
+        tmp_path / "run",
+        ledger,
+        {},
+        0,
+        verified_gates={"make lint", "make typecheck", "make test"},
+        prior_verification_path=evidence_file,
+    )
+
+    assert ok is True
+    assert result == "quality gates passed"
+    assert calls == [["make", "fmt"]]
+    assert (
+        (tmp_path / "run" / "02-gate-make-lint.log")
+        .read_text(encoding="utf-8")
+        .startswith("$ prior verification evidence")
+    )
 
 
 def test_finish_task_requires_existing_diff_by_default(monkeypatch) -> None:

@@ -34,6 +34,7 @@ LOG_LIMIT_EXIT_CODE = 125
 FAILURE_CONTEXT_MAX_CHARS = 6_000
 FAILURE_LOG_TAIL_LINES = 80
 CURRENT_LOG_TAIL_LINES = 40
+PASS_EVIDENCE_TERMS = ("passed", "pass", "success", "succeeded", "all checks passed")
 AGENT_CODEX = "codex"
 AGENT_KIMI = "kimi"
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\a]*(?:\a|\x1b\\))")
@@ -59,8 +60,6 @@ KIMI_REPAIR_GUIDANCE = """Kimi repair mode:
 - Read the failure text and directly cited files first, then patch the smallest set of lines.
 - Turn each review finding into an explicit checklist item and address every item before stopping.
 - Add or adjust a regression test when the failure is behavioral.
-- Before final summary, verify that generated artifacts such as __pycache__ are absent from
-  `git status --short`.
 - Stop after the focused repair and local targeted verification.
 """
 CODEX_REPAIR_GUIDANCE = """Repair mode:
@@ -71,8 +70,6 @@ CODEX_REPAIR_GUIDANCE = """Repair mode:
 - Add or adjust a regression test when the failure is behavioral.
 - Run targeted checks for the touched behavior. The controller will run full quality gates after
   this pass.
-- Before final summary, verify that generated artifacts such as __pycache__ are absent from
-  `git status --short`.
 - Stop after the focused repair and local targeted verification.
 """
 
@@ -529,6 +526,57 @@ def cleanup_generated_python_artifacts() -> int:
     return removed
 
 
+def resolve_root_relative_path(value: str) -> Path:
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return ROOT / path
+
+
+def gate_has_prior_pass_evidence(gate: str, evidence: str) -> bool:
+    normalized = re.sub(r"\s+", " ", evidence.lower())
+    normalized_gate = re.sub(r"\s+", " ", gate.lower())
+    for match in re.finditer(re.escape(normalized_gate), normalized):
+        window = normalized[match.start() : match.end() + 160]
+        if any(term in window for term in PASS_EVIDENCE_TERMS):
+            return True
+    return False
+
+
+def prior_verified_gates(
+    ledger: dict[str, Any],
+    prior_verification_file: str | None,
+) -> tuple[set[str], Path | None]:
+    if prior_verification_file is None:
+        return set(), None
+
+    evidence_path = resolve_root_relative_path(prior_verification_file)
+    try:
+        evidence = evidence_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise LoopError(f"Unable to read prior verification file {evidence_path}: {exc}") from exc
+
+    verified = {
+        gate for gate in ledger["quality_gates"] if gate_has_prior_pass_evidence(gate, evidence)
+    }
+    if not verified:
+        raise LoopError(
+            "Prior verification file did not prove any configured quality gate. "
+            "Include lines such as 'make lint passed' or omit --prior-verification-file."
+        )
+    return verified, evidence_path
+
+
+def write_prior_gate_log(log_file: Path, gate: str, evidence_path: Path) -> None:
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file.write_text(
+        "$ prior verification evidence\n\n"
+        f"Reused prior successful evidence for: {gate}\n"
+        f"Evidence file: {relative_to_root(evidence_path)}\n",
+        encoding="utf-8",
+    )
+
+
 def validate_heartbeat_seconds(value: int) -> None:
     if value < 0:
         raise LoopError("Heartbeat seconds must be non-negative; use 0 to disable heartbeats.")
@@ -855,11 +903,21 @@ def run_quality_gates(
     ledger: dict[str, Any],
     base_status: dict[str, Any],
     heartbeat_seconds: int,
+    verified_gates: set[str] | None = None,
+    prior_verification_path: Path | None = None,
 ) -> tuple[bool, str]:
     failures: list[str] = []
+    verified_gates = verified_gates or set()
     for index, gate in enumerate(ledger["quality_gates"], start=1):
         command = gate.split()
         log_file = task_run_dir / f"{index:02d}-gate-{'-'.join(command)}.log"
+        if gate in verified_gates and prior_verification_path is not None:
+            print(
+                f"  gate: {gate} -> reused prior verification "
+                f"{relative_to_root(prior_verification_path)}"
+            )
+            write_prior_gate_log(log_file, gate, prior_verification_path)
+            continue
         print(f"  gate: {gate} -> log {relative_to_root(log_file)}")
         code = run_logged(
             command,
@@ -1098,11 +1156,24 @@ def run_finish_task(
         message="verifying existing implementation diff",
     )
 
+    verified_gates, prior_verification_path = prior_verified_gates(
+        ledger,
+        args.prior_verification_file,
+    )
+    if verified_gates:
+        print(
+            "  prior verification: reusing "
+            f"{', '.join(sorted(verified_gates))} from "
+            f"{relative_to_root(cast(Path, prior_verification_path))}"
+        )
+
     gates_ok, gate_result = run_quality_gates(
         task_run_dir,
         ledger,
         base_status,
         args.heartbeat_seconds,
+        verified_gates=verified_gates,
+        prior_verification_path=prior_verification_path,
     )
     if not gates_ok:
         print(f"  failed: {gate_result}")
@@ -1503,6 +1574,13 @@ def parse_args() -> argparse.Namespace:
         "--allow-no-changes",
         action="store_true",
         help="Allow gates/review even when there is no existing implementation diff.",
+    )
+    finish_parser.add_argument(
+        "--prior-verification-file",
+        help=(
+            "Reuse quality gates explicitly shown as passed in this file; "
+            "gates without evidence still run."
+        ),
     )
     finish_parser.add_argument("--skip-review", action="store_true")
     finish_parser.add_argument("--codex-bin", default="codex")
