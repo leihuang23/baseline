@@ -6,6 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from baseline_api.api.checkins import router as checkins_router
+from baseline_api.api.goals import router as goals_router
 from baseline_api.api.health import router as health_router
 from baseline_api.api.v1.contracts import router as v1_contracts_router
 from baseline_api.api.v1.health import router as v1_health_router
@@ -25,6 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(v1_health_router)
     app.include_router(v1_contracts_router)
     app.include_router(checkins_router)
+    app.include_router(goals_router)
     app.include_router(metrics_router)
     return app
 

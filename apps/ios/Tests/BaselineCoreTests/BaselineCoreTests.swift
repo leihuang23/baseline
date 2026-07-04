@@ -145,6 +145,21 @@ final class BaselineCoreTests: XCTestCase {
             URLSessionHealthSyncAPIClient.healthSyncURL(baseURL: baseURL).absoluteString,
             "https://api.example.test/base/v1/health/sync"
         )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.dailyCheckInURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/checkins/daily"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.dailyCheckInURL(
+                baseURL: baseURL,
+                date: "2026-07-03"
+            ).absoluteString,
+            "https://api.example.test/base/v1/checkins/daily/by-date/2026-07-03"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.goalsURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/goals"
+        )
     }
 
     func testPermissionFlowAllowsFullGrant() async throws {

@@ -60,6 +60,22 @@ public protocol HealthSyncAPIClient: Sendable {
     func postHealthSync(_ request: HealthSyncRequest) async throws -> HealthSyncResponse
 }
 
+public protocol CheckInAPIClient: Sendable {
+    func fetchDailyCheckIn(date: String) async throws -> DailyCheckInDetailResponse
+    func submitDailyCheckIn(_ request: DailyCheckInRequest) async throws -> DailyCheckInResponse
+    func updateDailyCheckIn(
+        id: UUID,
+        request: DailyCheckInRequest
+    ) async throws -> DailyCheckInResponse
+    func deleteDailyCheckIn(id: UUID) async throws
+}
+
+public protocol GoalsAPIClient: Sendable {
+    func listGoals() async throws -> [GoalResponse]
+    func createGoal(_ request: GoalRequest) async throws -> GoalResponse
+    func pauseGoal(id: UUID) async throws -> GoalResponse
+}
+
 public struct HealthSyncBatchBuilder: Sendable {
     public init() {}
 
