@@ -23,6 +23,14 @@ class Settings(BaseSettings):
         default="INFO",
         alias="LOG_LEVEL",
     )
+    llm_default_provider: str = Field(default="deepseek", alias="LLM_DEFAULT_PROVIDER")
+    llm_cheap_model: str = Field(default="deepseek-v4-pro", alias="LLM_CHEAP_MODEL")
+    llm_strong_model: str = Field(default="deepseek-v4-pro", alias="LLM_STRONG_MODEL")
+    deepseek_api_key: str | None = Field(default=None, alias="DEEPSEEK_API_KEY")
+    deepseek_api_url: str = Field(
+        default="https://api.deepseek.com/chat/completions",
+        alias="DEEPSEEK_API_URL",
+    )
 
 
 @lru_cache
