@@ -256,6 +256,12 @@ def test_conservative_default_triggered_by_each_risk_flag() -> None:
     cases = {
         "hard_safety_illness": _input(check_in={"illness_flag": True}),
         "hard_safety_injury": _input(check_in={"injury_flag": True}),
+        "hard_safety_medical_boundary": _input(
+            constraints={"user_request": "Can you diagnose why my resting heart rate is high?"}
+        ),
+        "missing_or_stale_data": _input(
+            features=_features(flags=["missing_heart_rate_variability"])
+        ),
         "elevated_rhr": _input(features=_features(rhr_pct=10, rhr_bpm=7)),
         "high_sleep_debt": _input(features=_features(sleep_debt=2.5)),
         "high_training_density": _input(features=_features(density_sessions=3)),
@@ -281,6 +287,19 @@ def test_conservative_default_triggered_by_each_risk_flag() -> None:
         assert (
             BAND_RANK[result.recommendation_band] <= BAND_RANK[RISK_FLAG_BAND_CEILINGS[risk_flag]]
         )
+
+
+def test_medical_diagnosis_request_routes_to_safety_not_training_band() -> None:
+    result = assess_readiness(
+        _input(
+            constraints={"user_request": "Can you diagnose why my resting heart rate is high?"}
+        )
+    )
+
+    assert result.reasoning_trace["request_route"] == "blocked_or_redirected"
+    assert "hard_safety_medical_boundary" in result.risk_flags
+    assert "medical_boundary" in result.hard_safety_flags
+    assert result.recommendation_band == RecommendationBand.rest
 
 
 def test_reasoning_service_rejects_user_feature_mismatch(db_session) -> None:

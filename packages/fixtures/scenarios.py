@@ -96,7 +96,7 @@ def _low_hrv_high_rhr_poor_sleep() -> FixtureDataset:
 
 
 def _mixed_high_hrv_sleep_debt() -> FixtureDataset:
-    return _make(
+    dataset = _make(
         "mixed_high_hrv_sleep_debt",
         109,
         hrv_baseline_ms=72,
@@ -109,6 +109,29 @@ def _mixed_high_hrv_sleep_debt() -> FixtureDataset:
         },
         labels=("golden", "mixed_signals"),
     )
+    target = dataset.start_date + dt.timedelta(days=dataset.days - 1)
+    for sleep in dataset.sleep_sessions:
+        if sleep.end_time.date() == target:
+            sleep.duration_seconds = 5.25 * 3600
+            sleep.stage_seconds = {
+                "awake": 0.35 * 3600,
+                "core": 3.45 * 3600,
+                "deep": 0.65 * 3600,
+                "rem": 0.8 * 3600,
+            }
+            sleep.quality_proxy = 0.23
+            break
+    for sample in dataset.samples:
+        if sample.metric_type == "heart_rate_variability" and sample.start_time.date() == target:
+            sample.value = 84.0
+            break
+    for checkin in dataset.checkins:
+        if checkin.date == target:
+            checkin.energy_score = 7
+            checkin.soreness_score = 2
+            checkin.perceived_recovery_score = 7
+            break
+    return dataset
 
 
 def _three_lower_body_sessions_six_days() -> FixtureDataset:

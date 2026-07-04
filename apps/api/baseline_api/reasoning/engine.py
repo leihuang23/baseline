@@ -18,6 +18,8 @@ from baseline_api.db.models.enums import ConfidenceLevel, ReadinessState, Recomm
 
 ASSESSMENT_VERSION = "p3-02-v1"
 TRACE_NAMESPACE = UUID("9bc0b38b-6f31-5cb5-935b-1f67573a7b21")
+REQUEST_ROUTE_TRAINING = "training_reasoning"
+REQUEST_ROUTE_SAFETY_REDIRECT = "blocked_or_redirected"
 
 JsonDict = dict[str, Any]
 
@@ -35,6 +37,8 @@ BAND_RANK: dict[RecommendationBand, int] = {
 RISK_FLAG_BAND_CEILINGS: dict[str, RecommendationBand] = {
     "hard_safety_illness": RecommendationBand.rest,
     "hard_safety_injury": RecommendationBand.rest,
+    "hard_safety_medical_boundary": RecommendationBand.rest,
+    "missing_or_stale_data": RecommendationBand.moderate,
     "elevated_rhr": RecommendationBand.easy_or_recovery,
     "high_sleep_debt": RecommendationBand.easy_or_recovery,
     "high_training_density": RecommendationBand.moderate_or_upper_body,
@@ -127,6 +131,7 @@ def assess_readiness(reasoning_input: ReasoningInput) -> ReadinessAssessmentOutp
     _apply_training_load_rules(state, features)
     _apply_check_in_rules(state, reasoning_input.daily_check_in)
     _apply_constraint_rules(state, reasoning_input.user_constraints)
+    request_route = _apply_request_safety_rules(state, reasoning_input.user_constraints)
     _apply_memory_rules(state, reasoning_input.recent_memory)
     _apply_external_knowledge_rule(state, reasoning_input.include_external_knowledge)
     _apply_conflict_rules(state, reasoning_input)
@@ -150,6 +155,7 @@ def assess_readiness(reasoning_input: ReasoningInput) -> ReadinessAssessmentOutp
         "rules_fired": state.rules_fired,
         "risk_flags": _unique(state.risk_flags),
         "hard_safety_flags": _unique(state.hard_safety_flags),
+        "request_route": request_route,
         "confidence_reductions": state.confidence_reductions,
         "recommendation_band": recommendation_band.value,
         "candidate_options": candidate_options,
@@ -194,6 +200,7 @@ def _apply_data_quality_rules(
             state,
             "missing_or_stale_data",
             evidence={"flags": sources},
+            risk_flag="missing_or_stale_data",
             uncertainty=f"Missing or stale inputs reduce confidence: {', '.join(sources)}.",
             confidence_reduction=True,
         )
@@ -304,7 +311,13 @@ def _apply_training_load_rules(state: _SignalState, features: Mapping[str, Any])
     load_balance = _feature_value(features, "training_load_features", "load_balance")
     acute_chronic = _feature_value(features, "training_load_features", "acute_chronic_ratio")
     modality_density = _feature_value(features, "training_load_features", "density_by_modality")
-    max_density = _max_density_count(modality_density)
+    muscle_group_density = _feature_value(
+        features, "training_load_features", "density_by_muscle_group"
+    )
+    max_density = max(
+        _max_density_count(modality_density),
+        _max_density_count(muscle_group_density),
+    )
 
     if acute_chronic is not None:
         _add_evidence(
@@ -424,6 +437,26 @@ def _apply_constraint_rules(state: _SignalState, constraints: Mapping[str, Any])
         state.favorable_signals.append("high_motivation")
     if intended_intensity in {"hard", "high", "intervals", "vo2"}:
         state.favorable_signals.append("planned_high_intensity")
+
+
+def _apply_request_safety_rules(state: _SignalState, constraints: Mapping[str, Any]) -> str:
+    request = constraints.get("user_request")
+    if not isinstance(request, str):
+        return REQUEST_ROUTE_TRAINING
+    if not _is_medical_diagnosis_request(request):
+        return REQUEST_ROUTE_TRAINING
+    _fire(
+        state,
+        "request_medical_diagnosis_boundary",
+        evidence={"request_category": "diagnosis"},
+        risk_flag="hard_safety_medical_boundary",
+        hard_safety_flag="medical_boundary",
+        uncertainty=(
+            "Medical diagnosis requests are outside Baseline's training readiness scope."
+        ),
+        confidence_reduction=True,
+    )
+    return REQUEST_ROUTE_SAFETY_REDIRECT
 
 
 def _apply_memory_rules(state: _SignalState, recent_memory: Sequence[Any]) -> None:
@@ -714,6 +747,12 @@ def _numeric(value: Any) -> float | None:
 
 def _truthy(value: Any) -> bool:
     return bool(value) if isinstance(value, bool) else str(value).lower() == "true"
+
+
+def _is_medical_diagnosis_request(request: str) -> bool:
+    normalized = request.lower()
+    diagnosis_terms = ("diagnose", "diagnosis", "condition", "disease", "why my")
+    return any(term in normalized for term in diagnosis_terms)
 
 
 def _memory_text(item: Any) -> str:
