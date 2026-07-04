@@ -160,6 +160,53 @@ final class BaselineCoreTests: XCTestCase {
             URLSessionHealthSyncAPIClient.goalsURL(baseURL: baseURL).absoluteString,
             "https://api.example.test/base/v1/goals"
         )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.dailyAnalysisURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/analysis/daily"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.dailyAnalysisJobURL(
+                baseURL: baseURL,
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+            ).absoluteString,
+            "https://api.example.test/base/v1/analysis/daily/00000000-0000-0000-0000-000000000001"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.analysisTraceURL(
+                baseURL: baseURL,
+                traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+            ).absoluteString,
+            "https://api.example.test/base/v1/analysis/traces/00000000-0000-0000-0000-000000000002"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.dailyBriefingURL(
+                baseURL: baseURL,
+                date: "2026-07-04"
+            ).absoluteString,
+            "https://api.example.test/base/v1/briefings/2026-07-04"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.dailyBriefingURL(
+                baseURL: baseURL,
+                date: "2026-07-04",
+                offlineLast: true
+            ).absoluteString,
+            "https://api.example.test/base/v1/briefings/2026-07-04?offline_last=true"
+        )
+        XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.assistantQueryURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/assistant/query"
+        )
+    }
+
+    func testFileBriefingStorePersistsLatestBriefingForOfflineUse() throws {
+        let directory = try temporaryDirectory()
+        let store = try FileBriefingStore(rootURL: directory)
+        let briefing = sampleBriefing()
+
+        try store.saveLatestBriefing(briefing)
+
+        XCTAssertEqual(try store.loadLatestBriefing(), briefing)
     }
 
     func testPermissionFlowAllowsFullGrant() async throws {
@@ -407,6 +454,33 @@ private func sample(
         value: 1,
         unit: "count",
         sourceMetadata: ["source": "unit-test"]
+    )
+}
+
+private func sampleBriefing() -> DailyBriefingResponse {
+    DailyBriefingResponse(
+        date: "2026-07-04",
+        readinessState: "mixed",
+        confidence: "medium",
+        dataFreshness: DataFreshness(
+            latestSampleAt: "2026-07-04T06:30:00Z",
+            latestCheckInDate: "2026-07-04",
+            staleSources: []
+        ),
+        evidence: [
+            PersonalEvidence(
+                metric: "sleep_debt_hours",
+                value: .double(1.5),
+                interpretation: "Slight sleep debt.",
+                source: "features.sleep"
+            ),
+        ],
+        recommendation: RecommendationSummary(primary: "Keep training moderate."),
+        recommendationBand: "moderate_or_upper_body",
+        uncertainty: ["No soreness check-in yet."],
+        safetyNotes: ["This is wellness decision support, not medical advice."],
+        traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+        generatedAt: "2026-07-04T06:40:00Z"
     )
 }
 

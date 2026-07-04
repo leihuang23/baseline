@@ -8,7 +8,9 @@ public enum BaselineAPIError: Error, Equatable, Sendable {
 
 public typealias HealthSyncAPIError = BaselineAPIError
 
-public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAPIClient, GoalsAPIClient {
+public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAPIClient, GoalsAPIClient,
+    DailyBriefingAPIClient
+{
     private let baseURL: URL
     private let session: URLSession
     private let encoder: JSONEncoder
@@ -78,6 +80,38 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
         )
     }
 
+    public func generateDailyAnalysis(_ request: DailyAnalysisRequest) async throws -> DailyAnalysisResponse {
+        try await sendEnvelope(method: "POST", url: Self.dailyAnalysisURL(baseURL: baseURL), body: request)
+    }
+
+    public func fetchDailyAnalysisJob(id: UUID) async throws -> DailyAnalysisResponse {
+        try await sendEnvelope(
+            method: "GET",
+            url: Self.dailyAnalysisJobURL(baseURL: baseURL, id: id),
+            body: Optional<String>.none
+        )
+    }
+
+    public func fetchDailyBriefing(date: String, offlineLast: Bool = false) async throws -> DailyBriefingResponse {
+        try await sendEnvelope(
+            method: "GET",
+            url: Self.dailyBriefingURL(baseURL: baseURL, date: date, offlineLast: offlineLast),
+            body: Optional<String>.none
+        )
+    }
+
+    public func fetchBriefingTrace(traceID: UUID) async throws -> BriefingTraceInspection {
+        try await sendEnvelope(
+            method: "GET",
+            url: Self.analysisTraceURL(baseURL: baseURL, traceID: traceID),
+            body: Optional<String>.none
+        )
+    }
+
+    public func submitAssistantQuery(_ request: AssistantQueryRequest) async throws -> AssistantQueryResponse {
+        try await sendEnvelope(method: "POST", url: Self.assistantQueryURL(baseURL: baseURL), body: request)
+    }
+
     public static func healthSyncURL(baseURL: URL) -> URL {
         baseURL.appendingPathComponent("v1/health/sync")
     }
@@ -102,6 +136,32 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
 
     public static func pauseGoalURL(baseURL: URL, id: UUID) -> URL {
         goalsURL(baseURL: baseURL).appendingPathComponent(id.uuidString).appendingPathComponent("pause")
+    }
+
+    public static func dailyAnalysisURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/analysis/daily")
+    }
+
+    public static func dailyAnalysisJobURL(baseURL: URL, id: UUID) -> URL {
+        dailyAnalysisURL(baseURL: baseURL).appendingPathComponent(id.uuidString)
+    }
+
+    public static func analysisTraceURL(baseURL: URL, traceID: UUID) -> URL {
+        baseURL.appendingPathComponent("v1/analysis/traces").appendingPathComponent(traceID.uuidString)
+    }
+
+    public static func dailyBriefingURL(baseURL: URL, date: String, offlineLast: Bool = false) -> URL {
+        let url = baseURL.appendingPathComponent("v1/briefings").appendingPathComponent(date)
+        guard offlineLast else {
+            return url
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "offline_last", value: "true")]
+        return components?.url ?? url
+    }
+
+    public static func assistantQueryURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/assistant/query")
     }
 
     private func sendEnvelope<Response: Codable & Sendable, Body: Encodable>(

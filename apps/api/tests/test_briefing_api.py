@@ -333,11 +333,33 @@ def test_fixture_day_produces_complete_persisted_briefing(db_session: Session) -
     persisted_job = db_session.get(DailyAnalysisJob, UUID(job["analysis_job_id"]))
     assert persisted_job is not None
     assert {stage["trace_id"] for stage in persisted_job.stage_trace} == {briefing["trace_id"]}
+    job_status = client.get(f"/v1/analysis/daily/{job['analysis_job_id']}").json()["data"]
+    assert job_status["status"] == "completed"
 
     metric_text = metrics.generate_latest(metrics.registry).decode()
     assert 'baseline_llm_generation_total{status="success"}' in metric_text
     assert 'baseline_llm_cost_total{model="fake-briefing-model"}' in metric_text
     assert "baseline_briefing_latency_seconds_count" in metric_text
+
+
+def test_trace_endpoint_returns_read_only_inspection(db_session: Session) -> None:
+    _seed_fixture_day(db_session)
+    client = _client(db_session, llm_explainer=FakeLLMExplainer(db_session))
+
+    _generate(client)
+    briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
+    response = client.get(f"/v1/analysis/traces/{briefing['trace_id']}")
+
+    assert response.status_code == 200
+    trace = response.json()["data"]
+    assert trace["trace_id"] == briefing["trace_id"]
+    assert trace["data_freshness"] == briefing["data_freshness"]
+    assert trace["feature_values"]
+    assert trace["rules_fired"]
+    assert trace["retrieved_memory"] == briefing["memory_observations"]
+    assert trace["external_sources"] == briefing["external_citations"]
+    assert trace["model_metadata"]["briefing_generation_status"] == "success"
+    assert trace["model_metadata"]["model_run_ids"]
 
 
 def test_daily_analysis_post_returns_queued_job_by_default(

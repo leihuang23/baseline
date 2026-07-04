@@ -278,6 +278,492 @@ public struct APIEnvelope<T: Codable & Sendable>: Codable, Sendable {
     public var data: T?
 }
 
+public enum BriefingPrivacyMode: String, Codable, Sendable {
+    case localOnly = "local_only"
+    case cloudAssisted = "cloud_assisted"
+    case hybrid
+
+    public init(_ privacyMode: PrivacyMode) {
+        switch privacyMode {
+        case .localOnly:
+            self = .localOnly
+        case .cloudAssisted:
+            self = .cloudAssisted
+        case .hybrid:
+            self = .hybrid
+        }
+    }
+}
+
+public struct DailyAnalysisRequest: Codable, Equatable, Sendable {
+    public var schemaVersion = "v1"
+    public var date: String
+    public var forceRecompute: Bool
+    public var includeExternalKnowledge: Bool
+    public var privacyMode: BriefingPrivacyMode
+
+    public init(
+        date: String,
+        forceRecompute: Bool = false,
+        includeExternalKnowledge: Bool = false,
+        privacyMode: BriefingPrivacyMode
+    ) {
+        self.date = date
+        self.forceRecompute = forceRecompute
+        self.includeExternalKnowledge = includeExternalKnowledge
+        self.privacyMode = privacyMode
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case date
+        case forceRecompute = "force_recompute"
+        case includeExternalKnowledge = "include_external_knowledge"
+        case privacyMode = "privacy_mode"
+    }
+}
+
+public struct DailyAnalysisResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var analysisJobID: UUID
+    public var status: String
+    public var estimatedCompletionSeconds: Int
+
+    public init(
+        schemaVersion: String = "v1",
+        analysisJobID: UUID,
+        status: String,
+        estimatedCompletionSeconds: Int
+    ) {
+        self.schemaVersion = schemaVersion
+        self.analysisJobID = analysisJobID
+        self.status = status
+        self.estimatedCompletionSeconds = estimatedCompletionSeconds
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case analysisJobID = "analysis_job_id"
+        case status
+        case estimatedCompletionSeconds = "estimated_completion_seconds"
+    }
+}
+
+public struct DataFreshness: Codable, Equatable, Sendable {
+    public var latestSampleAt: String?
+    public var latestCheckInDate: String?
+    public var staleSources: [String]
+
+    public init(
+        latestSampleAt: String? = nil,
+        latestCheckInDate: String? = nil,
+        staleSources: [String] = []
+    ) {
+        self.latestSampleAt = latestSampleAt
+        self.latestCheckInDate = latestCheckInDate
+        self.staleSources = staleSources
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case latestSampleAt = "latest_sample_at"
+        case latestCheckInDate = "latest_checkin_date"
+        case staleSources = "stale_sources"
+    }
+}
+
+public enum BriefingValue: Codable, Equatable, Sendable {
+    case bool(Bool)
+    case int(Int)
+    case double(Double)
+    case string(String)
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else {
+            self = try .string(container.decode(String.self))
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .bool(let value):
+            try container.encode(value)
+        case .int(let value):
+            try container.encode(value)
+        case .double(let value):
+            try container.encode(value)
+        case .string(let value):
+            try container.encode(value)
+        }
+    }
+
+    public var displayText: String {
+        switch self {
+        case .bool(let value):
+            value ? "true" : "false"
+        case .int(let value):
+            String(value)
+        case .double(let value):
+            value.formatted()
+        case .string(let value):
+            value
+        }
+    }
+}
+
+public struct PersonalEvidence: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { "\(metric)-\(source ?? interpretation)" }
+    public var metric: String
+    public var value: BriefingValue
+    public var interpretation: String
+    public var source: String?
+
+    public init(metric: String, value: BriefingValue, interpretation: String, source: String? = nil) {
+        self.metric = metric
+        self.value = value
+        self.interpretation = interpretation
+        self.source = source
+    }
+}
+
+public struct MemoryObservation: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { "\(observation)-\(period ?? relevance)" }
+    public var observation: String
+    public var relevance: String
+    public var period: String?
+
+    public init(observation: String, relevance: String, period: String? = nil) {
+        self.observation = observation
+        self.relevance = relevance
+        self.period = period
+    }
+}
+
+public struct ExternalCitation: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { "\(title)-\(source)" }
+    public var title: String
+    public var source: String
+    public var url: String?
+    public var citedClaim: String
+
+    public init(title: String, source: String, url: String? = nil, citedClaim: String) {
+        self.title = title
+        self.source = source
+        self.url = url
+        self.citedClaim = citedClaim
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case source
+        case url
+        case citedClaim = "cited_claim"
+    }
+}
+
+public struct RecommendationSummary: Codable, Equatable, Sendable {
+    public var primary: String
+    public var avoid: String?
+
+    public init(primary: String, avoid: String? = nil) {
+        self.primary = primary
+        self.avoid = avoid
+    }
+}
+
+public struct CandidateOption: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { "\(label)-\(recommendationBand)" }
+    public var label: String
+    public var recommendationBand: String
+    public var rationale: String
+
+    public init(label: String, recommendationBand: String, rationale: String) {
+        self.label = label
+        self.recommendationBand = recommendationBand
+        self.rationale = rationale
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case label
+        case recommendationBand = "recommendation_band"
+        case rationale
+    }
+}
+
+public struct GoalTradeoff: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { "\(goal)-\(tradeoff)" }
+    public var goal: String
+    public var tradeoff: String
+
+    public init(goal: String, tradeoff: String) {
+        self.goal = goal
+        self.tradeoff = tradeoff
+    }
+}
+
+public struct DataQualityNote: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { "\(metric ?? "general")-\(note)" }
+    public var metric: String?
+    public var note: String
+    public var severity: String
+
+    public init(metric: String? = nil, note: String, severity: String = "info") {
+        self.metric = metric
+        self.note = note
+        self.severity = severity
+    }
+}
+
+public struct RecommendationAlternative: Codable, Equatable, Identifiable, Sendable {
+    public var id: String { "\(label)-\(rationale)" }
+    public var label: String
+    public var rationale: String
+
+    public init(label: String, rationale: String) {
+        self.label = label
+        self.rationale = rationale
+    }
+}
+
+public struct FollowUpPrompt: Codable, Equatable, Sendable {
+    public var question: String
+    public var reason: String
+
+    public init(question: String, reason: String) {
+        self.question = question
+        self.reason = reason
+    }
+}
+
+public struct BriefingTraceInspection: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var traceID: UUID
+    public var dataFreshness: DataFreshness?
+    public var featureValues: [PersonalEvidence]
+    public var rulesFired: [String]
+    public var retrievedMemory: [MemoryObservation]
+    public var externalSources: [ExternalCitation]
+    public var modelMetadata: [String: String]
+
+    public init(
+        schemaVersion: String = "v1",
+        traceID: UUID,
+        dataFreshness: DataFreshness? = nil,
+        featureValues: [PersonalEvidence] = [],
+        rulesFired: [String] = [],
+        retrievedMemory: [MemoryObservation] = [],
+        externalSources: [ExternalCitation] = [],
+        modelMetadata: [String: String] = [:]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.traceID = traceID
+        self.dataFreshness = dataFreshness
+        self.featureValues = featureValues
+        self.rulesFired = rulesFired
+        self.retrievedMemory = retrievedMemory
+        self.externalSources = externalSources
+        self.modelMetadata = modelMetadata
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case traceID = "trace_id"
+        case dataFreshness = "data_freshness"
+        case featureValues = "feature_values"
+        case rulesFired = "rules_fired"
+        case retrievedMemory = "retrieved_memory"
+        case externalSources = "external_sources"
+        case modelMetadata = "model_metadata"
+    }
+}
+
+public struct DailyBriefingResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var date: String
+    public var readinessState: String
+    public var confidence: String
+    public var dataFreshness: DataFreshness
+    public var evidence: [PersonalEvidence]
+    public var memoryObservations: [MemoryObservation]
+    public var externalCitations: [ExternalCitation]
+    public var riskFlags: [String]
+    public var recommendation: RecommendationSummary
+    public var recommendationBand: String
+    public var candidateOptions: [CandidateOption]
+    public var goalTradeoffs: [GoalTradeoff]
+    public var uncertainty: [String]
+    public var dataQualityNotes: [DataQualityNote]
+    public var whatWouldChangeMyMind: [String]
+    public var alternatives: [RecommendationAlternative]
+    public var followUp: FollowUpPrompt?
+    public var safetyStatus: String
+    public var safetyNotes: [String]
+    public var traceID: UUID
+    public var generatedAt: String
+    public var trace: BriefingTraceInspection?
+
+    public init(
+        schemaVersion: String = "v1",
+        date: String,
+        readinessState: String,
+        confidence: String,
+        dataFreshness: DataFreshness,
+        evidence: [PersonalEvidence],
+        memoryObservations: [MemoryObservation] = [],
+        externalCitations: [ExternalCitation] = [],
+        riskFlags: [String] = [],
+        recommendation: RecommendationSummary,
+        recommendationBand: String,
+        candidateOptions: [CandidateOption] = [],
+        goalTradeoffs: [GoalTradeoff] = [],
+        uncertainty: [String],
+        dataQualityNotes: [DataQualityNote] = [],
+        whatWouldChangeMyMind: [String] = [],
+        alternatives: [RecommendationAlternative] = [],
+        followUp: FollowUpPrompt? = nil,
+        safetyStatus: String = "passed",
+        safetyNotes: [String],
+        traceID: UUID,
+        generatedAt: String,
+        trace: BriefingTraceInspection? = nil
+    ) {
+        self.schemaVersion = schemaVersion
+        self.date = date
+        self.readinessState = readinessState
+        self.confidence = confidence
+        self.dataFreshness = dataFreshness
+        self.evidence = evidence
+        self.memoryObservations = memoryObservations
+        self.externalCitations = externalCitations
+        self.riskFlags = riskFlags
+        self.recommendation = recommendation
+        self.recommendationBand = recommendationBand
+        self.candidateOptions = candidateOptions
+        self.goalTradeoffs = goalTradeoffs
+        self.uncertainty = uncertainty
+        self.dataQualityNotes = dataQualityNotes
+        self.whatWouldChangeMyMind = whatWouldChangeMyMind
+        self.alternatives = alternatives
+        self.followUp = followUp
+        self.safetyStatus = safetyStatus
+        self.safetyNotes = safetyNotes
+        self.traceID = traceID
+        self.generatedAt = generatedAt
+        self.trace = trace
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case date
+        case readinessState = "readiness_state"
+        case confidence
+        case dataFreshness = "data_freshness"
+        case evidence
+        case memoryObservations = "memory_observations"
+        case externalCitations = "external_citations"
+        case riskFlags = "risk_flags"
+        case recommendation
+        case recommendationBand = "recommendation_band"
+        case candidateOptions = "candidate_options"
+        case goalTradeoffs = "goal_tradeoffs"
+        case uncertainty
+        case dataQualityNotes = "data_quality_notes"
+        case whatWouldChangeMyMind = "what_would_change_my_mind"
+        case alternatives
+        case followUp = "follow_up"
+        case safetyStatus = "safety_status"
+        case safetyNotes = "safety_notes"
+        case traceID = "trace_id"
+        case generatedAt = "generated_at"
+        case trace
+    }
+
+    public var isDeterministicFallback: Bool {
+        trace?.modelMetadata["briefing_generation_status"] == "degraded"
+    }
+}
+
+public struct AssistantQueryRequest: Codable, Equatable, Sendable {
+    public var schemaVersion = "v1"
+    public var question: String
+    public var dateContext: String?
+    public var allowedDataScope: [String]
+    public var includeExternalKnowledge: Bool
+    public var privacyMode: BriefingPrivacyMode
+
+    public init(
+        question: String,
+        dateContext: String?,
+        allowedDataScope: [String] = ["briefing_trace", "recent_health"],
+        includeExternalKnowledge: Bool = false,
+        privacyMode: BriefingPrivacyMode
+    ) {
+        self.question = question
+        self.dateContext = dateContext
+        self.allowedDataScope = allowedDataScope
+        self.includeExternalKnowledge = includeExternalKnowledge
+        self.privacyMode = privacyMode
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case question
+        case dateContext = "date_context"
+        case allowedDataScope = "allowed_data_scope"
+        case includeExternalKnowledge = "include_external_knowledge"
+        case privacyMode = "privacy_mode"
+    }
+}
+
+public struct AssistantQueryResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var answer: String
+    public var personalEvidence: [PersonalEvidence]
+    public var externalSources: [ExternalCitation]
+    public var confidence: String
+    public var uncertainty: [String]
+    public var safetyStatus: String
+    public var traceID: UUID
+
+    public init(
+        schemaVersion: String = "v1",
+        answer: String,
+        personalEvidence: [PersonalEvidence],
+        externalSources: [ExternalCitation] = [],
+        confidence: String,
+        uncertainty: [String],
+        safetyStatus: String,
+        traceID: UUID
+    ) {
+        self.schemaVersion = schemaVersion
+        self.answer = answer
+        self.personalEvidence = personalEvidence
+        self.externalSources = externalSources
+        self.confidence = confidence
+        self.uncertainty = uncertainty
+        self.safetyStatus = safetyStatus
+        self.traceID = traceID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case answer
+        case personalEvidence = "personal_evidence"
+        case externalSources = "external_sources"
+        case confidence
+        case uncertainty
+        case safetyStatus = "safety_status"
+        case traceID = "trace_id"
+    }
+}
+
 public enum SensitiveNotePolicy: String, Codable, Sendable {
     case excludeFromExternalLLM = "exclude_from_external_llm"
     case summarizeBeforeExternalLLM = "summarize_before_external_llm"

@@ -15,6 +15,7 @@ from baseline_api.db.session import get_db_session
 from baseline_api.llm.factory import build_default_router
 from baseline_api.llm.orchestrator import LLMOrchestrator
 from baseline_api.schemas.api import (
+    BriefingTraceInspection,
     DailyAnalysisRequest,
     DailyAnalysisResponse,
     DailyBriefingResponse,
@@ -88,6 +89,32 @@ async def generate_daily_analysis(
                 status=job.status,
                 estimated_completion_seconds=30,
             )
+    except BriefingError as error:
+        return _error_response(error)
+    return APIEnvelope(status="success", data=data)
+
+
+@router.get("/analysis/daily/{job_id}", response_model=APIEnvelope[DailyAnalysisResponse])
+async def get_daily_analysis_job(
+    job_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+) -> APIEnvelope[DailyAnalysisResponse] | JSONResponse:
+    service = DailyBriefingService(session)
+    try:
+        data = service.get_daily_job(job_id)
+    except BriefingError as error:
+        return _error_response(error)
+    return APIEnvelope(status="success", data=data)
+
+
+@router.get("/analysis/traces/{trace_id}", response_model=APIEnvelope[BriefingTraceInspection])
+async def get_analysis_trace(
+    trace_id: UUID,
+    session: Annotated[Session, Depends(get_db_session)],
+) -> APIEnvelope[BriefingTraceInspection] | JSONResponse:
+    service = DailyBriefingService(session)
+    try:
+        data = service.get_trace(trace_id)
     except BriefingError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)

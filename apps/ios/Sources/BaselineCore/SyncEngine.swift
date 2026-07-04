@@ -76,6 +76,14 @@ public protocol GoalsAPIClient: Sendable {
     func pauseGoal(id: UUID) async throws -> GoalResponse
 }
 
+public protocol DailyBriefingAPIClient: Sendable {
+    func generateDailyAnalysis(_ request: DailyAnalysisRequest) async throws -> DailyAnalysisResponse
+    func fetchDailyAnalysisJob(id: UUID) async throws -> DailyAnalysisResponse
+    func fetchDailyBriefing(date: String, offlineLast: Bool) async throws -> DailyBriefingResponse
+    func fetchBriefingTrace(traceID: UUID) async throws -> BriefingTraceInspection
+    func submitAssistantQuery(_ request: AssistantQueryRequest) async throws -> AssistantQueryResponse
+}
+
 public struct HealthSyncBatchBuilder: Sendable {
     public init() {}
 
