@@ -145,13 +145,6 @@ def git_status_lines() -> list[str] | None:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
-def implementation_timeout_has_candidate_changes(
-    before: list[str] | None,
-    after: list[str] | None,
-) -> bool:
-    return implementation_has_candidate_changes(before, after)
-
-
 def implementation_has_candidate_changes(
     before: list[str] | None,
     after: list[str] | None,
@@ -302,8 +295,7 @@ def load_ledger() -> dict[str, Any]:
 
 
 def save_ledger(ledger: dict[str, Any]) -> None:
-    ledger["updated_at"] = utc_now()
-    LEDGER_PATH.write_text(json.dumps(ledger, indent=2) + "\n", encoding="utf-8")
+    write_json_atomic(LEDGER_PATH, {**ledger, "updated_at": utc_now()})
 
 
 def task_map(ledger: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -1238,8 +1230,8 @@ def run_task(
             max_log_bytes=agent_log_limit_bytes,
             success_sentinel=DONE_SENTINEL,
         )
+        current_status_lines = git_status_lines()
         if code != 0:
-            current_status_lines = git_status_lines()
             if code in (124, LOG_LIMIT_EXIT_CODE) and implementation_has_candidate_changes(
                 initial_status_lines,
                 current_status_lines,
@@ -1291,7 +1283,6 @@ def run_task(
         if code != 0 and previous_failure is not None:
             print("  note: budget-stop details retained for run history; gates decide task outcome")
 
-        current_status_lines = git_status_lines()
         if (
             not args.allow_no_changes
             and initial_status_lines == []
@@ -1323,6 +1314,7 @@ def run_task(
         if not gates_ok:
             previous_failure = gate_result
             print(f"  failed: {gate_result}")
+            # Gate failures are not retried; fall through to final-repair logic below.
             break
 
         if not args.skip_review:
@@ -1636,6 +1628,7 @@ def main() -> int:
         return 0
 
     validate_heartbeat_seconds(args.heartbeat_seconds)
+    # validate only — callers normalize inline before each use
     normalize_timeout_seconds(args.final_repair_timeout_seconds)
     normalize_timeout_seconds(args.repair_review_timeout_seconds)
     normalize_log_limit_bytes(args.agent_log_limit_bytes)

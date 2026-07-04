@@ -646,12 +646,12 @@ def test_implementation_timeout_candidate_changes_are_detected() -> None:
     before: list[str] = []
     after = [" M packages/eval/scorers.py", "?? apps/api/tests/features/"]
 
-    assert TASK_LOOP.implementation_timeout_has_candidate_changes(before, after) is True
+    assert TASK_LOOP.implementation_has_candidate_changes(before, after) is True
 
 
 def test_implementation_timeout_without_new_changes_is_not_candidate() -> None:
     before = [" M existing.py"]
 
-    assert TASK_LOOP.implementation_timeout_has_candidate_changes(before, before) is False
-    assert TASK_LOOP.implementation_timeout_has_candidate_changes(before, None) is False
-    assert TASK_LOOP.implementation_timeout_has_candidate_changes([], []) is False
+    assert TASK_LOOP.implementation_has_candidate_changes(before, before) is False
+    assert TASK_LOOP.implementation_has_candidate_changes(before, None) is False
+    assert TASK_LOOP.implementation_has_candidate_changes([], []) is False
