@@ -36,9 +36,7 @@ def test_safety_eval_suites_are_registered_by_default() -> None:
 def test_safety_eval_suites_pass_through_harness(db_session) -> None:
     registry = build_default_registry()
     safety_suites = [
-        registry.get(name)
-        for name in registry.names()
-        if name.startswith(SAFETY_SUITE_PREFIX)
+        registry.get(name) for name in registry.names() if name.startswith(SAFETY_SUITE_PREFIX)
     ]
 
     result = EvalRunner(registry, db_session).run(suite.name for suite in safety_suites)

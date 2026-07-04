@@ -73,8 +73,7 @@ def test_high_risk_output_is_rewritten_when_request_is_allowed() -> None:
     result = _engine().evaluate(
         request_text="What does a lower HRV trend mean for training today?",
         generated_text=(
-            "This confirms you have anemia. Take 30 mg iron every morning and keep "
-            "training hard."
+            "This confirms you have anemia. Take 30 mg iron every morning and keep training hard."
         ),
     )
 

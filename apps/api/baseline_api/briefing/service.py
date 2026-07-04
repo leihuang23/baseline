@@ -44,12 +44,14 @@ from baseline_api.goals import GoalService
 from baseline_api.llm.orchestrator import OrchestratorResult
 from baseline_api.llm.schemas import LLMExplanationOutput, PromptInputs, TaskType
 from baseline_api.llm.validation import degraded_output
+from baseline_api.memory.service import MemoryService
 from baseline_api.observability.metrics import (
     add_llm_cost,
     increment_llm_generation_result,
     observe_briefing_latency,
 )
 from baseline_api.observability.tracing import create_job_context, use_trace_context
+from baseline_api.reasoning.engine import ReadinessAssessmentOutput
 from baseline_api.reasoning.service import ReasoningService, features_to_mapping
 from baseline_api.safety.engine import SafetyPolicyEngine
 from baseline_api.schemas.api import (
@@ -239,11 +241,23 @@ class DailyBriefingService:
                     ),
                 ]
                 active_goals = self._active_goals()
+                retrieval = self._retrieve_recent_history(user_id, request.date)
+                stage_trace.append(
+                    _stage_event(
+                        "retrieval",
+                        trace_id=context.trace_id,
+                        job_id=job_record_id,
+                        status="degraded" if retrieval.degraded else "success",
+                        degraded=retrieval.degraded,
+                        degrade_reason=retrieval.degrade_reason,
+                        observation_count=len(retrieval.observations),
+                    )
+                )
                 assessment = ReasoningService(self._session).assess_and_persist(
                     user_id=user_id,
                     derived_features=feature,
                     active_goals=active_goals,
-                    recent_memory=[],
+                    recent_memory=retrieval.trace_items,
                     daily_check_in=_checkin_mapping(checkin),
                     include_external_knowledge=request.include_external_knowledge,
                 )
@@ -258,18 +272,6 @@ class DailyBriefingService:
                         reasoning_trace_id=briefing_trace_id,
                         readiness_state=assessment.readiness_state.value,
                         recommendation_band=assessment.recommendation_band.value,
-                    )
-                )
-                retrieval = self._retrieve_recent_history(user_id, request.date)
-                stage_trace.append(
-                    _stage_event(
-                        "retrieval",
-                        trace_id=briefing_trace_id,
-                        job_id=job_record_id,
-                        status="degraded" if retrieval.degraded else "success",
-                        degraded=retrieval.degraded,
-                        degrade_reason=retrieval.degrade_reason,
-                        observation_count=len(retrieval.observations),
                     )
                 )
                 prompt_inputs = PromptInputs(
@@ -326,7 +328,23 @@ class DailyBriefingService:
                     assessment=assessment_data,
                     explanation=explanation,
                 )
+                memory_summary_ids = self._persist_memory_summaries(
+                    user_id=user_id,
+                    target_date=request.date,
+                    feature=feature,
+                    assessment=assessment,
+                    recommendation=recommendation,
+                    checkin=checkin,
+                )
                 latency_ms = int((time.perf_counter() - started) * 1000)
+                stage_trace.append(
+                    _stage_event(
+                        "memory",
+                        trace_id=briefing_trace_id,
+                        job_id=job_record_id,
+                        **memory_summary_ids,
+                    )
+                )
                 stage_trace.append(
                     _stage_event(
                         "persistence",
@@ -514,17 +532,12 @@ class DailyBriefingService:
 
     def _retrieve_recent_history(self, user_id: UUID, target_date: dt.date) -> RetrievalResult:
         try:
-            rows = self._session.exec(
-                select(Recommendation)
-                .where(
-                    Recommendation.user_id == user_id,
-                    Recommendation.date < target_date,
+            with self._session.begin_nested():
+                summaries = MemoryService(self._session).recent_for_reasoning(
+                    user_id=user_id,
+                    target_date=target_date,
                 )
-                .order_by(col(Recommendation.date).desc(), col(Recommendation.created_at).desc())
-                .limit(7)
-            ).all()
         except Exception as exc:
-            self._session.rollback()
             return RetrievalResult(
                 observations=[],
                 trace_items=[],
@@ -534,22 +547,16 @@ class DailyBriefingService:
 
         observations = [
             MemoryObservation(
-                observation=f"{row.date.isoformat()}: {row.recommendation_text}",
-                relevance="Recent prior briefing context for continuity.",
-                period=row.date.isoformat(),
+                observation=str(item["observation"]),
+                relevance="Recent structured memory summary for readiness continuity.",
+                period=str(item["period"]),
             )
-            for row in rows
+            for item in summaries
+            if item.get("observation")
         ]
         return RetrievalResult(
             observations=observations,
-            trace_items=[
-                {
-                    "date": row.date.isoformat(),
-                    "recommendation_id": str(row.id),
-                    "recommendation_type": row.recommendation_type.value,
-                }
-                for row in rows
-            ],
+            trace_items=summaries,
         )
 
     async def _explain(
@@ -682,6 +689,43 @@ class DailyBriefingService:
             briefing_payload=briefing.model_dump(mode="json"),
         )
         return self._recommendations.create(recommendation)
+
+    def _persist_memory_summaries(
+        self,
+        *,
+        user_id: UUID,
+        target_date: dt.date,
+        feature: DerivedDailyFeature,
+        assessment: ReadinessAssessmentOutput,
+        recommendation: Recommendation,
+        checkin: DailyCheckIn | None,
+    ) -> dict[str, str]:
+        memory = MemoryService(self._session)
+        persisted_assessment = self._assessments.get_by_user_date_trace(
+            user_id=user_id,
+            date=target_date,
+            reasoning_trace_id=assessment.reasoning_trace_id,
+        )
+        if persisted_assessment is None:
+            raise RuntimeError("persisted readiness assessment not found")
+        daily_summary = memory.generate_daily_summary(
+            user_id=user_id,
+            feature=feature,
+            assessment=persisted_assessment,
+            recommendation=recommendation,
+            checkin=checkin,
+            commit=False,
+        )
+        weekly_summary = memory.generate_weekly_summary(
+            user_id=user_id,
+            start_date=target_date - dt.timedelta(days=6),
+            end_date=target_date,
+            commit=False,
+        )
+        return {
+            "daily_memory_summary_id": str(daily_summary.id),
+            "weekly_memory_summary_id": str(weekly_summary.id),
+        }
 
     def _record_trace(
         self,
@@ -825,6 +869,13 @@ def _enforce_served_briefing_safety(
     )
     safety_notes = [result.safety_note]
     if result.status is SafetyStatus.passed:
+        return briefing.model_copy(
+            update={
+                "safety_status": result.status,
+                "safety_notes": safety_notes,
+            }
+        )
+    if not result.triggered_categories:
         return briefing.model_copy(
             update={
                 "safety_status": result.status,

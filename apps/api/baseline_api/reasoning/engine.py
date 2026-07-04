@@ -451,9 +451,7 @@ def _apply_request_safety_rules(state: _SignalState, constraints: Mapping[str, A
         evidence={"request_category": "diagnosis"},
         risk_flag="hard_safety_medical_boundary",
         hard_safety_flag="medical_boundary",
-        uncertainty=(
-            "Medical diagnosis requests are outside Baseline's training readiness scope."
-        ),
+        uncertainty=("Medical diagnosis requests are outside Baseline's training readiness scope."),
         confidence_reduction=True,
     )
     return REQUEST_ROUTE_SAFETY_REDIRECT

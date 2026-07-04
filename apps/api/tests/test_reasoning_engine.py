@@ -291,9 +291,7 @@ def test_conservative_default_triggered_by_each_risk_flag() -> None:
 
 def test_medical_diagnosis_request_routes_to_safety_not_training_band() -> None:
     result = assess_readiness(
-        _input(
-            constraints={"user_request": "Can you diagnose why my resting heart rate is high?"}
-        )
+        _input(constraints={"user_request": "Can you diagnose why my resting heart rate is high?"})
     )
 
     assert result.reasoning_trace["request_route"] == "blocked_or_redirected"

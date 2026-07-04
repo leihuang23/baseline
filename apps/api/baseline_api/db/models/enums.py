@@ -142,6 +142,8 @@ class AuditEventType(StrEnum):
     checkin_submitted = "checkin_submitted"
     checkin_updated = "checkin_updated"
     checkin_deleted = "checkin_deleted"
+    memory_corrected = "memory_corrected"
+    memory_deleted = "memory_deleted"
 
 
 class RedactionStatus(StrEnum):
