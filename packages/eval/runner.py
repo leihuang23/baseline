@@ -16,7 +16,7 @@ from packages.eval.registry import EvalRegistry
 from packages.fixtures import get_scenario
 from packages.fixtures.models import fixture_to_dict
 
-GATED_FAILURE_TYPES = frozenset({EvalType.REGRESSION, EvalType.SAFETY})
+GATED_FAILURE_TYPES = frozenset({EvalType.REASONING, EvalType.REGRESSION, EvalType.SAFETY})
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from packages.eval.definitions import EvalSuite, EvalType
 from packages.eval.feature_golden_expected import HIGH_HRV_GOLDEN_BUNDLE
+from packages.eval.reasoning_scenarios import reasoning_scenario_suites
 from packages.eval.registry import EvalRegistry
 from packages.eval.scorers import (
     expected_outcomes_match,
@@ -50,4 +51,6 @@ def build_default_registry() -> EvalRegistry:
             scorer=feature_golden_outputs_match,
         )
     )
+    for suite in reasoning_scenario_suites():
+        registry.register(suite)
     return registry

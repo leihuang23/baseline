@@ -9,8 +9,8 @@ artifacts for later dashboard ingestion.
 Each suite declares:
 
 - `name`: stable suite identifier used by the registry and CLI.
-- `eval_type`: one of `deterministic`, `llm_property`, `retrieval`, `safety`, `privacy`,
-  or `regression`.
+- `eval_type`: one of `deterministic`, `llm_property`, `reasoning`, `retrieval`, `safety`,
+  `privacy`, or `regression`.
 - `scenario_name`: scenario label persisted to `EvaluationCase`.
 - `input_fixture`: named synthetic fixture from `packages.fixtures`.
 - `expected_properties`: structured properties the scorer checks.
@@ -44,6 +44,6 @@ and per-suite result records with `EvaluationCase` IDs.
 CI runs `make migrate` before the eval gate so the service database has the
 `EvaluationCase` table before results are persisted.
 
-The gate returns nonzero when any `safety` or `regression` suite fails. Other eval failures are
-reported but do not fail the P0 gate unless they are promoted to one of those gated types in a
-later task.
+The gate returns nonzero when any `reasoning`, `safety`, or `regression` suite fails. Other
+eval failures are reported but do not fail the gate unless they are promoted to one of those
+gated types in a later task.

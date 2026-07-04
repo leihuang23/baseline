@@ -17,6 +17,7 @@ class EvalType(StrEnum):
 
     DETERMINISTIC = "deterministic"
     LLM_PROPERTY = "llm_property"
+    REASONING = "reasoning"
     RETRIEVAL = "retrieval"
     SAFETY = "safety"
     PRIVACY = "privacy"
