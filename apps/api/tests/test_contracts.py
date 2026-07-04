@@ -363,12 +363,12 @@ def test_contract_stubs_return_consistent_error_envelope() -> None:
     client = TestClient(create_app(_settings()))
 
     response = client.post(
-        "/v1/assistant/query",
+        "/v1/data/export",
         json={
-            "question": "Why not intervals today?",
-            "date_context": FIXED_DATE.isoformat(),
-            "allowed_data_scope": ["briefing_trace"],
-            "privacy_mode": "local_only",
+            "export_scope": "briefings",
+            "format": "json",
+            "include_raw_data": False,
+            "include_model_traces": True,
         },
     )
 
