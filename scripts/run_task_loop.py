@@ -1893,6 +1893,9 @@ def run_final_repair(
         DEFAULT_NO_PROGRESS_REPAIR_LIMIT,
     )
     current_failure = previous_failure
+    pending_decision_failure = (
+        previous_failure if decision_failure_is_actionable(previous_failure) else None
+    )
     attempts_by_kind = {"gate": 0, "decision": 0}
     repeated_no_progress: dict[tuple[str, str, str], int] = {}
     repair_index = 0
@@ -1966,6 +1969,11 @@ def run_final_repair(
             "repair_failure_kind_attempt": attempts_by_kind[failure_kind],
             "current_failure_signature": failure_signature,
             "current_failure_summary": failure_status_summary(current_failure),
+            "pending_decision_failure_summary": (
+                failure_status_summary(pending_decision_failure)
+                if pending_decision_failure
+                else None
+            ),
         }
         print(
             "  final repair: codex exec for actionable findings "
@@ -2006,8 +2014,16 @@ def run_final_repair(
         if not gates_ok:
             print(f"  failed: {gate_result}")
             if failure_is_actionable(gate_result):
+                if decision_failure_is_actionable(current_failure):
+                    pending_decision_failure = current_failure
                 current_failure = gate_result
-                print("  repair: gate failure is actionable; continuing focused repair loop")
+                if pending_decision_failure:
+                    print(
+                        "  repair: gate failure is actionable; preserving pending "
+                        "review/audit verification"
+                    )
+                else:
+                    print("  repair: gate failure is actionable; continuing focused repair loop")
                 continue
             return False
 
@@ -2016,8 +2032,9 @@ def run_final_repair(
             print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
 
         prompt_pack_ready_for_current_scope = False
-        if not args.skip_review and not audit_failure_is_actionable(current_failure):
-            is_repair_verification = review_failure_is_actionable(current_failure)
+        verification_failure = pending_decision_failure or current_failure
+        if not args.skip_review and not audit_failure_is_actionable(verification_failure):
+            is_repair_verification = review_failure_is_actionable(verification_failure)
             review_timeout_seconds = normalize_timeout_seconds(
                 args.repair_review_timeout_seconds
                 if is_repair_verification
@@ -2033,7 +2050,7 @@ def run_final_repair(
                 )
                 prompt_pack_ready_for_current_scope = True
             prompt_text = (
-                repair_review_prompt(task, current_failure)
+                repair_review_prompt(task, verification_failure)
                 if is_repair_verification
                 else cast(dict[str, Any], prompt_pack)["review_prompt"]
             )
@@ -2093,6 +2110,7 @@ def run_final_repair(
             if not review_ok:
                 print(f"  failed: {review_result}")
                 if decision_failure_is_actionable(review_result):
+                    pending_decision_failure = review_result
                     current_failure = review_result
                     print("  repair: review finding remains actionable; continuing repair loop")
                     continue
@@ -2101,13 +2119,16 @@ def run_final_repair(
                         args,
                         stop_reason="verifier_timeout",
                         message="review verifier timed out",
-                        failure_result=current_failure,
+                        failure_result=verification_failure,
                     )
                 return False
             print(f"  {review_result}")
+            if is_repair_verification and pending_decision_failure == verification_failure:
+                pending_decision_failure = None
 
         if not args.skip_audit:
-            is_repair_audit = audit_failure_is_actionable(current_failure)
+            verification_failure = pending_decision_failure or current_failure
+            is_repair_audit = audit_failure_is_actionable(verification_failure)
             audit_timeout_seconds = normalize_timeout_seconds(
                 args.repair_review_timeout_seconds
                 if is_repair_audit
@@ -2123,7 +2144,7 @@ def run_final_repair(
                 )
                 prompt_pack_ready_for_current_scope = True
             audit_prompt_text = (
-                repair_audit_prompt(task, current_failure)
+                repair_audit_prompt(task, verification_failure)
                 if is_repair_audit
                 else cast(dict[str, Any], prompt_pack)["audit_prompt"]
             )
@@ -2178,6 +2199,7 @@ def run_final_repair(
             if not audit_ok:
                 print(f"  failed: {audit_result}")
                 if audit_failure_is_actionable(audit_result):
+                    pending_decision_failure = audit_result
                     current_failure = audit_result
                     print("  repair: audit finding remains actionable; continuing repair loop")
                     continue
@@ -2186,10 +2208,12 @@ def run_final_repair(
                         args,
                         stop_reason="verifier_timeout",
                         message="audit verifier timed out",
-                        failure_result=current_failure,
+                        failure_result=verification_failure,
                     )
                 return False
             print(f"  {audit_result}")
+            if is_repair_audit and pending_decision_failure == verification_failure:
+                pending_decision_failure = None
 
             if not is_repair_audit and prompt_pack is not None:
                 extra_ok, extra_result = run_extra_audits(
@@ -2202,6 +2226,7 @@ def run_final_repair(
                 if not extra_ok:
                     print(f"  failed: {extra_result}")
                     if audit_failure_is_actionable(extra_result):
+                        pending_decision_failure = extra_result
                         current_failure = extra_result
                         print(
                             "  repair: extra audit finding remains actionable; "

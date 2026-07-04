@@ -2102,6 +2102,149 @@ def test_final_repair_keeps_decision_budget_after_gate_repairs(monkeypatch) -> N
     ]
 
 
+def test_final_repair_preserves_review_episode_across_gate_repair(monkeypatch) -> None:
+    task = {
+        "id": "P5-01",
+        "title": "knowledge corpus",
+        "prompt": "tasks/P5-01-knowledge-corpus.md",
+    }
+    calls: list[str] = []
+    gate_results = [
+        (False, "make test failed; see file"),
+        (True, "quality gates passed"),
+    ]
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or gate_results.pop(0),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "cleanup_generated_python_artifacts",
+        lambda: calls.append("cleanup") and 0,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "prepare_prompt_pack",
+        lambda *args, **kwargs: calls.append("unexpected-prompt-pack") or {},
+    )
+
+    def fake_run_review(*args, **kwargs) -> tuple[bool, str]:
+        calls.append(f"review:{kwargs['command_label']}")
+        return True, "review passed"
+
+    monkeypatch.setattr(TASK_LOOP, "run_review", fake_run_review)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "complete_task",
+        lambda *args, **kwargs: calls.append("complete"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            finish_args(skip_audit=True),
+            "review failed; see file\n\nReview decision JSON:\n{}",
+        )
+        is True
+    )
+
+    assert calls == [
+        "attempt:1",
+        "codex",
+        "gates",
+        "attempt:2",
+        "codex",
+        "gates",
+        "cleanup",
+        "review:codex repair verification",
+        "complete",
+    ]
+
+
+def test_final_repair_preserves_audit_episode_across_gate_repair(monkeypatch) -> None:
+    task = {
+        "id": "P5-01",
+        "title": "knowledge corpus",
+        "prompt": "tasks/P5-01-knowledge-corpus.md",
+    }
+    calls: list[str] = []
+    gate_results = [
+        (False, "make lint failed; see file"),
+        (True, "quality gates passed"),
+    ]
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or gate_results.pop(0),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "cleanup_generated_python_artifacts",
+        lambda: calls.append("cleanup") and 0,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "prepare_prompt_pack",
+        lambda *args, **kwargs: calls.append("unexpected-prompt-pack") or {},
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_review",
+        lambda *args, **kwargs: calls.append("unexpected-review") or (True, "review passed"),
+    )
+
+    def fake_run_audit(*args, **kwargs) -> tuple[bool, str]:
+        calls.append(f"audit:{kwargs['command_label']}")
+        return True, "audit passed"
+
+    monkeypatch.setattr(TASK_LOOP, "run_audit", fake_run_audit)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "complete_task",
+        lambda *args, **kwargs: calls.append("complete"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            finish_args(),
+            "audit failed; see file\n\nAudit decision JSON:\n{}",
+        )
+        is True
+    )
+
+    assert calls == [
+        "attempt:1",
+        "codex",
+        "gates",
+        "attempt:2",
+        "codex",
+        "gates",
+        "cleanup",
+        "audit:codex repair audit",
+        "complete",
+    ]
+
+
 def test_final_repair_reuses_prompt_pack_when_scope_is_unchanged(monkeypatch) -> None:
     task = {
         "id": "P4-02",
