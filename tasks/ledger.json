@@ -243,38 +243,43 @@
       "title": "reasoning engine"
     },
     {
+      "completed_at": "2026-07-04T08:34:45Z",
       "id": "P3-03",
       "phase": "P3",
       "prompt": "tasks/P3-03-reasoning-golden-scenarios.md",
-      "status": "pending",
+      "status": "complete",
       "title": "reasoning golden scenarios"
     },
     {
+      "completed_at": "2026-07-04T08:34:45Z",
       "id": "P3-04",
       "phase": "P3",
       "prompt": "tasks/P3-04-llm-orchestrator.md",
-      "status": "pending",
+      "status": "complete",
       "title": "llm orchestrator"
     },
     {
+      "completed_at": "2026-07-04T08:34:45Z",
       "id": "P3-05",
       "phase": "P3",
       "prompt": "tasks/P3-05-safety-policy-engine.md",
-      "status": "pending",
+      "status": "complete",
       "title": "safety policy engine"
     },
     {
+      "completed_at": "2026-07-04T08:34:45Z",
       "id": "P3-06",
       "phase": "P3",
       "prompt": "tasks/P3-06-daily-briefing-assembly.md",
-      "status": "pending",
+      "status": "complete",
       "title": "daily briefing assembly"
     },
     {
+      "completed_at": "2026-07-04T08:34:45Z",
       "id": "P3-07",
       "phase": "P3",
       "prompt": "tasks/P3-07-assistant-qa.md",
-      "status": "pending",
+      "status": "complete",
       "title": "assistant qa"
     },
     {
@@ -356,6 +361,6 @@
       "title": "portfolio docs"
     }
   ],
-  "updated_at": "2026-07-04T08:33:43Z",
+  "updated_at": "2026-07-04T08:34:45Z",
   "version": 1
 }
