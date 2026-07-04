@@ -24,6 +24,31 @@ from baseline_api.db.models.enums import (
 )
 
 
+class ReasoningTrace(BaseDBModel, table=True):
+    """Machine-readable deterministic reasoning trace for an assessment."""
+
+    __tablename__ = "reasoning_trace"
+    __table_args__ = (Index("ix_reasoning_trace_user_id_date", "user_id", "date"),)
+
+    user_id: UUID = Field(foreign_key="user.id", nullable=False)
+    date: dt.date = Field(nullable=False)
+    trace_version: str = Field(nullable=False)
+    assessment_version: str = Field(nullable=False)
+    input_hash: str = Field(nullable=False)
+    rules_fired: list[dict[str, Any]] = Field(
+        sa_type=JSONB,
+        default_factory=list,
+    )
+    hard_safety_flags: list[str] = Field(
+        sa_type=JSONB,
+        default_factory=list,
+    )
+    trace_payload: dict[str, Any] = Field(
+        sa_type=JSONB,
+        default_factory=dict,
+    )
+
+
 class ReadinessAssessment(BaseDBModel, table=True):
     """Structured readiness assessment produced by the deterministic reasoning engine."""
 
@@ -63,9 +88,21 @@ class ReadinessAssessment(BaseDBModel, table=True):
         sa_type=JSONB,
         default_factory=list,
     )
-    goal_tradeoffs: dict[str, Any] = Field(
+    candidate_options: list[dict[str, Any]] = Field(
         sa_type=JSONB,
-        default_factory=dict,
+        default_factory=list,
+    )
+    follow_up_questions: list[dict[str, Any]] = Field(
+        sa_type=JSONB,
+        default_factory=list,
+    )
+    goal_tradeoffs: list[dict[str, Any]] = Field(
+        sa_type=JSONB,
+        default_factory=list,
+    )
+    hard_safety_flags: list[str] = Field(
+        sa_type=JSONB,
+        default_factory=list,
     )
     reasoning_trace_id: UUID = Field(nullable=False)
 
