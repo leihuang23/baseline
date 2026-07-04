@@ -16,16 +16,15 @@ from typing import Any, cast
 ROOT = Path(__file__).resolve().parents[1]
 LEDGER_PATH = ROOT / "tasks" / "ledger.json"
 REVIEW_SCHEMA_PATH = ROOT / "tasks" / "review-decision.schema.json"
+PROMPT_PACK_SCHEMA_PATH = ROOT / "tasks" / "prompt-pack.schema.json"
 RUNS_DIR = ROOT / ".task-runs"
 CURRENT_RUN_PATH = RUNS_DIR / "current.json"
 DEFAULT_MAX_ATTEMPTS = 1
 DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
 DEFAULT_REVIEW_TIMEOUT_SECONDS = 600
-DEFAULT_KIMI_MAX_ATTEMPTS = 1
-DEFAULT_KIMI_AGENT_TIMEOUT_SECONDS = 1200
-DEFAULT_KIMI_REVIEW_TIMEOUT_SECONDS = 600
 DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS = 900
 DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS = 300
+DEFAULT_FINAL_REPAIR_ATTEMPTS = 2
 DEFAULT_HEARTBEAT_SECONDS = 30
 DEFAULT_AGENT_LOG_LIMIT_BYTES = 2_000_000
 DEFAULT_REVIEW_LOG_LIMIT_BYTES = 1_000_000
@@ -36,32 +35,9 @@ FAILURE_LOG_TAIL_LINES = 80
 CURRENT_LOG_TAIL_LINES = 40
 PASS_EVIDENCE_TERMS = ("passed", "pass", "success", "succeeded", "all checks passed")
 AGENT_CODEX = "codex"
-AGENT_KIMI = "kimi"
+DECISION_LABEL_REVIEW = "Review"
+DECISION_LABEL_AUDIT = "Audit"
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\a]*(?:\a|\x1b\\))")
-KIMI_INITIAL_GUIDANCE = """Kimi-specific execution contract:
-- This is one non-interactive prompt. Keep the pass focused and stop once the task is ready
-  for the controller gates.
-- Start by reading the task prompt, current ledger state, and `git status --short`. Do not do
-  a broad repo survey unless those files leave the implementation surface unclear.
-- Before editing, write a compact contract in your log: files or symbols likely touched,
-  acceptance checks, and explicit non-goals.
-- Prefer a failing/targeted test first when behavior changes. If coverage already exists,
-  name the covering test before editing.
-- After edits, run the smallest relevant checks you can run locally. The controller will run
-  the full quality gates; do not duplicate full-gate commands inside this pass unless they are
-  needed to diagnose a failure.
-- Before your final summary, inspect `git status --short`; untracked files are part of the
-  diff even when `git diff --stat` is quiet.
-"""
-KIMI_REPAIR_GUIDANCE = """Kimi repair mode:
-- Treat the existing working tree as the previous attempt's draft.
-- Repair only the concrete gate/review failure details below; do not restart from
-  broad PRD/repo discovery.
-- Read the failure text and directly cited files first, then patch the smallest set of lines.
-- Turn each review finding into an explicit checklist item and address every item before stopping.
-- Add or adjust a regression test when the failure is behavioral.
-- Stop after the focused repair and local targeted verification.
-"""
 CODEX_REPAIR_GUIDANCE = """Repair mode:
 - Treat the existing working tree as the previous attempt's draft.
 - Start from the concrete failure details below and any cited files or lines.
@@ -577,6 +553,179 @@ def write_prior_gate_log(log_file: Path, gate: str, evidence_path: Path) -> None
     )
 
 
+def write_prompt_snapshot(task_run_dir: Path, file_name: str, prompt_text: str) -> Path:
+    prompt_file = task_run_dir / file_name
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text(prompt_text, encoding="utf-8")
+    return prompt_file
+
+
+def safe_artifact_id(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9_-]+", "-", value.lower()).strip("-")
+    return normalized or "audit"
+
+
+def validate_prompt_pack(prompt_pack: dict[str, Any]) -> dict[str, Any]:
+    for key in ("review_prompt", "audit_prompt"):
+        if not isinstance(prompt_pack.get(key), str) or not prompt_pack[key].strip():
+            raise LoopError(f"Prompt pack is missing non-empty {key!r}.")
+
+    extra_audits = prompt_pack.get("extra_audits", [])
+    if not isinstance(extra_audits, list):
+        raise LoopError("Prompt pack extra_audits must be a list.")
+    normalized_audits: list[dict[str, str]] = []
+    for index, item in enumerate(extra_audits, start=1):
+        if not isinstance(item, dict):
+            raise LoopError("Prompt pack extra_audits entries must be objects.")
+        prompt = item.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise LoopError("Prompt pack extra audit is missing a non-empty prompt.")
+        title = item.get("title")
+        audit_id = safe_artifact_id(str(item.get("id") or title or f"extra-{index}"))
+        normalized_audits.append(
+            {
+                "id": audit_id,
+                "title": str(title or audit_id),
+                "reason": str(item.get("reason") or ""),
+                "prompt": prompt,
+            }
+        )
+
+    pause_reasons = prompt_pack.get("pause_reasons", [])
+    if not isinstance(pause_reasons, list):
+        raise LoopError("Prompt pack pause_reasons must be a list.")
+
+    return {
+        **prompt_pack,
+        "review_prompt": prompt_pack["review_prompt"].strip() + "\n",
+        "audit_prompt": prompt_pack["audit_prompt"].strip() + "\n",
+        "extra_audits": normalized_audits,
+        "targeted_gates": [
+            str(gate) for gate in prompt_pack.get("targeted_gates", []) if str(gate).strip()
+        ],
+        "pause_reasons": [str(reason) for reason in pause_reasons if str(reason).strip()],
+        "requires_human_pause": bool(prompt_pack.get("requires_human_pause", False)),
+        "summary": str(prompt_pack.get("summary") or ""),
+    }
+
+
+def fallback_prompt_pack(task: dict[str, Any], status_snapshot: str) -> dict[str, Any]:
+    return validate_prompt_pack(
+        {
+            "summary": "Deterministic fallback prompt pack.",
+            "review_prompt": review_prompt(task, status_snapshot),
+            "audit_prompt": audit_prompt(task, status_snapshot),
+            "extra_audits": [],
+            "targeted_gates": [],
+            "requires_human_pause": False,
+            "pause_reasons": [],
+        }
+    )
+
+
+def prompt_pack_generation_prompt(task: dict[str, Any], status_snapshot: str) -> str:
+    source_prompt = implementation_prompt(task, 1, None)
+    task_label = f"{task['id']}: {task['title']}"
+    return f"""Generate the review/audit prompt pack for Baseline task {task_label}.
+
+Return JSON matching the provided schema. This replaces the manual ChatGPT step where the
+implementation prompt is converted into a review prompt and an audit prompt.
+
+Generation rules:
+- Produce a code-review prompt that is specific to this task prompt and changed-file snapshot.
+- Produce an independent merge-readiness audit prompt that checks acceptance criteria,
+  verification adequacy, integration drift, privacy/safety, and task-specific risks.
+- Add extra_audits only when the task genuinely needs a separate check, such as UI state
+  machines, API/schema/migration contracts, auth/permission boundaries, data deletion,
+  evidence-backed reasoning, or eval/golden fixture behavior.
+- Keep prompts bounded. Review/audit agents should inspect changed files and directly
+  relevant symbols only; they should not run build/test commands because the controller owns
+  executable gates.
+- Set requires_human_pause=true only when a sensible human verification checkpoint is needed
+  before automatically continuing to the next task.
+
+Changed-file snapshot:
+
+{status_snapshot}
+
+Implementation prompt source:
+
+{source_prompt}
+"""
+
+
+def write_prompt_pack_artifacts(task_run_dir: Path, prompt_pack: dict[str, Any]) -> None:
+    write_json_atomic(task_run_dir / "prompt-pack.json", prompt_pack)
+    write_prompt_snapshot(task_run_dir, "generated-review-prompt.md", prompt_pack["review_prompt"])
+    write_prompt_snapshot(task_run_dir, "generated-audit-prompt.md", prompt_pack["audit_prompt"])
+    for audit in prompt_pack["extra_audits"]:
+        write_prompt_snapshot(
+            task_run_dir,
+            f"extra-audit-{audit['id']}-prompt.md",
+            audit["prompt"].strip() + "\n",
+        )
+
+
+def prepare_prompt_pack(
+    task: dict[str, Any],
+    task_run_dir: Path,
+    args: argparse.Namespace,
+    base_status: dict[str, Any],
+    status_snapshot: str | None = None,
+) -> dict[str, Any]:
+    changed_files = status_snapshot if status_snapshot is not None else review_scope_snapshot()
+    if getattr(args, "skip_prompt_pack", False) or (
+        getattr(args, "skip_review", False) and getattr(args, "skip_audit", False)
+    ):
+        prompt_pack = fallback_prompt_pack(task, changed_files)
+        write_prompt_pack_artifacts(task_run_dir, prompt_pack)
+        return prompt_pack
+
+    prompt = prompt_pack_generation_prompt(task, changed_files)
+    prompt_file = write_prompt_snapshot(task_run_dir, "prompt-pack-generation-prompt.md", prompt)
+    output_file = task_run_dir / "prompt-pack.json"
+    log_file = task_run_dir / "prompt-pack-generation.log"
+    command = [
+        *codex_exec_command(args.codex_bin, "read-only", lean=args.codex_lean),
+        "--output-schema",
+        str(PROMPT_PACK_SCHEMA_PATH),
+        "--output-last-message",
+        str(output_file),
+        "-",
+    ]
+    print(
+        "  prompt-pack: codex generated review/audit prompts -> "
+        f"log {relative_to_root(log_file)} prompt {relative_to_root(prompt_file)}"
+    )
+    code = run_logged(
+        command,
+        log_file,
+        prompt,
+        timeout_seconds=normalize_timeout_seconds(args.review_timeout_seconds),
+        status_file=CURRENT_RUN_PATH,
+        status={
+            **base_status,
+            "stage": "prompt_pack",
+            "prompt_file": relative_to_root(prompt_file),
+        },
+        command_label="codex prompt pack",
+        heartbeat_seconds=args.heartbeat_seconds,
+        max_log_bytes=normalize_log_limit_bytes(args.review_log_limit_bytes),
+    )
+    if code != 0:
+        raise LoopError(format_logged_failure("prompt-pack generation failed", log_file))
+
+    try:
+        prompt_pack = validate_prompt_pack(json.loads(output_file.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LoopError(
+            f"prompt-pack output was not valid JSON: {exc}; see {output_file}\n\n"
+            f"Prompt-pack log tail:\n{read_log_tail(log_file)}"
+        ) from exc
+    write_prompt_pack_artifacts(task_run_dir, prompt_pack)
+    return prompt_pack
+
+
 def validate_heartbeat_seconds(value: int) -> None:
     if value < 0:
         raise LoopError("Heartbeat seconds must be non-negative; use 0 to disable heartbeats.")
@@ -672,6 +821,9 @@ def render_current_run(line_count: int = CURRENT_LOG_TAIL_LINES) -> str:
             f"log: {state.get('log_file', 'unknown')}",
         ]
     )
+    prompt_file = state.get("prompt_file")
+    if isinstance(prompt_file, str):
+        lines.append(f"prompt: {prompt_file}")
     git_status = state.get("git_status", {})
     if isinstance(git_status, dict):
         lines.append(f"git: {git_status.get('summary', 'unknown')}")
@@ -736,12 +888,20 @@ def format_logged_failure(summary: str, log_file: Path) -> str:
     return f"{summary}; see {log_file}\n\nLog tail:\n{read_log_tail(log_file)}"
 
 
-def format_review_failure(output_file: Path, decision: dict[str, Any]) -> str:
+def format_decision_failure(label: str, output_file: Path, decision: dict[str, Any]) -> str:
     return (
-        f"review failed; see {output_file}\n\n"
-        "Review decision JSON:\n"
+        f"{label.lower()} failed; see {output_file}\n\n"
+        f"{label} decision JSON:\n"
         f"{json.dumps(decision, indent=2, sort_keys=True)}"
     )
+
+
+def format_review_failure(output_file: Path, decision: dict[str, Any]) -> str:
+    return format_decision_failure(DECISION_LABEL_REVIEW, output_file, decision)
+
+
+def format_audit_failure(output_file: Path, decision: dict[str, Any]) -> str:
+    return format_decision_failure(DECISION_LABEL_AUDIT, output_file, decision)
 
 
 def check_clean_worktree(allow_dirty: bool) -> None:
@@ -760,22 +920,21 @@ def check_clean_worktree(allow_dirty: bool) -> None:
         )
 
 
-def implementation_guidance(agent: str, attempt: int, previous_failure: str | None) -> str:
-    if agent != AGENT_KIMI:
-        return f"\n{CODEX_REPAIR_GUIDANCE}" if attempt > 1 or previous_failure else ""
-    if attempt > 1 or previous_failure:
-        return f"\n{KIMI_REPAIR_GUIDANCE}"
-    return f"\n{KIMI_INITIAL_GUIDANCE}"
+def task_prompt_text(task: dict[str, Any]) -> str:
+    prompt_path = ROOT / str(task["prompt"])
+    return prompt_path.read_text(encoding="utf-8")
+
+
+def implementation_guidance(attempt: int, previous_failure: str | None) -> str:
+    return f"\n{CODEX_REPAIR_GUIDANCE}" if attempt > 1 or previous_failure else ""
 
 
 def implementation_prompt(
     task: dict[str, Any],
     attempt: int,
     previous_failure: str | None,
-    agent: str = AGENT_CODEX,
 ) -> str:
-    prompt_path = ROOT / task["prompt"]
-    task_prompt = prompt_path.read_text(encoding="utf-8")
+    task_prompt = task_prompt_text(task)
     failure_block = ""
     if previous_failure:
         failure_block = (
@@ -783,7 +942,7 @@ def implementation_prompt(
             "Use the concrete failure details below; do not require a human to re-copy them.\n\n"
             f"{previous_failure}\n"
         )
-    guidance_block = implementation_guidance(agent, attempt, previous_failure)
+    guidance_block = implementation_guidance(attempt, previous_failure)
     return f"""You are executing one bounded Baseline task slice.
 
 Task: {task["id"]} - {task["title"]}
@@ -823,8 +982,7 @@ def review_scope_snapshot() -> str:
 
 
 def review_prompt(task: dict[str, Any], status_snapshot: str | None = None) -> str:
-    prompt_path = ROOT / task["prompt"]
-    task_prompt = prompt_path.read_text(encoding="utf-8")
+    task_prompt = task_prompt_text(task)
     changed_files = status_snapshot if status_snapshot is not None else review_scope_snapshot()
     return f"""Review the current repository diff for Baseline task {task["id"]}: {task["title"]}.
 
@@ -862,8 +1020,7 @@ def repair_review_prompt(
     previous_failure: str,
     status_snapshot: str | None = None,
 ) -> str:
-    prompt_path = ROOT / task["prompt"]
-    task_prompt = prompt_path.read_text(encoding="utf-8")
+    task_prompt = task_prompt_text(task)
     changed_files = status_snapshot if status_snapshot is not None else review_scope_snapshot()
     return f"""Verify the focused repair for Baseline task {task["id"]}: {task["title"]}.
 
@@ -893,6 +1050,139 @@ Decision rules:
 - Put possible new unrelated concerns in residual_risk instead of failing this repair
   verification.
 - Keep findings grounded in files and line numbers when possible.
+
+Previous actionable failure:
+
+{previous_failure}
+
+Task prompt:
+
+{task_prompt}
+"""
+
+
+def audit_focuses_for_task(task: dict[str, Any], status_snapshot: str) -> list[str]:
+    task_prompt = task_prompt_text(task)
+    haystack = "\n".join(
+        [
+            task["id"],
+            task["title"],
+            task["prompt"],
+            status_snapshot,
+            task_prompt,
+        ]
+    ).lower()
+    focuses = [
+        (
+            "Task acceptance: every deliverable and acceptance criterion in the task prompt "
+            "is covered."
+        ),
+        "Verification adequacy: tests or targeted checks prove the behavior that changed.",
+        (
+            "Privacy and safety: no real secrets, raw health data, free-text notes, prompt "
+            "payloads, "
+            "or medical-advice drift entered source, tests, logs, fixtures, or docs."
+        ),
+    ]
+    if any(token in haystack for token in ("apps/ios/", ".swift", "swiftui", "ui", "view")):
+        focuses.append(
+            "Extra UI state-machine audit: loading, empty, success, failure, disabled, permission, "
+            "offline, and retry states are reachable, non-overlapping, and backed by tests "
+            "or previews where the task requires them."
+        )
+    if any(token in haystack for token in ("api", "schema", "contract", "alembic", "migration")):
+        focuses.append(
+            "Contract audit: API schemas, database migrations, repository contracts, and "
+            "docs stay in sync."
+        )
+    if any(token in haystack for token in ("llm", "assistant", "briefing", "reasoning", "safety")):
+        focuses.append(
+            "Reasoning/safety audit: deterministic logic owns metrics, generated text "
+            "carries evidence, and safety validation cannot be bypassed."
+        )
+    if any(token in haystack for token in ("eval", "golden", "scenario", "fixture")):
+        focuses.append(
+            "Evaluation audit: golden fixtures, scenario registration, and scoring "
+            "expectations match the new behavior."
+        )
+    return focuses
+
+
+def format_audit_focuses(focuses: list[str]) -> str:
+    return "\n".join(f"- {focus}" for focus in focuses)
+
+
+def audit_prompt(task: dict[str, Any], status_snapshot: str | None = None) -> str:
+    task_prompt = task_prompt_text(task)
+    changed_files = status_snapshot if status_snapshot is not None else review_scope_snapshot()
+    focuses = audit_focuses_for_task(task, changed_files)
+    return f"""Audit the current repository diff for Baseline task {task["id"]}: {task["title"]}.
+
+Use an independent merge-readiness stance. Return JSON matching the provided schema.
+
+Audit scope:
+- This is not a second broad code review. Assume quality gates and the generated review already
+  ran; spend the budget on acceptance gaps, missing verification, integration drift, and
+  task-specific risks that a normal line review can miss.
+- Start from this changed-file snapshot, then inspect only files needed for the audit focus:
+
+{changed_files}
+
+- Do not enumerate broad directories or test trees. Avoid commands such as `find apps/api/tests`
+  or full-tree listings. Use targeted path or symbol search only.
+- Do not run build or test commands in the audit sandbox. The controller owns executable gates.
+
+Adaptive audit focus:
+{format_audit_focuses(focuses)}
+
+Decision rules:
+- decision="pass" only if there are no blocker or major audit findings.
+- decision="fail" for task-scope gaps, missing required tests, privacy/safety issues,
+  schema/API/DB contract drift, invalid state-machine coverage, or unresolved verification gaps.
+- Minor cleanup notes can be findings with decision="pass"; do not fail for unrelated refactors.
+- Keep findings grounded in files and line numbers when possible.
+
+Task prompt:
+
+{task_prompt}
+"""
+
+
+def repair_audit_prompt(
+    task: dict[str, Any],
+    previous_failure: str,
+    status_snapshot: str | None = None,
+) -> str:
+    task_prompt = task_prompt_text(task)
+    changed_files = status_snapshot if status_snapshot is not None else review_scope_snapshot()
+    focuses = audit_focuses_for_task(task, changed_files)
+    return f"""Verify the focused repair audit for Baseline task {task["id"]}: {task["title"]}.
+
+Use an independent merge-readiness stance. Return JSON matching the provided schema.
+
+This is a repair audit, not a fresh full review.
+
+Verification scope:
+- Treat the previous actionable audit failure below as the checklist. Inspect the cited files/lines
+  and directly relevant changed files only.
+- Start from this changed-file snapshot:
+
+{changed_files}
+
+- Do not enumerate broad directories or test trees. Avoid commands such as `find apps/api/tests`
+  or full-tree listings.
+- Do not run build or test commands in the audit sandbox. The controller already reran quality
+  gates.
+
+Adaptive audit focus:
+{format_audit_focuses(focuses)}
+
+Decision rules:
+- decision="pass" when the previous blocker/major audit findings are resolved and the repair did
+  not introduce an obvious direct blocker/major regression.
+- decision="fail" only for an unresolved previous audit finding, a failed repair of the cited issue,
+  or an obvious direct blocker/major regression introduced by the repair.
+- Put possible new unrelated concerns in residual_risk instead of failing this repair audit.
 
 Previous actionable failure:
 
@@ -957,9 +1247,16 @@ def run_review(
     heartbeat_seconds: int,
     prompt_text: str | None = None,
     command_label: str = "codex structured review",
+    stage: str = "review",
+    output_name: str = "review-decision.json",
+    log_name: str = "review.log",
+    prompt_name: str = "review-prompt.md",
+    decision_label: str = DECISION_LABEL_REVIEW,
 ) -> tuple[bool, str]:
-    output_file = task_run_dir / "review-decision.json"
-    log_file = task_run_dir / "review.log"
+    output_file = task_run_dir / output_name
+    log_file = task_run_dir / log_name
+    resolved_prompt = prompt_text if prompt_text is not None else review_prompt(task)
+    prompt_file = write_prompt_snapshot(task_run_dir, prompt_name, resolved_prompt)
     command = [
         *codex_exec_command(codex_bin, "read-only", lean=codex_lean),
         "--output-schema",
@@ -968,34 +1265,173 @@ def run_review(
         str(output_file),
         "-",
     ]
-    print(f"  review: {command_label} -> log {relative_to_root(log_file)}")
+    print(
+        f"  {stage}: {command_label} -> log {relative_to_root(log_file)} "
+        f"prompt {relative_to_root(prompt_file)}"
+    )
     code = run_logged(
         command,
         log_file,
-        prompt_text if prompt_text is not None else review_prompt(task),
+        resolved_prompt,
         timeout_seconds=review_timeout_seconds,
         status_file=CURRENT_RUN_PATH,
-        status={**base_status, "stage": "review"},
+        status={**base_status, "stage": stage, "prompt_file": relative_to_root(prompt_file)},
         command_label=command_label,
         heartbeat_seconds=heartbeat_seconds,
         max_log_bytes=review_log_limit_bytes,
     )
     if code != 0:
-        return False, format_logged_failure("review command failed", log_file)
+        return False, format_logged_failure(f"{stage} command failed", log_file)
     try:
         decision = json.loads(output_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return False, (
-            f"review output was not valid JSON: {exc}; see {output_file}\n\n"
-            f"Review log tail:\n{read_log_tail(log_file)}"
+            f"{stage} output was not valid JSON: {exc}; see {output_file}\n\n"
+            f"{decision_label} log tail:\n{read_log_tail(log_file)}"
         )
     if decision["decision"] != "pass":
-        return False, format_review_failure(output_file, decision)
-    return True, f"review passed; see {output_file}"
+        return False, format_decision_failure(decision_label, output_file, decision)
+    return True, f"{stage} passed; see {output_file}"
+
+
+def run_audit(
+    task: dict[str, Any],
+    task_run_dir: Path,
+    codex_bin: str,
+    codex_lean: bool,
+    audit_timeout_seconds: int | None,
+    audit_log_limit_bytes: int | None,
+    base_status: dict[str, Any],
+    heartbeat_seconds: int,
+    prompt_text: str | None = None,
+    command_label: str = "codex adaptive audit",
+    prompt_name: str = "audit-prompt.md",
+    output_name: str = "audit-decision.json",
+    log_name: str = "audit.log",
+) -> tuple[bool, str]:
+    return run_review(
+        task,
+        task_run_dir,
+        codex_bin,
+        codex_lean,
+        audit_timeout_seconds,
+        audit_log_limit_bytes,
+        base_status,
+        heartbeat_seconds,
+        prompt_text=prompt_text if prompt_text is not None else audit_prompt(task),
+        command_label=command_label,
+        stage="audit",
+        output_name=output_name,
+        log_name=log_name,
+        prompt_name=prompt_name,
+        decision_label=DECISION_LABEL_AUDIT,
+    )
+
+
+def run_extra_audits(
+    task: dict[str, Any],
+    task_run_dir: Path,
+    args: argparse.Namespace,
+    prompt_pack: dict[str, Any],
+    base_status: dict[str, Any],
+) -> tuple[bool, str]:
+    for audit in prompt_pack["extra_audits"]:
+        audit_id = audit["id"]
+        audit_ok, audit_result = run_audit(
+            task,
+            task_run_dir,
+            args.codex_bin,
+            args.codex_lean,
+            normalize_timeout_seconds(args.review_timeout_seconds),
+            normalize_log_limit_bytes(args.review_log_limit_bytes),
+            base_status,
+            args.heartbeat_seconds,
+            prompt_text=audit["prompt"].strip() + "\n",
+            command_label=f"codex extra audit: {audit['title']}",
+            prompt_name=f"extra-audit-{audit_id}-prompt.md",
+            output_name=f"extra-audit-{audit_id}-decision.json",
+            log_name=f"extra-audit-{audit_id}.log",
+        )
+        if not audit_ok:
+            return False, audit_result
+        print(f"  {audit_result}")
+    return True, "extra audits passed"
+
+
+def pause_reasons_for_task(
+    task: dict[str, Any],
+    prompt_pack: dict[str, Any],
+    status_snapshot: str,
+) -> list[str]:
+    reasons: list[str] = []
+    if prompt_pack["requires_human_pause"]:
+        reasons.extend(prompt_pack["pause_reasons"] or ["generated prompt pack requested a pause"])
+
+    haystack = "\n".join(
+        [
+            str(task.get("id", "")),
+            str(task.get("title", "")),
+            str(task.get("prompt", "")),
+            status_snapshot,
+        ]
+    ).lower()
+    if any(token in haystack for token in ("apps/ios/", ".swift", "swiftui", " ui", "view")):
+        reasons.append("UI/state-machine changes need human visual verification before continuing.")
+    if any(
+        token in haystack
+        for token in (
+            "alembic",
+            "migration",
+            "schema",
+            "contract",
+            "auth",
+            "permission",
+            "consent",
+            "delete",
+            "retention",
+        )
+    ):
+        reasons.append("Contract, permission, or data-lifecycle changes need human verification.")
+    if any(token in haystack for token in ("medical", "safety", "advice", "risk")):
+        reasons.append("Safety-sensitive behavior needs human verification.")
+
+    deduped: list[str] = []
+    for reason in reasons:
+        if reason and reason not in deduped:
+            deduped.append(reason)
+    return deduped
+
+
+def remember_pause_reasons(
+    args: argparse.Namespace,
+    task: dict[str, Any],
+    prompt_pack: dict[str, Any],
+) -> list[str]:
+    policy = getattr(args, "pause_policy", "auto")
+    if policy == "never":
+        reasons: list[str] = []
+    elif policy == "always":
+        reasons = ["pause policy is set to always."]
+    else:
+        reasons = pause_reasons_for_task(task, prompt_pack, review_scope_snapshot())
+    args.last_pause_reasons = reasons
+    if reasons:
+        print("  pause: human verification recommended before the next task")
+        for reason in reasons:
+            print(f"    - {reason}")
+    return reasons
 
 
 def review_failure_is_actionable(review_result: str) -> bool:
     return "Review decision JSON" in review_result
+
+
+def audit_failure_is_actionable(audit_result: str) -> bool:
+    return "Audit decision JSON" in audit_result
+
+
+def decision_failure_is_actionable(result: str) -> bool:
+    return review_failure_is_actionable(result) or audit_failure_is_actionable(result)
 
 
 def gate_failure_is_actionable(failure_result: str) -> bool:
@@ -1006,7 +1442,7 @@ def gate_failure_is_actionable(failure_result: str) -> bool:
 
 
 def failure_is_actionable(failure_result: str) -> bool:
-    return review_failure_is_actionable(failure_result) or gate_failure_is_actionable(
+    return decision_failure_is_actionable(failure_result) or gate_failure_is_actionable(
         failure_result
     )
 
@@ -1024,99 +1460,192 @@ def run_final_repair(
     task: dict[str, Any],
     args: argparse.Namespace,
     previous_failure: str,
+    prompt_pack: dict[str, Any] | None = None,
 ) -> bool:
     max_attempts = getattr(args, "max_attempts", 0)
-    task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-final-repair"
-    prompt = implementation_prompt(
-        task,
-        max_attempts + 1,
-        previous_failure,
-        agent=AGENT_CODEX,
-    )
-    command = [*codex_exec_command(args.codex_bin, "workspace-write", lean=args.codex_lean), "-"]
-    base_status = {
-        "task_id": task["id"],
-        "task_title": task["title"],
-        "attempt": max_attempts + 1,
-        "max_attempts": max_attempts,
-        "run_dir": relative_to_root(task_run_dir),
-        "final_repair": True,
-    }
-    print(
-        "  final repair: codex exec for actionable review findings "
-        f"-> run {relative_to_root(task_run_dir)}"
-    )
-    exec_log = task_run_dir / "codex-final-repair.log"
-    code = run_logged(
-        command,
-        exec_log,
-        prompt,
-        timeout_seconds=normalize_timeout_seconds(args.final_repair_timeout_seconds),
-        status_file=CURRENT_RUN_PATH,
-        status={**base_status, "stage": "final_repair", "agent": AGENT_CODEX},
-        command_label="codex final repair",
-        heartbeat_seconds=args.heartbeat_seconds,
-        max_log_bytes=normalize_log_limit_bytes(args.agent_log_limit_bytes),
-        success_sentinel=DONE_SENTINEL,
-    )
-    if code != 0:
-        print(f"  failed: {format_logged_failure('codex final repair failed', exec_log)}")
-        return False
-
-    gates_ok, gate_result = run_quality_gates(
-        task_run_dir,
-        ledger,
-        base_status,
-        args.heartbeat_seconds,
-    )
-    if not gates_ok:
-        print(f"  failed: {gate_result}")
-        return False
-
-    removed_artifacts = cleanup_generated_python_artifacts()
-    if removed_artifacts:
-        print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
-
-    if not args.skip_review:
-        is_repair_verification = review_failure_is_actionable(previous_failure)
-        review_timeout_seconds = normalize_timeout_seconds(
-            args.repair_review_timeout_seconds
-            if is_repair_verification
-            else args.review_timeout_seconds
+    repair_attempts = getattr(args, "final_repair_attempts", DEFAULT_FINAL_REPAIR_ATTEMPTS)
+    current_failure = previous_failure
+    for repair_index in range(1, repair_attempts + 1):
+        task_run_dir = (
+            RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-final-repair-{repair_index}"
         )
-        prompt_text = (
-            repair_review_prompt(task, previous_failure) if is_repair_verification else None
+        prompt = implementation_prompt(task, max_attempts + repair_index, current_failure)
+        command = [
+            *codex_exec_command(args.codex_bin, "workspace-write", lean=args.codex_lean),
+            "-",
+        ]
+        base_status = {
+            "task_id": task["id"],
+            "task_title": task["title"],
+            "attempt": max_attempts + repair_index,
+            "max_attempts": max_attempts,
+            "run_dir": relative_to_root(task_run_dir),
+            "final_repair": True,
+            "repair_attempt": repair_index,
+            "final_repair_attempts": repair_attempts,
+        }
+        print(
+            "  final repair: codex exec for actionable findings "
+            f"({repair_index}/{repair_attempts}) -> run {relative_to_root(task_run_dir)}"
         )
-        command_label = (
-            "codex repair verification" if is_repair_verification else "codex structured review"
+        prompt_file = write_prompt_snapshot(task_run_dir, "final-repair-prompt.md", prompt)
+        exec_log = task_run_dir / "codex-final-repair.log"
+        print(f"    prompt: {relative_to_root(prompt_file)}")
+        code = run_logged(
+            command,
+            exec_log,
+            prompt,
+            timeout_seconds=normalize_timeout_seconds(args.final_repair_timeout_seconds),
+            status_file=CURRENT_RUN_PATH,
+            status={
+                **base_status,
+                "stage": "final_repair",
+                "agent": AGENT_CODEX,
+                "prompt_file": relative_to_root(prompt_file),
+            },
+            command_label="codex final repair",
+            heartbeat_seconds=args.heartbeat_seconds,
+            max_log_bytes=normalize_log_limit_bytes(args.agent_log_limit_bytes),
+            success_sentinel=DONE_SENTINEL,
         )
-        review_ok, review_result = run_review(
-            task,
+        if code != 0:
+            print(f"  failed: {format_logged_failure('codex final repair failed', exec_log)}")
+            return False
+
+        gates_ok, gate_result = run_quality_gates(
             task_run_dir,
-            args.codex_bin,
-            args.codex_lean,
-            review_timeout_seconds,
-            normalize_log_limit_bytes(args.review_log_limit_bytes),
+            ledger,
             base_status,
             args.heartbeat_seconds,
-            prompt_text=prompt_text,
-            command_label=command_label,
         )
-        if not review_ok:
-            print(f"  failed: {review_result}")
+        if not gates_ok:
+            print(f"  failed: {gate_result}")
+            if repair_index < repair_attempts and failure_is_actionable(gate_result):
+                current_failure = gate_result
+                print("  repair: gate failure is actionable; continuing focused repair loop")
+                continue
             return False
-        print(f"  {review_result}")
 
-    complete_task(ledger, task, task_run_dir, args.commit)
-    write_static_run_state(
-        CURRENT_RUN_PATH,
-        base_status,
-        status="complete",
-        stage="complete",
-        message=f"completed {task['id']} after final repair",
-    )
-    print(f"  complete: {task['id']}")
-    return True
+        removed_artifacts = cleanup_generated_python_artifacts()
+        if removed_artifacts:
+            print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
+
+        if prompt_pack is None and (not args.skip_review or not args.skip_audit):
+            prompt_pack = prepare_prompt_pack(task, task_run_dir, args, base_status)
+
+        if not args.skip_review and not audit_failure_is_actionable(current_failure):
+            is_repair_verification = review_failure_is_actionable(current_failure)
+            review_timeout_seconds = normalize_timeout_seconds(
+                args.repair_review_timeout_seconds
+                if is_repair_verification
+                else args.review_timeout_seconds
+            )
+            prompt_text = (
+                repair_review_prompt(task, current_failure)
+                if is_repair_verification
+                else cast(dict[str, Any], prompt_pack)["review_prompt"]
+            )
+            command_label = (
+                "codex repair verification" if is_repair_verification else "codex generated review"
+            )
+            prompt_name = (
+                "repair-review-prompt.md"
+                if is_repair_verification
+                else "generated-review-prompt.md"
+            )
+            review_ok, review_result = run_review(
+                task,
+                task_run_dir,
+                args.codex_bin,
+                args.codex_lean,
+                review_timeout_seconds,
+                normalize_log_limit_bytes(args.review_log_limit_bytes),
+                base_status,
+                args.heartbeat_seconds,
+                prompt_text=prompt_text,
+                command_label=command_label,
+                prompt_name=prompt_name,
+            )
+            if not review_ok:
+                print(f"  failed: {review_result}")
+                if repair_index < repair_attempts and decision_failure_is_actionable(review_result):
+                    current_failure = review_result
+                    print("  repair: review finding remains actionable; continuing repair loop")
+                    continue
+                return False
+            print(f"  {review_result}")
+
+        if not args.skip_audit:
+            is_repair_audit = audit_failure_is_actionable(current_failure)
+            audit_timeout_seconds = normalize_timeout_seconds(
+                args.repair_review_timeout_seconds
+                if is_repair_audit
+                else args.review_timeout_seconds
+            )
+            audit_prompt_text = (
+                repair_audit_prompt(task, current_failure)
+                if is_repair_audit
+                else cast(dict[str, Any], prompt_pack)["audit_prompt"]
+            )
+            command_label = "codex repair audit" if is_repair_audit else "codex generated audit"
+            audit_ok, audit_result = run_audit(
+                task,
+                task_run_dir,
+                args.codex_bin,
+                args.codex_lean,
+                audit_timeout_seconds,
+                normalize_log_limit_bytes(args.review_log_limit_bytes),
+                base_status,
+                args.heartbeat_seconds,
+                prompt_text=audit_prompt_text,
+                command_label=command_label,
+                prompt_name=(
+                    "repair-audit-prompt.md" if is_repair_audit else "generated-audit-prompt.md"
+                ),
+            )
+            if not audit_ok:
+                print(f"  failed: {audit_result}")
+                if repair_index < repair_attempts and audit_failure_is_actionable(audit_result):
+                    current_failure = audit_result
+                    print("  repair: audit finding remains actionable; continuing repair loop")
+                    continue
+                return False
+            print(f"  {audit_result}")
+
+            if not is_repair_audit and prompt_pack is not None:
+                extra_ok, extra_result = run_extra_audits(
+                    task,
+                    task_run_dir,
+                    args,
+                    prompt_pack,
+                    base_status,
+                )
+                if not extra_ok:
+                    print(f"  failed: {extra_result}")
+                    if repair_index < repair_attempts and audit_failure_is_actionable(extra_result):
+                        current_failure = extra_result
+                        print(
+                            "  repair: extra audit finding remains actionable; "
+                            "continuing repair loop"
+                        )
+                        continue
+                    return False
+
+        complete_task(ledger, task, task_run_dir, args.commit)
+        if prompt_pack is not None:
+            remember_pause_reasons(args, task, prompt_pack)
+        write_static_run_state(
+            CURRENT_RUN_PATH,
+            base_status,
+            status="complete",
+            stage="complete",
+            message=f"completed {task['id']} after final repair",
+        )
+        print(f"  complete: {task['id']}")
+        return True
+
+    print(f"  failed: exhausted {repair_attempts} final repair attempt(s)")
+    return False
 
 
 def block_task(task: dict[str, Any], base_status: dict[str, Any], message: str) -> None:
@@ -1197,6 +1726,8 @@ def run_finish_task(
     if removed_artifacts:
         print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
 
+    prompt_pack = prepare_prompt_pack(task, task_run_dir, args, base_status)
+
     if not args.skip_review:
         review_ok, review_result = run_review(
             task,
@@ -1207,13 +1738,16 @@ def run_finish_task(
             normalize_log_limit_bytes(args.review_log_limit_bytes),
             base_status,
             args.heartbeat_seconds,
+            prompt_text=prompt_pack["review_prompt"],
+            command_label="codex generated review",
+            prompt_name="generated-review-prompt.md",
         )
         if not review_ok:
             print(f"  failed: {review_result}")
             if (
                 args.final_repair
                 and review_failure_is_actionable(review_result)
-                and run_final_repair(ledger, task, args, review_result)
+                and run_final_repair(ledger, task, args, review_result, prompt_pack)
             ):
                 return True
             block_task(task, base_status, "finish blocked by review failure")
@@ -1221,7 +1755,54 @@ def run_finish_task(
             return False
         print(f"  {review_result}")
 
+    if not args.skip_audit:
+        audit_ok, audit_result = run_audit(
+            task,
+            task_run_dir,
+            args.codex_bin,
+            args.codex_lean,
+            normalize_timeout_seconds(args.review_timeout_seconds),
+            normalize_log_limit_bytes(args.review_log_limit_bytes),
+            base_status,
+            args.heartbeat_seconds,
+            prompt_text=prompt_pack["audit_prompt"],
+            command_label="codex generated audit",
+            prompt_name="generated-audit-prompt.md",
+        )
+        if not audit_ok:
+            print(f"  failed: {audit_result}")
+            if (
+                args.final_repair
+                and audit_failure_is_actionable(audit_result)
+                and run_final_repair(ledger, task, args, audit_result, prompt_pack)
+            ):
+                return True
+            block_task(task, base_status, "finish blocked by audit failure")
+            print(audit_result)
+            return False
+        print(f"  {audit_result}")
+
+        extra_ok, extra_result = run_extra_audits(
+            task,
+            task_run_dir,
+            args,
+            prompt_pack,
+            base_status,
+        )
+        if not extra_ok:
+            print(f"  failed: {extra_result}")
+            if (
+                args.final_repair
+                and audit_failure_is_actionable(extra_result)
+                and run_final_repair(ledger, task, args, extra_result, prompt_pack)
+            ):
+                return True
+            block_task(task, base_status, "finish blocked by extra audit failure")
+            print(extra_result)
+            return False
+
     complete_task(ledger, task, task_run_dir, args.commit)
+    remember_pause_reasons(args, task, prompt_pack)
     write_static_run_state(
         CURRENT_RUN_PATH,
         base_status,
@@ -1234,14 +1815,10 @@ def run_finish_task(
 
 
 def implementation_agent_command(args: argparse.Namespace) -> tuple[str, list[str]]:
-    if args.agent == AGENT_CODEX:
-        lean = getattr(args, "codex_lean", True)
-        label = "codex exec (lean)" if lean else "codex exec"
-        command = [*codex_exec_command(args.codex_bin, "workspace-write", lean=lean), "-"]
-        return label, command
-    if args.agent == AGENT_KIMI:
-        return "kimi --prompt", [args.kimi_bin]
-    raise LoopError(f"Unknown implementation agent: {args.agent}")
+    lean = getattr(args, "codex_lean", False)
+    label = "codex exec (lean)" if lean else "codex exec"
+    command = [*codex_exec_command(args.codex_bin, "workspace-write", lean=lean), "-"]
+    return label, command
 
 
 def implementation_agent_invocation(
@@ -1249,13 +1826,7 @@ def implementation_agent_invocation(
     prompt: str,
 ) -> tuple[str, list[str], str | None, list[str]]:
     agent_label, command = implementation_agent_command(args)
-    if args.agent == AGENT_CODEX:
-        return agent_label, command, prompt, command
-    if args.agent == AGENT_KIMI:
-        prompt_command = [*command, "--prompt", prompt]
-        logged_command = [*command, "--prompt", "<task-prompt>"]
-        return agent_label, prompt_command, None, logged_command
-    raise LoopError(f"Unknown implementation agent: {args.agent}")
+    return agent_label, command, prompt, command
 
 
 def commit_task(task: dict[str, Any]) -> None:
@@ -1275,7 +1846,10 @@ def commit_task(task: dict[str, Any]) -> None:
     message += "Confidence: high\n"
     message += "Scope-risk: narrow\n"
     message += "Directive: Keep future task commits limited to the active ledger slice.\n"
-    message += "Tested: make fmt; make lint; make typecheck; make test; codex structured review.\n"
+    message += (
+        "Tested: make fmt; make lint; make typecheck; make test; "
+        "generated Codex review; generated Codex audit.\n"
+    )
     message += "Not-tested: None.\n"
     subprocess.run(["git", "commit", "-m", message], cwd=ROOT, check=True)
 
@@ -1307,7 +1881,7 @@ def run_task(
     review_log_limit_bytes = normalize_log_limit_bytes(args.review_log_limit_bytes)
     for attempt in range(1, args.max_attempts + 1):
         task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-attempt-{attempt}"
-        prompt = implementation_prompt(task, attempt, previous_failure, agent=args.agent)
+        prompt = implementation_prompt(task, attempt, previous_failure)
         agent_label, command, input_text, logged_command = implementation_agent_invocation(
             args,
             prompt,
@@ -1321,7 +1895,13 @@ def run_task(
         }
         initial_status_lines = git_status_lines()
         print(f"  attempt {attempt}: {agent_label} -> run {relative_to_root(task_run_dir)}")
-        exec_log = task_run_dir / f"{args.agent}-exec.log"
+        prompt_file = write_prompt_snapshot(
+            task_run_dir,
+            "codex-implementation-prompt.md",
+            prompt,
+        )
+        exec_log = task_run_dir / "codex-exec.log"
+        print(f"    prompt: {relative_to_root(prompt_file)}")
         print(f"    log: {relative_to_root(exec_log)}")
         code = run_logged(
             command,
@@ -1329,7 +1909,12 @@ def run_task(
             input_text,
             timeout_seconds=agent_timeout_seconds,
             status_file=CURRENT_RUN_PATH,
-            status={**base_status, "stage": "implementation", "agent": args.agent},
+            status={
+                **base_status,
+                "stage": "implementation",
+                "agent": AGENT_CODEX,
+                "prompt_file": relative_to_root(prompt_file),
+            },
             command_label=agent_label,
             logged_command=logged_command,
             heartbeat_seconds=args.heartbeat_seconds,
@@ -1427,6 +2012,8 @@ def run_task(
         if removed_artifacts:
             print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
 
+        prompt_pack = prepare_prompt_pack(task, task_run_dir, args, base_status)
+
         if not args.skip_review:
             review_ok, review_result = run_review(
                 task,
@@ -1437,6 +2024,9 @@ def run_task(
                 review_log_limit_bytes,
                 base_status,
                 args.heartbeat_seconds,
+                prompt_text=prompt_pack["review_prompt"],
+                command_label="codex generated review",
+                prompt_name="generated-review-prompt.md",
             )
             if not review_ok:
                 previous_failure = review_result
@@ -1456,7 +2046,64 @@ def run_task(
                 break
             print(f"  {review_result}")
 
+        if not args.skip_audit:
+            audit_ok, audit_result = run_audit(
+                task,
+                task_run_dir,
+                args.codex_bin,
+                args.codex_lean,
+                review_timeout_seconds,
+                review_log_limit_bytes,
+                base_status,
+                args.heartbeat_seconds,
+                prompt_text=prompt_pack["audit_prompt"],
+                command_label="codex generated audit",
+                prompt_name="generated-audit-prompt.md",
+            )
+            if not audit_ok:
+                previous_failure = audit_result
+                print(f"  failed: {audit_result}")
+                if not audit_failure_is_actionable(audit_result):
+                    write_static_run_state(
+                        CURRENT_RUN_PATH,
+                        base_status,
+                        status="blocked",
+                        stage="audit",
+                        message=(
+                            "audit gate did not produce actionable findings; "
+                            "stopped before a repair attempt"
+                        ),
+                    )
+                    return False
+                break
+            print(f"  {audit_result}")
+
+            extra_ok, extra_result = run_extra_audits(
+                task,
+                task_run_dir,
+                args,
+                prompt_pack,
+                base_status,
+            )
+            if not extra_ok:
+                previous_failure = extra_result
+                print(f"  failed: {extra_result}")
+                if not audit_failure_is_actionable(extra_result):
+                    write_static_run_state(
+                        CURRENT_RUN_PATH,
+                        base_status,
+                        status="blocked",
+                        stage="audit",
+                        message=(
+                            "extra audit gate did not produce actionable findings; "
+                            "stopped before a repair attempt"
+                        ),
+                    )
+                    return False
+                break
+
         complete_task(ledger, task, task_run_dir, args.commit)
+        remember_pause_reasons(args, task, prompt_pack)
         write_static_run_state(
             CURRENT_RUN_PATH,
             base_status,
@@ -1536,7 +2183,7 @@ def parse_args() -> argparse.Namespace:
         "--review-timeout-seconds",
         type=int,
         default=DEFAULT_REVIEW_TIMEOUT_SECONDS,
-        help="Maximum runtime for the structured review gate; 0 disables.",
+        help="Maximum runtime for prompt-pack generation and review/audit gates; 0 disables.",
     )
     finish_parser.add_argument(
         "--agent-log-limit-bytes",
@@ -1548,7 +2195,7 @@ def parse_args() -> argparse.Namespace:
         "--review-log-limit-bytes",
         type=int,
         default=DEFAULT_REVIEW_LOG_LIMIT_BYTES,
-        help="Maximum structured-review log size before stopping; 0 disables.",
+        help="Maximum prompt-pack/review/audit log size before stopping; 0 disables.",
     )
     finish_parser.add_argument(
         "--final-repair-timeout-seconds",
@@ -1560,7 +2207,13 @@ def parse_args() -> argparse.Namespace:
         "--repair-review-timeout-seconds",
         type=int,
         default=DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS,
-        help="Maximum runtime for the focused post-repair review gate; 0 disables.",
+        help="Maximum runtime for focused post-repair review/audit gates; 0 disables.",
+    )
+    finish_parser.add_argument(
+        "--final-repair-attempts",
+        type=int,
+        default=DEFAULT_FINAL_REPAIR_ATTEMPTS,
+        help="Maximum focused Codex repair attempts after actionable gate/review/audit findings.",
     )
     finish_parser.add_argument(
         "--no-final-repair",
@@ -1579,7 +2232,7 @@ def parse_args() -> argparse.Namespace:
     finish_parser.add_argument(
         "--allow-no-changes",
         action="store_true",
-        help="Allow gates/review even when there is no existing implementation diff.",
+        help="Allow gates/review/audit even when there is no existing implementation diff.",
     )
     finish_parser.add_argument(
         "--prior-verification-file",
@@ -1589,14 +2242,32 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     finish_parser.add_argument("--skip-review", action="store_true")
+    finish_parser.add_argument("--skip-audit", action="store_true")
+    finish_parser.add_argument(
+        "--skip-prompt-pack",
+        action="store_true",
+        help="Use deterministic built-in review/audit prompts instead of generated prompts.",
+    )
+    finish_parser.add_argument(
+        "--pause-policy",
+        choices=("auto", "never", "always"),
+        default="auto",
+        help="When to pause before automatically continuing to another task.",
+    )
     finish_parser.add_argument("--codex-bin", default="codex")
     finish_parser.add_argument(
         "--codex-full-config",
         dest="codex_lean",
         action="store_false",
-        help="Load full Codex user config instead of the lean automation invocation.",
+        help="Load full Codex user config; this is the default.",
     )
-    finish_parser.set_defaults(codex_lean=True)
+    finish_parser.add_argument(
+        "--codex-lean",
+        dest="codex_lean",
+        action="store_true",
+        help="Use lean Codex exec without user config for lower overhead.",
+    )
+    finish_parser.set_defaults(codex_lean=False)
 
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--cluster")
@@ -1618,7 +2289,7 @@ def parse_args() -> argparse.Namespace:
         "--review-timeout-seconds",
         type=int,
         default=None,
-        help="Maximum runtime for the structured review gate; 0 disables.",
+        help="Maximum runtime for prompt-pack generation and review/audit gates; 0 disables.",
     )
     run_parser.add_argument(
         "--agent-log-limit-bytes",
@@ -1630,7 +2301,7 @@ def parse_args() -> argparse.Namespace:
         "--review-log-limit-bytes",
         type=int,
         default=DEFAULT_REVIEW_LOG_LIMIT_BYTES,
-        help="Maximum structured-review log size before stopping; 0 disables.",
+        help="Maximum prompt-pack/review/audit log size before stopping; 0 disables.",
     )
     run_parser.add_argument(
         "--final-repair-timeout-seconds",
@@ -1642,13 +2313,19 @@ def parse_args() -> argparse.Namespace:
         "--repair-review-timeout-seconds",
         type=int,
         default=DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS,
-        help="Maximum runtime for the focused post-repair review gate; 0 disables.",
+        help="Maximum runtime for focused post-repair review/audit gates; 0 disables.",
+    )
+    run_parser.add_argument(
+        "--final-repair-attempts",
+        type=int,
+        default=DEFAULT_FINAL_REPAIR_ATTEMPTS,
+        help="Maximum focused Codex repair attempts after actionable gate/review/audit findings.",
     )
     run_parser.add_argument(
         "--no-final-repair",
         dest="final_repair",
         action="store_false",
-        help="Disable the bounded Codex repair pass after actionable Kimi review failures.",
+        help="Disable the bounded Codex repair pass after actionable findings.",
     )
     run_parser.set_defaults(final_repair=True)
     run_parser.add_argument(
@@ -1662,34 +2339,40 @@ def parse_args() -> argparse.Namespace:
     run_parser.add_argument(
         "--allow-no-changes",
         action="store_true",
-        help="Allow gates/review even when a clean implementation pass produces no diff.",
+        help="Allow gates/review/audit even when a clean implementation pass produces no diff.",
     )
     run_parser.add_argument("--skip-review", action="store_true")
-    agent_group = run_parser.add_mutually_exclusive_group()
-    agent_group.add_argument(
-        "--codex",
-        dest="agent",
-        action="store_const",
-        const=AGENT_CODEX,
-        default=AGENT_CODEX,
-        help="Run implementation attempts with Codex.",
+    run_parser.add_argument("--skip-audit", action="store_true")
+    run_parser.add_argument(
+        "--skip-prompt-pack",
+        action="store_true",
+        help="Use deterministic built-in review/audit prompts instead of generated prompts.",
     )
-    agent_group.add_argument(
-        "--kimi",
-        dest="agent",
-        action="store_const",
-        const=AGENT_KIMI,
-        help="Run implementation attempts with Kimi Code via non-interactive prompt mode.",
+    run_parser.add_argument(
+        "--pause-policy",
+        choices=("auto", "never", "always"),
+        default="auto",
+        help="When to pause before automatically continuing to another task.",
+    )
+    run_parser.add_argument(
+        "--codex",
+        action="store_true",
+        help="Deprecated no-op; Codex is the only implementation agent.",
     )
     run_parser.add_argument("--codex-bin", default="codex")
     run_parser.add_argument(
         "--codex-full-config",
         dest="codex_lean",
         action="store_false",
-        help="Load full Codex user config instead of the lean automation invocation.",
+        help="Load full Codex user config; this is the default.",
     )
-    run_parser.set_defaults(codex_lean=True)
-    run_parser.add_argument("--kimi-bin", default="kimi")
+    run_parser.add_argument(
+        "--codex-lean",
+        dest="codex_lean",
+        action="store_true",
+        help="Use lean Codex exec without user config for lower overhead.",
+    )
+    run_parser.set_defaults(codex_lean=False)
     args = parser.parse_args()
     apply_agent_defaults(args)
     return args
@@ -1697,15 +2380,6 @@ def parse_args() -> argparse.Namespace:
 
 def apply_agent_defaults(args: argparse.Namespace) -> None:
     if args.command != "run":
-        return
-
-    if args.agent == AGENT_KIMI:
-        if args.max_attempts is None:
-            args.max_attempts = DEFAULT_KIMI_MAX_ATTEMPTS
-        if args.agent_timeout_seconds is None:
-            args.agent_timeout_seconds = DEFAULT_KIMI_AGENT_TIMEOUT_SECONDS
-        if args.review_timeout_seconds is None:
-            args.review_timeout_seconds = DEFAULT_KIMI_REVIEW_TIMEOUT_SECONDS
         return
 
     if args.max_attempts is None:
@@ -1750,6 +2424,7 @@ def main() -> int:
     normalize_timeout_seconds(args.repair_review_timeout_seconds)
     normalize_log_limit_bytes(args.agent_log_limit_bytes)
     normalize_log_limit_bytes(args.review_log_limit_bytes)
+    validate_positive_int(args.final_repair_attempts, "final repair attempts")
     if args.command == "finish":
         if args.task:
             candidates = [task_map(ledger)[args.task]]
@@ -1776,6 +2451,10 @@ def main() -> int:
     for task in selected:
         if not run_task(ledger, task, args):
             return 1
+        pause_reasons = getattr(args, "last_pause_reasons", [])
+        if pause_reasons:
+            print("paused: human verification recommended before continuing to the next task")
+            return 0
     return 0
 
 
