@@ -66,6 +66,7 @@ CLINICAL_GOAL_DETAIL_TERMS = (
     "sexual dysfunction",
     "erectile dysfunction",
 )
+FEEDBACK_TEXT_MAX_LENGTH = 240
 
 
 def _contains_clinical_goal_detail(value: str) -> bool:
@@ -332,8 +333,30 @@ class RecommendationFeedbackRequest(ContractModel):
     schema_version: Literal["v1"] = "v1"
     rating: FeedbackRating
     action_taken: FeedbackActionTaken
-    reason: str | None = None
-    outcome_notes: str | None = None
+    reason: str | None = Field(default=None, min_length=1, max_length=FEEDBACK_TEXT_MAX_LENGTH)
+    outcome_notes: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=FEEDBACK_TEXT_MAX_LENGTH,
+    )
+
+    @field_validator("reason", "outcome_notes")
+    @classmethod
+    def validate_feedback_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if "\n" in normalized:
+            raise ValueError("Feedback text must be a short high-level indicator.")
+        return normalized
+
+
+class FeedbackContradictionAlert(ContractModel):
+    contradiction_key: str = Field(min_length=1)
+    count: int = Field(ge=2)
+    message: str = Field(min_length=1)
 
 
 class RecommendationFeedbackResponse(ContractModel):
@@ -341,6 +364,7 @@ class RecommendationFeedbackResponse(ContractModel):
     feedback_id: UUID
     memory_update_status: MemoryUpdateStatus
     eval_queue_status: EvalQueueStatus
+    contradiction_alert: FeedbackContradictionAlert | None = None
 
 
 class DataExportRequest(ContractModel):
