@@ -25,7 +25,7 @@ DEFAULT_MAX_ATTEMPTS = 1
 DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
 DEFAULT_REVIEW_TIMEOUT_SECONDS = 600
 DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS = 900
-DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS = 300
+DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS = 600
 DEFAULT_FINAL_REPAIR_ATTEMPTS = 0
 DEFAULT_NO_PROGRESS_REPAIR_LIMIT = 3
 DEFAULT_HEARTBEAT_SECONDS = 30
@@ -1121,6 +1121,39 @@ def format_logged_failure(summary: str, log_file: Path) -> str:
     return f"{summary}; see {log_file}\n\nLog tail:\n{read_log_tail(log_file)}"
 
 
+def format_command_failure(stage: str, code: int, log_file: Path) -> str:
+    if code == 124:
+        return format_logged_failure(f"{stage} command timed out", log_file)
+    if code == LOG_LIMIT_EXIT_CODE:
+        return format_logged_failure(f"{stage} command hit log limit", log_file)
+    return format_logged_failure(f"{stage} command failed", log_file)
+
+
+def command_failure_timed_out(result: str) -> bool:
+    first_line = result.splitlines()[0] if result else ""
+    return "command timed out" in first_line
+
+
+def expanded_repair_verification_timeout(
+    current_timeout_seconds: int | None,
+    args: argparse.Namespace,
+) -> int | None:
+    if current_timeout_seconds is None:
+        return None
+    configured_candidates = [
+        normalize_timeout_seconds(getattr(args, "review_timeout_seconds", None)),
+        normalize_timeout_seconds(getattr(args, "final_repair_timeout_seconds", None)),
+    ]
+    larger_candidates = [
+        candidate
+        for candidate in configured_candidates
+        if candidate is not None and candidate > current_timeout_seconds
+    ]
+    if larger_candidates:
+        return max(larger_candidates)
+    return current_timeout_seconds * 2
+
+
 def format_decision_failure(label: str, output_file: Path, decision: dict[str, Any]) -> str:
     return (
         f"{label.lower()} failed; see {output_file}\n\n"
@@ -1632,7 +1665,7 @@ def run_review(
         max_log_bytes=review_log_limit_bytes,
     )
     if code != 0:
-        return False, format_logged_failure(f"{stage} command failed", log_file)
+        return False, format_command_failure(stage, code, log_file)
     try:
         decision = json.loads(output_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -2025,12 +2058,51 @@ def run_final_repair(
                 command_label=command_label,
                 prompt_name=prompt_name,
             )
+            if not review_ok and command_failure_timed_out(review_result):
+                retry_timeout_seconds = expanded_repair_verification_timeout(
+                    review_timeout_seconds,
+                    args,
+                )
+                if retry_timeout_seconds != review_timeout_seconds:
+                    print(
+                        "  retry: review verifier timed out; rerunning once with "
+                        f"{retry_timeout_seconds}s timeout"
+                    )
+                    review_ok, review_result = run_review(
+                        task,
+                        task_run_dir,
+                        args.codex_bin,
+                        args.codex_lean,
+                        retry_timeout_seconds,
+                        normalize_log_limit_bytes(args.review_log_limit_bytes),
+                        base_status,
+                        args.heartbeat_seconds,
+                        prompt_text=prompt_text,
+                        command_label=command_label,
+                        prompt_name=(
+                            "repair-review-retry-prompt.md"
+                            if is_repair_verification
+                            else "generated-review-retry-prompt.md"
+                        ),
+                        log_name=(
+                            "repair-review-retry.log"
+                            if is_repair_verification
+                            else "generated-review-retry.log"
+                        ),
+                    )
             if not review_ok:
                 print(f"  failed: {review_result}")
                 if decision_failure_is_actionable(review_result):
                     current_failure = review_result
                     print("  repair: review finding remains actionable; continuing repair loop")
                     continue
+                if command_failure_timed_out(review_result):
+                    remember_final_repair_stop(
+                        args,
+                        stop_reason="verifier_timeout",
+                        message="review verifier timed out",
+                        failure_result=current_failure,
+                    )
                 return False
             print(f"  {review_result}")
 
@@ -2071,12 +2143,51 @@ def run_final_repair(
                     "repair-audit-prompt.md" if is_repair_audit else "generated-audit-prompt.md"
                 ),
             )
+            if not audit_ok and command_failure_timed_out(audit_result):
+                retry_timeout_seconds = expanded_repair_verification_timeout(
+                    audit_timeout_seconds,
+                    args,
+                )
+                if retry_timeout_seconds != audit_timeout_seconds:
+                    print(
+                        "  retry: audit verifier timed out; rerunning once with "
+                        f"{retry_timeout_seconds}s timeout"
+                    )
+                    audit_ok, audit_result = run_audit(
+                        task,
+                        task_run_dir,
+                        args.codex_bin,
+                        args.codex_lean,
+                        retry_timeout_seconds,
+                        normalize_log_limit_bytes(args.review_log_limit_bytes),
+                        base_status,
+                        args.heartbeat_seconds,
+                        prompt_text=audit_prompt_text,
+                        command_label=command_label,
+                        prompt_name=(
+                            "repair-audit-retry-prompt.md"
+                            if is_repair_audit
+                            else "generated-audit-retry-prompt.md"
+                        ),
+                        log_name=(
+                            "repair-audit-retry.log"
+                            if is_repair_audit
+                            else "generated-audit-retry.log"
+                        ),
+                    )
             if not audit_ok:
                 print(f"  failed: {audit_result}")
                 if audit_failure_is_actionable(audit_result):
                     current_failure = audit_result
                     print("  repair: audit finding remains actionable; continuing repair loop")
                     continue
+                if command_failure_timed_out(audit_result):
+                    remember_final_repair_stop(
+                        args,
+                        stop_reason="verifier_timeout",
+                        message="audit verifier timed out",
+                        failure_result=current_failure,
+                    )
                 return False
             print(f"  {audit_result}")
 
@@ -2494,6 +2605,33 @@ def state_output_last_message_path(state: dict[str, Any]) -> Path | None:
     return resolve_root_relative_path(value)
 
 
+def state_prompt_file_path(state: dict[str, Any]) -> Path | None:
+    value = state.get("prompt_file")
+    if not isinstance(value, str) or not value:
+        return None
+    return resolve_root_relative_path(value)
+
+
+def failure_from_repair_prompt(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    marker = "Previous actionable failure:\n\n"
+    start = text.find(marker)
+    if start == -1:
+        return None
+    start += len(marker)
+    end_marker = "\n\nTask prompt:"
+    end = text.find(end_marker, start)
+    if end == -1:
+        return None
+    failure = text[start:end].strip()
+    return failure if decision_failure_is_actionable(failure) else None
+
+
 def state_run_dir(state: dict[str, Any]) -> Path | None:
     value = state.get("run_dir")
     if not isinstance(value, str) or not value:
@@ -2514,11 +2652,11 @@ def decision_file_passed(path: Path | None) -> bool:
 def state_decision_failure(state: dict[str, Any]) -> str | None:
     output_path = state_output_last_message_path(state)
     if output_path is None:
-        return None
+        return failure_from_repair_prompt(state_prompt_file_path(state))
     try:
         decision = json.loads(output_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return None
+        return failure_from_repair_prompt(state_prompt_file_path(state))
     if not isinstance(decision, dict) or decision.get("decision") == "pass":
         return None
 
@@ -2663,6 +2801,133 @@ def fast_forward_completed_current_run(
         status="complete",
         stage="complete",
         message=f"completed {task['id']} by reusing prior successful audit",
+    )
+    print(f"  complete: {task['id']}")
+    return True
+
+
+def resume_timed_out_repair_verifier(
+    ledger: dict[str, Any],
+    task: dict[str, Any],
+    args: argparse.Namespace,
+) -> bool | None:
+    state = read_current_run_state()
+    if state is None:
+        return None
+    if state.get("task_id") != task["id"]:
+        return None
+    if state.get("status") != "blocked" or state.get("exit_code") != 124:
+        return None
+
+    command_label = str(state.get("command_label") or "").lower()
+    if "repair" not in command_label:
+        return None
+    is_audit = "audit" in command_label
+    is_review = "verification" in command_label or "review" in command_label
+    if is_audit and args.skip_audit:
+        return None
+    if is_review and args.skip_review:
+        return None
+    if not is_audit and not is_review:
+        return None
+
+    prompt_file = state_prompt_file_path(state)
+    previous_failure = failure_from_repair_prompt(prompt_file)
+    if previous_failure is None:
+        return None
+    repair_run_dir = prompt_file.parent if prompt_file is not None else None
+    if not run_summary_has_successful_quality_gates(repair_run_dir, ledger):
+        return None
+    if not current_diff_fingerprint_matches_state(task, state):
+        print("  resume: timed-out repair verifier is stale for the current diff")
+        return None
+    try:
+        prompt_text = cast(Path, prompt_file).read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+    current_timeout = (
+        normalize_timeout_seconds(cast(int, state["timeout_seconds"]))
+        if isinstance(state.get("timeout_seconds"), int)
+        else normalize_timeout_seconds(args.repair_review_timeout_seconds)
+    )
+    retry_timeout = expanded_repair_verification_timeout(current_timeout, args)
+    base_status = {
+        "task_id": task["id"],
+        "task_title": task["title"],
+        "attempt": state.get("attempt", 0),
+        "max_attempts": state.get("max_attempts", 0),
+        "pass_label": state.get("pass_label", "resumed repair verifier"),
+        "run_dir": relative_to_root(cast(Path, repair_run_dir)),
+        "final_repair": True,
+        "resume_repair_verifier": True,
+        "current_failure_summary": failure_status_summary(previous_failure),
+    }
+    print(
+        "  resume: rerunning timed-out repair verifier only "
+        f"-> run {relative_to_root(cast(Path, repair_run_dir))}"
+    )
+    if is_audit:
+        verifier_ok, verifier_result = run_audit(
+            task,
+            cast(Path, repair_run_dir),
+            args.codex_bin,
+            args.codex_lean,
+            retry_timeout,
+            normalize_log_limit_bytes(args.review_log_limit_bytes),
+            base_status,
+            args.heartbeat_seconds,
+            prompt_text=prompt_text,
+            command_label="codex resumed repair audit",
+            prompt_name="repair-audit-resume-prompt.md",
+            log_name="repair-audit-resume.log",
+        )
+    else:
+        verifier_ok, verifier_result = run_review(
+            task,
+            cast(Path, repair_run_dir),
+            args.codex_bin,
+            args.codex_lean,
+            retry_timeout,
+            normalize_log_limit_bytes(args.review_log_limit_bytes),
+            base_status,
+            args.heartbeat_seconds,
+            prompt_text=prompt_text,
+            command_label="codex resumed repair verification",
+            prompt_name="repair-review-resume-prompt.md",
+            log_name="repair-review-resume.log",
+        )
+
+    if not verifier_ok:
+        print(f"  failed: {verifier_result}")
+        if decision_failure_is_actionable(verifier_result):
+            print("  repair: resumed verifier finding is actionable; continuing repair loop")
+            return run_final_repair(ledger, task, args, verifier_result)
+        if command_failure_timed_out(verifier_result):
+            remember_final_repair_stop(
+                args,
+                stop_reason="verifier_timeout",
+                message="resumed repair verifier timed out",
+                failure_result=previous_failure,
+            )
+        return False
+    print(f"  {verifier_result}")
+
+    complete_task(ledger, task, cast(Path, repair_run_dir), args.commit)
+    remember_pause_reasons(
+        args,
+        task,
+        {
+            "requires_human_pause": False,
+            "pause_reasons": [],
+        },
+    )
+    write_static_run_state(
+        CURRENT_RUN_PATH,
+        base_status,
+        status="complete",
+        stage="complete",
+        message=f"completed {task['id']} after resumed repair verifier",
     )
     print(f"  complete: {task['id']}")
     return True
@@ -3322,7 +3587,9 @@ def main() -> int:
         if fast_forward_completed_current_run(ledger, resume_task, args):
             pass
         else:
-            resumed_repair = resume_actionable_current_run(ledger, resume_task, args)
+            resumed_repair = resume_timed_out_repair_verifier(ledger, resume_task, args)
+            if resumed_repair is None:
+                resumed_repair = resume_actionable_current_run(ledger, resume_task, args)
             if resumed_repair is True:
                 pass
             elif resumed_repair is False:

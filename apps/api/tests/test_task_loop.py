@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
+import pytest
+
 
 def load_task_loop() -> ModuleType:
     script_path = Path(__file__).resolve().parents[3] / "scripts" / "run_task_loop.py"
@@ -17,6 +19,11 @@ def load_task_loop() -> ModuleType:
 
 
 TASK_LOOP = load_task_loop()
+
+
+@pytest.fixture(autouse=True)
+def isolate_task_runs(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(TASK_LOOP, "RUNS_DIR", tmp_path / "task-runs")
 
 
 def test_default_pending_tasks_advance_past_completed_active_cluster() -> None:
@@ -79,7 +86,7 @@ def test_run_command_defaults_to_one_attempt_with_bounded_review(monkeypatch) ->
     assert args.max_attempts == 1
     assert args.agent_timeout_seconds == 3600
     assert args.review_timeout_seconds == 600
-    assert args.repair_review_timeout_seconds == 300
+    assert args.repair_review_timeout_seconds == 600
     assert args.final_repair_attempts == 0
     assert args.max_no_progress_repairs == 3
     assert args.agent_log_limit_bytes == 0
@@ -382,6 +389,102 @@ def test_run_resumes_actionable_blocked_task_with_focused_repair(
     assert calls == ["repair:P4-04:review"]
 
 
+def test_run_resumes_timed_out_repair_audit_without_new_repair(monkeypatch, tmp_path) -> None:
+    ledger = {
+        "active_cluster": "P4-memory-data-controls",
+        "clusters": [
+            {
+                "id": "P4-memory-data-controls",
+                "description": "Memory tasks.",
+                "tasks": ["P4-04"],
+            }
+        ],
+        "quality_gates": ["make test"],
+        "tasks": [{"id": "P4-04", "status": "pending", "title": "data controls consent"}],
+    }
+    repair_dir = tmp_path / "repair"
+    repair_dir.mkdir()
+    (repair_dir / "run-summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "stages": [
+                    {
+                        "stage": "quality_gate",
+                        "command_label": "make test",
+                        "status": "succeeded",
+                        "exit_code": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    prompt_file = repair_dir / "repair-audit-prompt.md"
+    previous_failure = "audit failed; see file\n\nAudit decision JSON:\n{}"
+    prompt_file.write_text(
+        f"Previous actionable failure:\n\n{previous_failure}\n\nTask prompt:\n# P4-04\n",
+        encoding="utf-8",
+    )
+    current_path = tmp_path / "current.json"
+    current_path.write_text(
+        json.dumps(
+            {
+                "status": "blocked",
+                "stage": "blocked",
+                "task_id": "P4-04",
+                "task_title": "data controls consent",
+                "pid": None,
+                "command_label": "codex repair audit",
+                "exit_code": 124,
+                "timeout_seconds": 300,
+                "prompt_file": str(prompt_file),
+                "git_non_protected_fingerprint": "same-fp",
+            }
+        ),
+        encoding="utf-8",
+    )
+    status_results = [[" M apps/api/example.py"], []]
+    calls: list[str] = []
+
+    def fake_run_audit(*args, **kwargs) -> tuple[bool, str]:
+        calls.append(f"audit:{args[4]}:{kwargs['log_name']}")
+        return True, "audit passed"
+
+    monkeypatch.setattr("sys.argv", ["run_task_loop.py", "run", "--limit", "1", "--commit"])
+    monkeypatch.setattr(TASK_LOOP, "CURRENT_RUN_PATH", current_path)
+    monkeypatch.setattr(TASK_LOOP, "load_ledger", lambda: ledger)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_status_lines",
+        lambda: status_results.pop(0) if status_results else [],
+    )
+    monkeypatch.setattr(TASK_LOOP, "git_status_entries", lambda: [(" M", "apps/api/example.py")])
+    monkeypatch.setattr(TASK_LOOP, "git_worktree_fingerprint", lambda **_kwargs: "same-fp")
+    monkeypatch.setattr(TASK_LOOP, "run_audit", fake_run_audit)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_final_repair",
+        lambda *args, **kwargs: calls.append("unexpected-repair") or False,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_finish_task",
+        lambda *args, **kwargs: calls.append("unexpected-finish") or False,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "complete_task",
+        lambda _ledger, task, *_args: calls.append(f"complete:{task['id']}"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "remember_pause_reasons", lambda *args, **kwargs: [])
+    monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+
+    assert TASK_LOOP.main() == 0
+
+    assert calls == ["audit:900:repair-audit-resume.log", "complete:P4-04"]
+
+
 def test_run_counts_resumed_dirty_task_toward_limit(monkeypatch, tmp_path) -> None:
     ledger = {
         "active_cluster": "P4-memory-data-controls",
@@ -590,7 +693,7 @@ def test_codex_flag_is_kept_as_noop_compatibility(monkeypatch) -> None:
     assert args.max_attempts == 1
     assert args.agent_timeout_seconds == 3600
     assert args.review_timeout_seconds == 600
-    assert args.repair_review_timeout_seconds == 300
+    assert args.repair_review_timeout_seconds == 600
 
 
 def test_run_command_accepts_explicit_timeout_overrides(monkeypatch) -> None:
@@ -640,7 +743,7 @@ def test_finish_command_defaults_to_bounded_verification(monkeypatch) -> None:
     assert args.command == "finish"
     assert args.task == "P3-01"
     assert args.review_timeout_seconds == 600
-    assert args.repair_review_timeout_seconds == 300
+    assert args.repair_review_timeout_seconds == 600
     assert args.final_repair_attempts == 0
     assert args.max_no_progress_repairs == 3
     assert args.agent_log_limit_bytes == 0
@@ -971,6 +1074,31 @@ def test_run_logged_times_out_stalled_command(tmp_path) -> None:
     assert state["log_file"].endswith("stalled.log")
 
 
+def test_run_review_labels_timeout_failures(monkeypatch, tmp_path) -> None:
+    log_file = tmp_path / "review.log"
+
+    def fake_run_logged(*args, **kwargs) -> int:
+        log_file.write_text("[timeout_seconds] 1\n[exit_code] 124\n", encoding="utf-8")
+        return 124
+
+    monkeypatch.setattr(TASK_LOOP, "run_logged", fake_run_logged)
+
+    ok, result = TASK_LOOP.run_review(
+        {"id": "P3-01", "title": "goal management"},
+        tmp_path,
+        "codex",
+        False,
+        1,
+        None,
+        {},
+        0,
+        prompt_text="review",
+    )
+
+    assert ok is False
+    assert result.startswith("review command timed out")
+
+
 def test_run_logged_writes_success_state(tmp_path) -> None:
     log_file = tmp_path / "ok.log"
     status_file = tmp_path / "current.json"
@@ -1254,7 +1382,7 @@ def finish_args(**overrides: object) -> SimpleNamespace:
         "max_no_progress_repairs": 3,
         "agent_log_limit_bytes": 0,
         "final_repair_timeout_seconds": 900,
-        "repair_review_timeout_seconds": 300,
+        "repair_review_timeout_seconds": 600,
         "commit": False,
     }
     values.update(overrides)
@@ -1797,6 +1925,71 @@ def test_final_repair_retries_actionable_audit_findings(monkeypatch) -> None:
     ]
 
 
+def test_final_repair_retries_timed_out_repair_audit_once(monkeypatch) -> None:
+    task = {
+        "id": "P4-04",
+        "title": "data controls consent",
+        "prompt": "tasks/P4-04-data-controls-consent.md",
+    }
+    calls: list[str] = []
+    audit_timeouts: list[int | None] = []
+    audit_results = [
+        (False, "audit command timed out; see audit.log\n\nLog tail:\n[exit_code] 124"),
+        (True, "audit passed"),
+    ]
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or (True, "quality gates passed"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "cleanup_generated_python_artifacts",
+        lambda: calls.append("cleanup") and 0,
+    )
+
+    def fake_run_audit(*args, **kwargs) -> tuple[bool, str]:
+        audit_timeouts.append(args[4])
+        calls.append(str(kwargs.get("log_name", "audit.log")))
+        return audit_results.pop(0)
+
+    monkeypatch.setattr(TASK_LOOP, "run_audit", fake_run_audit)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "complete_task",
+        lambda *args, **kwargs: calls.append("complete"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            finish_args(repair_review_timeout_seconds=300),
+            "audit failed; see file\n\nAudit decision JSON:\n{}",
+        )
+        is True
+    )
+
+    assert calls == [
+        "attempt:1",
+        "codex",
+        "gates",
+        "cleanup",
+        "audit.log",
+        "repair-audit-retry.log",
+        "complete",
+    ]
+    assert audit_timeouts == [300, 900]
+
+
 def test_final_repair_keeps_decision_budget_after_gate_repairs(monkeypatch) -> None:
     task = {
         "id": "P4-01",
@@ -2098,3 +2291,19 @@ def test_implementation_timeout_without_new_changes_is_not_candidate() -> None:
     assert TASK_LOOP.implementation_has_candidate_changes(before, before) is False
     assert TASK_LOOP.implementation_has_candidate_changes(before, None) is False
     assert TASK_LOOP.implementation_has_candidate_changes([], []) is False
+
+
+def test_state_decision_failure_recovers_failure_from_repair_prompt(tmp_path) -> None:
+    prompt_file = tmp_path / "repair-audit-prompt.md"
+    previous_failure = "audit failed; see file\n\nAudit decision JSON:\n{}"
+    prompt_file.write_text(
+        f"Previous actionable failure:\n\n{previous_failure}\n\nTask prompt:\n# P4-04\n",
+        encoding="utf-8",
+    )
+    state = {
+        "stage": "audit",
+        "command": ["codex", "exec", "--output-last-message", str(tmp_path / "missing.json")],
+        "prompt_file": str(prompt_file),
+    }
+
+    assert TASK_LOOP.state_decision_failure(state) == previous_failure
