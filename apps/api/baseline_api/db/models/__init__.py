@@ -18,7 +18,7 @@ from baseline_api.db.models.ingestion import (
     NormalizedHealthMetric,
     RawHealthSample,
 )
-from baseline_api.db.models.knowledge import KnowledgeSource
+from baseline_api.db.models.knowledge import KnowledgeChunk, KnowledgeSource
 from baseline_api.db.models.memory import MemorySummary
 from baseline_api.db.models.modelrun import ModelRun
 from baseline_api.db.models.provenance import (
@@ -45,6 +45,7 @@ __all__ = [
     "Goal",
     "HealthImportBatch",
     "KnowledgeSource",
+    "KnowledgeChunk",
     "MemorySummary",
     "ModelRun",
     "NormalizedHealthMetric",

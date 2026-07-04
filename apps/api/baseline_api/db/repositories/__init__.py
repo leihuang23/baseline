@@ -20,7 +20,10 @@ from baseline_api.db.repositories.ingestion import (
     NormalizedHealthMetricRepository,
     RawHealthSampleRepository,
 )
-from baseline_api.db.repositories.knowledge import KnowledgeSourceRepository
+from baseline_api.db.repositories.knowledge import (
+    KnowledgeChunkRepository,
+    KnowledgeSourceRepository,
+)
 from baseline_api.db.repositories.memory import MemorySummaryRepository
 from baseline_api.db.repositories.modelrun import ModelRunRepository
 from baseline_api.db.repositories.sessions import (
@@ -40,6 +43,7 @@ __all__ = [
     "GoalRepository",
     "HealthImportBatchRepository",
     "KnowledgeSourceRepository",
+    "KnowledgeChunkRepository",
     "MemorySummaryRepository",
     "ModelRunRepository",
     "NormalizedHealthMetricRepository",

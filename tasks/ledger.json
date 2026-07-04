@@ -327,10 +327,12 @@
       "title": "data controls consent"
     },
     {
+      "completed_at": "2026-07-04T16:07:19Z",
       "id": "P5-01",
+      "last_run_dir": ".task-runs/2026-07-04T155632Z-P5-01-final-repair-7",
       "phase": "P5",
       "prompt": "tasks/P5-01-knowledge-corpus.md",
-      "status": "pending",
+      "status": "complete",
       "title": "knowledge corpus"
     },
     {

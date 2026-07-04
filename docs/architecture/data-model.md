@@ -16,7 +16,7 @@ and evaluation traces. This document describes the schema implemented in
 | **Manual Input** | `daily_check_in`, `goal` | User-submitted subjective context and active goals. |
 | **Derived Features** | `derived_daily_feature` | Deterministic, versioned feature bundles per day. |
 | **Generated Outputs** | `readiness_assessment`, `recommendation`, `memory_summary`, `model_run` | Reasoning artifacts, user-facing recommendations, compressed memory, and LLM traces. |
-| **External Knowledge** | `knowledge_source` | Curated, citable reference corpus. |
+| **External Knowledge** | `knowledge_source`, `knowledge_chunk` | Curated, citable reference corpus. |
 | **Evaluation & Audit** | `evaluation_case`, `audit_event` | Golden/eval scenarios and redacted audit trail. |
 
 ## Entity-Relationship Diagram
@@ -37,6 +37,7 @@ erDiagram
     USER ||--o{ MODEL_RUN : triggers
     USER ||--o{ AUDIT_EVENT : generates
     MODEL_RUN ||--o{ RECOMMENDATION : explains
+    KNOWLEDGE_SOURCE ||--o{ KNOWLEDGE_CHUNK : chunks
 ```
 
 ## Tables
@@ -275,14 +276,32 @@ Curated external reference.
 |--------|------|-------|
 | `id` | UUID | PK |
 | `title` | string | |
-| `author_or_org` | string | Nullable |
+| `author_or_org` | string | Required source metadata |
 | `source_type` | `KnowledgeSourceType` enum | |
-| `url_or_identifier` | string | Nullable |
-| `license_status` | string | Nullable |
-| `published_at` | date | Nullable |
+| `url_or_identifier` | string | Required source metadata |
+| `license_status` | string | Required source metadata |
+| `published_at` | date | Required source metadata |
 | `ingested_at` | datetime | |
 | `version` | string | |
 | `trust_level` | `TrustLevel` enum | |
+| `superseded_at` | datetime | Nullable; set when a newer version replaces this source |
+| `removed_at` | datetime | Nullable; set when the source is removed from the active corpus |
+
+**Data classification:** Internal.
+
+### `knowledge_chunk`
+Embedded text chunk from a curated external reference.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | UUID | PK |
+| `source_id` | UUID | FK -> `knowledge_source.id` |
+| `source_version` | string | Copied from source version |
+| `chunk_index` | int | Stable index within the source version |
+| `text` | text | External reference text only |
+| `content_hash` | string | Chunk hash for audit/dedup checks |
+| `embedding` | JSONB | Numeric vector payload for the dedicated store |
+| `source_metadata` | JSONB | Full source metadata copied onto the chunk |
 
 **Data classification:** Internal.
 
@@ -333,6 +352,8 @@ All time-series access patterns are indexed on `user_id` plus the relevant time 
 - `consent_record`: `(user_id)`, `(timestamp)`
 - `goal`: `(user_id, active)`
 - `knowledge_source`: `(trust_level)`
+- `knowledge_source`: `(url_or_identifier, superseded_at, removed_at)`
+- `knowledge_chunk`: `(source_id)`, `(content_hash)`
 - `evaluation_case`: `(evaluated_at)`
 - `user`: `(created_at)`
 
@@ -358,4 +379,4 @@ Per PRD §20.2:
 |----------------|--------|
 | **Restricted** | `user`, `consent_record`, `raw_health_sample`, `daily_check_in`, `recommendation` |
 | **Confidential** | `normalized_health_metric`, `workout_session`, `sleep_session`, `goal`, `derived_daily_feature`, `readiness_assessment`, `memory_summary`, `model_run`, `evaluation_case` |
-| **Internal** | `knowledge_source`, `audit_event` |
+| **Internal** | `knowledge_source`, `knowledge_chunk`, `audit_event` |
