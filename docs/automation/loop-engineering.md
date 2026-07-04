@@ -41,10 +41,10 @@ make task-next
 Ask Codex App to implement that task prompt. Keep the implementation scoped to
 the task file and current ledger state.
 
-When the App has produced a diff, finish it through the controller:
+When the App has produced a diff, finish and commit it through the controller:
 
 ```bash
-make task-finish
+make task-finish-commit
 ```
 
 If Codex App already ran some or all quality gates, save its verification
@@ -52,7 +52,7 @@ summary to a local text file and let `finish` reuse only the gates that are
 explicitly shown as passed:
 
 ```bash
-python3 scripts/run_task_loop.py finish --prior-verification-file .task-runs/app-verification.txt
+python3 scripts/run_task_loop.py finish --commit --prior-verification-file .task-runs/app-verification.txt
 ```
 
 For example, this evidence skips `make lint`, `make typecheck`, and `make test`,
@@ -70,16 +70,17 @@ Use this path only when the evidence belongs to the current diff. If you edit
 files after the App verification, rerun the affected gates or omit
 `--prior-verification-file`.
 
-To finish a specific task id:
+To finish and commit a specific task id:
 
 ```bash
-python3 scripts/run_task_loop.py finish --task P3-01
+python3 scripts/run_task_loop.py finish --task P3-01 --commit
 ```
 
-To finish and commit after all gates pass:
+Use no-commit finish only when you want to inspect the completed diff and commit
+manually:
 
 ```bash
-make task-finish-commit
+make task-finish
 ```
 
 The `finish` command intentionally requires an existing diff. If the tree is
@@ -102,6 +103,10 @@ working tree as the implementation candidate and then runs:
    findings
 4. focused repair verification when the failure came from structured review
 5. ledger update, and optional commit
+
+The recommended daily target is `make task-finish-commit`. It avoids leaving a
+dirty tree with `tasks/ledger.json` already marked complete, which can confuse
+the next task's review scope.
 
 Prior verification is intentionally per gate, not all-or-nothing. The controller
 skips a gate only when the evidence file contains the exact gate command and a

@@ -581,6 +581,26 @@ def test_review_failure_context_includes_structured_decision(tmp_path) -> None:
     assert "Retry should enqueue pending normalization" in context
 
 
+def test_review_prompts_discourage_broad_tree_listing() -> None:
+    task = {
+        "id": "P3-02",
+        "title": "reasoning engine",
+        "prompt": "tasks/P3-02-reasoning-engine.md",
+    }
+
+    review_prompt = TASK_LOOP.review_prompt(task, "?? apps/api/tests/test_reasoning_engine.py")
+    repair_prompt = TASK_LOOP.repair_review_prompt(
+        task,
+        "review failed; see file\n\nReview decision JSON:\n{}",
+        "?? apps/api/tests/test_reasoning_engine.py",
+    )
+
+    assert "Do not enumerate broad directories or test trees" in review_prompt
+    assert "Do not enumerate broad directories or test trees" in repair_prompt
+    assert "find apps/api/tests" in review_prompt
+    assert "find apps/api/tests" in repair_prompt
+
+
 def test_final_repair_accepts_only_actionable_gate_or_review_failures() -> None:
     actionable = "review failed; see file\n\nReview decision JSON:\n{}"
     non_actionable = "review command failed; see file\n\nLog tail:\nturn interrupted"

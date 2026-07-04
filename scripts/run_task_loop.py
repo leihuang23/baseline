@@ -837,6 +837,9 @@ Review scope:
 
 {changed_files}
 
+- Do not enumerate broad directories or test trees. Avoid commands such as `find apps/api/tests`
+  or full-tree listings. For untracked directories, inspect the package entry points, changed
+  files, and directly relevant tests by targeted path or symbol search only.
 - Do not run build or test commands in the review sandbox. The controller already ran quality
   gates before review; missing or sandbox-limited validation belongs in residual_risk, not as a
   reason to explore the repo.
@@ -875,6 +878,9 @@ Verification scope:
 
 {changed_files}
 
+- Do not enumerate broad directories or test trees. Avoid commands such as `find apps/api/tests`
+  or full-tree listings. For untracked directories, inspect the cited files, package entry points,
+  and directly relevant tests by targeted path or symbol search only.
 - Do not run build or test commands in the review sandbox. The controller already reran quality
   gates after the repair.
 - Do not search for new task-scope gaps or re-review the whole diff from scratch.
