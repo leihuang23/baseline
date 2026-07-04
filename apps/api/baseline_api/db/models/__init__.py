@@ -1,6 +1,11 @@
 """SQLModel table definitions for Baseline."""
 
-from baseline_api.db.models.assessment import ReadinessAssessment, ReasoningTrace, Recommendation
+from baseline_api.db.models.assessment import (
+    DailyAnalysisJob,
+    ReadinessAssessment,
+    ReasoningTrace,
+    Recommendation,
+)
 from baseline_api.db.models.audit import AuditEvent
 from baseline_api.db.models.checkin import DailyCheckIn
 from baseline_api.db.models.evaluation import EvaluationCase
@@ -32,6 +37,7 @@ __all__ = [
     "ConsentRecord",
     "DailyDataQuality",
     "DailyCheckIn",
+    "DailyAnalysisJob",
     "DerivedDailyFeatureSourceMetric",
     "DerivedDailyFeatureSourceSample",
     "DerivedDailyFeature",

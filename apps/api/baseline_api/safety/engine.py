@@ -478,7 +478,6 @@ def _recommendation_text(recommendation: RecommendationContract) -> str:
     parts = [
         recommendation.recommendation.primary,
         recommendation.recommendation.avoid or "",
-        recommendation.safety_note,
         " ".join(recommendation.risk_flags),
         " ".join(recommendation.uncertainty),
     ]
