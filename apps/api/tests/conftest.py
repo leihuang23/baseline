@@ -20,7 +20,7 @@ _DB_SKIP_REASON_ATTR = "_baseline_db_skip_reason"
 def _base_database_url() -> str:
     return os.environ.get(
         "DATABASE_URL",
-        "postgresql+psycopg://baseline@localhost:5432/baseline",
+        "postgresql+psycopg://baseline@localhost:5433/baseline",
     )
 
 

@@ -138,6 +138,7 @@ class Recommendation(BaseDBModel, table=True):
     )
     safety_result: dict[str, Any] = Field(
         sa_type=JSONB,
+        default_factory=dict,
         nullable=False,
     )
     model_run_id: UUID | None = Field(

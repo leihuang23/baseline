@@ -10,7 +10,7 @@ from baseline_api.observability.tracing import TRACE_HEADER, create_job_context,
 def test_trace_id_is_returned_and_propagates_to_job_context() -> None:
     settings = Settings(
         APP_ENV="test",
-        DATABASE_URL="postgresql+psycopg://baseline@localhost:5432/baseline",
+        DATABASE_URL="postgresql+psycopg://baseline@localhost:5433/baseline",
         REDIS_URL="redis://localhost:6379/0",
     )
     app = create_app(settings)
