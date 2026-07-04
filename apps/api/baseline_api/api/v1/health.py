@@ -65,7 +65,6 @@ async def sync_health(
         result = service.sync(request)
         session.commit()
     except IngestionError as error:
-        session.rollback()
         return _error_response(
             status_code=error.status_code,
             code=error.code,

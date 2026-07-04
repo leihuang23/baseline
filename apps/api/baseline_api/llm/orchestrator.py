@@ -44,6 +44,7 @@ class SafetyGate(Protocol):
 class LLMConsent:
     """Minimal consent state needed before invoking an LLM provider."""
 
+    cloud_processing_enabled: bool
     external_llm_enabled: bool
     raw_note_processing_enabled: bool
 
@@ -94,6 +95,7 @@ class DatabaseConsentResolver:
         if consent is None:
             raise LLMConsentError("Active consent record not found.")
         return LLMConsent(
+            cloud_processing_enabled=consent.cloud_processing_enabled,
             external_llm_enabled=consent.external_llm_enabled,
             raw_note_processing_enabled=consent.raw_note_processing_enabled,
         )
@@ -180,21 +182,25 @@ class LLMOrchestrator:
         run_type: RunType = RunType.explanation,
     ) -> OrchestratorResult:
         consent = self._consent_resolver.active_consent(user_id)
+        if not consent.cloud_processing_enabled:
+            return self._degrade(
+                reason="cloud_processing_disabled",
+                prompt_inputs=prompt_inputs,
+                model_runs=[],
+            )
         response_schema = LLMExplanationOutput.model_json_schema()
         prompt = self._prompts.render(prompt_inputs, response_schema)
         model_runs: list[Any] = []
         last_schema_error: str | None = None
         last_provider_error: str | None = None
+        external_route_skipped = False
 
         routes = self._router.routes_for(prompt_inputs.task_type)
         for route_index, route in enumerate(routes):
             provider = self._router.provider(route.provider_name)
             if provider.requires_external_llm_consent and not consent.external_llm_enabled:
-                return self._degrade(
-                    reason="external_llm_disabled",
-                    prompt_inputs=prompt_inputs,
-                    model_runs=model_runs,
-                )
+                external_route_skipped = True
+                continue
             if prompt_inputs.raw_notes and not consent.raw_note_processing_enabled:
                 return self._degrade(
                     reason="raw_note_processing_disabled",
@@ -359,7 +365,11 @@ class LLMOrchestrator:
                     )
                 return OrchestratorResult(output=output, model_runs=model_runs)
 
-        reason = last_schema_error or last_provider_error or "llm_unavailable"
+        reason = (
+            last_schema_error
+            or last_provider_error
+            or ("external_llm_disabled" if external_route_skipped else "llm_unavailable")
+        )
         return self._degrade(reason=reason, prompt_inputs=prompt_inputs, model_runs=model_runs)
 
     def _degrade(

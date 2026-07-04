@@ -278,6 +278,255 @@ public struct APIEnvelope<T: Codable & Sendable>: Codable, Sendable {
     public var data: T?
 }
 
+public enum PrivacyJSONValue: Codable, Equatable, Sendable {
+    case object([String: PrivacyJSONValue])
+    case array([PrivacyJSONValue])
+    case string(String)
+    case double(Double)
+    case bool(Bool)
+    case null
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode([String: PrivacyJSONValue].self) {
+            self = .object(value)
+        } else if let value = try? container.decode([PrivacyJSONValue].self) {
+            self = .array(value)
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else {
+            self = try .string(container.decode(String.self))
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .object(let value):
+            try container.encode(value)
+        case .array(let value):
+            try container.encode(value)
+        case .string(let value):
+            try container.encode(value)
+        case .double(let value):
+            try container.encode(value)
+        case .bool(let value):
+            try container.encode(value)
+        case .null:
+            try container.encodeNil()
+        }
+    }
+}
+
+public enum DataExportScope: String, Codable, Sendable {
+    case all
+    case health
+    case checkins
+    case briefings
+    case recommendations
+    case memory
+    case consent
+}
+
+public enum DataExportFormat: String, Codable, Sendable {
+    case json
+    case csv
+}
+
+public struct DataExportRequest: Codable, Equatable, Sendable {
+    public var schemaVersion = "v1"
+    public var exportScope: DataExportScope
+    public var format: DataExportFormat
+    public var includeRawData: Bool
+    public var includeModelTraces: Bool
+
+    public init(
+        exportScope: DataExportScope,
+        format: DataExportFormat = .json,
+        includeRawData: Bool = false,
+        includeModelTraces: Bool = false
+    ) {
+        self.exportScope = exportScope
+        self.format = format
+        self.includeRawData = includeRawData
+        self.includeModelTraces = includeModelTraces
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case exportScope = "export_scope"
+        case format
+        case includeRawData = "include_raw_data"
+        case includeModelTraces = "include_model_traces"
+    }
+}
+
+public struct DataExportResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var exportJobID: UUID
+    public var status: String
+    public var expiresAt: String
+    public var downloadURL: String?
+    public var encryption: [String: String]
+
+    public init(
+        schemaVersion: String = "v1",
+        exportJobID: UUID,
+        status: String,
+        expiresAt: String,
+        downloadURL: String? = nil,
+        encryption: [String: String] = [:]
+    ) {
+        self.schemaVersion = schemaVersion
+        self.exportJobID = exportJobID
+        self.status = status
+        self.expiresAt = expiresAt
+        self.downloadURL = downloadURL
+        self.encryption = encryption
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case exportJobID = "export_job_id"
+        case status
+        case expiresAt = "expires_at"
+        case downloadURL = "download_url"
+        case encryption
+    }
+}
+
+public struct DataControlConsentResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var id: UUID
+    public var userID: UUID
+    public var consentVersion: String
+    public var healthCategoriesEnabled: [String]
+    public var cloudProcessingEnabled: Bool
+    public var externalLLMEnabled: Bool
+    public var rawNoteProcessingEnabled: Bool
+    public var timestamp: String
+    public var revokedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case id
+        case userID = "user_id"
+        case consentVersion = "consent_version"
+        case healthCategoriesEnabled = "health_categories_enabled"
+        case cloudProcessingEnabled = "cloud_processing_enabled"
+        case externalLLMEnabled = "external_llm_enabled"
+        case rawNoteProcessingEnabled = "raw_note_processing_enabled"
+        case timestamp
+        case revokedAt = "revoked_at"
+    }
+}
+
+public struct ConsentHistoryResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var activeConsentVersion: String
+    public var records: [DataControlConsentResponse]
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case activeConsentVersion = "active_consent_version"
+        case records
+    }
+}
+
+public struct DisableExternalLLMRequest: Codable, Equatable, Sendable {
+    public var schemaVersion = "v1"
+    public var consentVersion: String?
+
+    public init(consentVersion: String? = nil) {
+        self.consentVersion = consentVersion
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case consentVersion = "consent_version"
+    }
+}
+
+public struct ConsentRevocationRequest: Codable, Equatable, Sendable {
+    public var schemaVersion = "v1"
+    public var consentVersion: String?
+    public var revokeCloudProcessing: Bool
+    public var revokeExternalLLM: Bool
+    public var revokeRawNoteProcessing: Bool
+    public var revokeHealthCategories: [String]?
+
+    public init(
+        consentVersion: String? = nil,
+        revokeCloudProcessing: Bool = true,
+        revokeExternalLLM: Bool = true,
+        revokeRawNoteProcessing: Bool = true,
+        revokeHealthCategories: [String]? = nil
+    ) {
+        self.consentVersion = consentVersion
+        self.revokeCloudProcessing = revokeCloudProcessing
+        self.revokeExternalLLM = revokeExternalLLM
+        self.revokeRawNoteProcessing = revokeRawNoteProcessing
+        self.revokeHealthCategories = revokeHealthCategories
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case consentVersion = "consent_version"
+        case revokeCloudProcessing = "revoke_cloud_processing"
+        case revokeExternalLLM = "revoke_external_llm"
+        case revokeRawNoteProcessing = "revoke_raw_note_processing"
+        case revokeHealthCategories = "revoke_health_categories"
+    }
+}
+
+public struct DataDeleteResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var deleted: [String: Int]
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case deleted
+    }
+}
+
+public struct ModelDisclosureRecord: Codable, Equatable, Sendable {
+    public var runID: UUID
+    public var createdAt: String
+    public var runType: String
+    public var provider: String
+    public var model: String
+    public var promptVersion: String
+    public var schemaVersion: String
+    public var inputHash: String
+    public var payloadMetadata: [String: PrivacyJSONValue]
+
+    enum CodingKeys: String, CodingKey {
+        case runID = "run_id"
+        case createdAt = "created_at"
+        case runType = "run_type"
+        case provider
+        case model
+        case promptVersion = "prompt_version"
+        case schemaVersion = "schema_version"
+        case inputHash = "input_hash"
+        case payloadMetadata = "payload_metadata"
+    }
+}
+
+public struct ModelDisclosureResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var runs: [ModelDisclosureRecord]
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case runs
+    }
+}
+
 public enum BriefingPrivacyMode: String, Codable, Sendable {
     case localOnly = "local_only"
     case cloudAssisted = "cloud_assisted"

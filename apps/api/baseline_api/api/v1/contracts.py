@@ -4,7 +4,7 @@ import datetime as dt
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine
 from sqlmodel import Session
@@ -20,12 +20,10 @@ from baseline_api.schemas.api import (
     DailyAnalysisRequest,
     DailyAnalysisResponse,
     DailyBriefingResponse,
-    DataExportRequest,
-    DataExportResponse,
     RecommendationFeedbackRequest,
     RecommendationFeedbackResponse,
 )
-from baseline_api.schemas.common import APIEnvelope, APIError, not_implemented_envelope
+from baseline_api.schemas.common import APIEnvelope, APIError
 
 router = APIRouter(prefix="/v1", tags=["contracts"])
 
@@ -35,11 +33,6 @@ FEEDBACK_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": "Recommendation was not found.",
     },
 }
-
-
-def _stub(response: Response) -> APIEnvelope[None]:
-    response.status_code = status.HTTP_501_NOT_IMPLEMENTED
-    return not_implemented_envelope()
 
 
 def _llm_explainer(request: Request, session: Session) -> LLMExplainer | None:
@@ -169,14 +162,6 @@ async def submit_recommendation_feedback(
     except FeedbackError as error:
         return _feedback_error_response(error)
     return APIEnvelope(status="success", data=data)
-
-
-@router.post("/data/export", response_model=APIEnvelope[DataExportResponse])
-async def export_data(
-    request: DataExportRequest,
-    response: Response,
-) -> APIEnvelope[None]:
-    return _stub(response)
 
 
 async def _run_daily_analysis_job(

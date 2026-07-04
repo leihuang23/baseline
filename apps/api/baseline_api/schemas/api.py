@@ -21,6 +21,7 @@ from baseline_api.schemas.enums import (
     FeedbackRating,
     GoalCategory,
     GoalTimeHorizon,
+    HealthConsentCategory,
     MemoryUpdateStatus,
     MetricType,
     PrivacyMode,
@@ -380,6 +381,72 @@ class DataExportResponse(ContractModel):
     export_job_id: UUID
     status: DataExportStatus
     expires_at: dt.datetime
+    download_url: str | None = None
+    encryption: dict[str, str] = Field(default_factory=dict)
+
+
+class ConsentRecordRequest(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    consent_version: str = Field(min_length=1)
+    health_categories_enabled: list[HealthConsentCategory] = Field(default_factory=list)
+    cloud_processing_enabled: bool = False
+    external_llm_enabled: bool = False
+    raw_note_processing_enabled: bool = False
+
+
+class ConsentRecordResponse(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    id: UUID
+    user_id: UUID
+    consent_version: str
+    health_categories_enabled: list[HealthConsentCategory] = Field(default_factory=list)
+    cloud_processing_enabled: bool
+    external_llm_enabled: bool
+    raw_note_processing_enabled: bool
+    timestamp: dt.datetime
+    revoked_at: dt.datetime | None = None
+
+
+class ConsentHistoryResponse(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    active_consent_version: str
+    records: list[ConsentRecordResponse] = Field(default_factory=list)
+
+
+class DisableExternalLLMRequest(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    consent_version: str | None = Field(default=None, min_length=1)
+
+
+class ConsentRevocationRequest(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    consent_version: str | None = Field(default=None, min_length=1)
+    revoke_cloud_processing: bool = True
+    revoke_external_llm: bool = True
+    revoke_raw_note_processing: bool = True
+    revoke_health_categories: list[HealthConsentCategory] | None = None
+
+
+class DataDeleteResponse(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    deleted: dict[str, int] = Field(default_factory=dict)
+
+
+class ModelDisclosureRecord(ContractModel):
+    run_id: UUID
+    created_at: dt.datetime
+    run_type: str
+    provider: str
+    model: str
+    prompt_version: str
+    schema_version: str
+    input_hash: str
+    payload_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelDisclosureResponse(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    runs: list[ModelDisclosureRecord] = Field(default_factory=list)
 
 
 __all__ = [
@@ -396,6 +463,14 @@ __all__ = [
     "DailyCheckInResponse",
     "DataExportRequest",
     "DataExportResponse",
+    "ConsentHistoryResponse",
+    "ConsentRecordRequest",
+    "ConsentRecordResponse",
+    "ConsentRevocationRequest",
+    "DataDeleteResponse",
+    "DisableExternalLLMRequest",
+    "ModelDisclosureRecord",
+    "ModelDisclosureResponse",
     "DataFreshness",
     "DataQualitySummary",
     "GoalRequest",

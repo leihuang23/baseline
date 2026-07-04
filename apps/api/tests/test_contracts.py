@@ -8,7 +8,6 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import BaseModel, ValidationError
 
 from baseline_api.app import create_app
@@ -359,36 +358,18 @@ def test_goal_request_rejects_clinical_success_metric() -> None:
         )
 
 
-def test_contract_stubs_return_consistent_error_envelope() -> None:
-    client = TestClient(create_app(_settings()))
+def test_data_export_route_is_published() -> None:
+    schema = create_app(_settings()).openapi()
 
-    response = client.post(
-        "/v1/data/export",
-        json={
-            "export_scope": "briefings",
-            "format": "json",
-            "include_raw_data": False,
-            "include_model_traces": True,
-        },
-    )
-
-    assert response.status_code == 501
-    assert response.json() == {
-        "status": "error",
-        "data": None,
-        "error": {
-            "code": "not_implemented",
-            "message": (
-                "This API contract is published, but endpoint behavior is not implemented yet."
-            ),
-            "details": None,
-        },
-        "meta": {
-            "schema_version": "v1",
-            "request_id": None,
-            "trace_id": None,
-            "generated_at": None,
-        },
+    assert schema["paths"]["/v1/data/export"]["post"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/DataExportRequest"}
+    assert schema["paths"]["/v1/data/export/{export_job_id}/file"]["get"]["responses"]["200"][
+        "content"
+    ] == {
+        "application/octet-stream": {
+            "schema": {"type": "string", "format": "binary"},
+        }
     }
 
 

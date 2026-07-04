@@ -105,11 +105,13 @@ class FakeModelRunLogger:
 
 @dataclass(frozen=True)
 class FakeConsentResolver:
+    cloud_processing_enabled: bool = True
     external_llm_enabled: bool = True
     raw_note_processing_enabled: bool = True
 
     def active_consent(self, user_id: UUID) -> LLMConsent:
         return LLMConsent(
+            cloud_processing_enabled=self.cloud_processing_enabled,
             external_llm_enabled=self.external_llm_enabled,
             raw_note_processing_enabled=self.raw_note_processing_enabled,
         )
@@ -214,6 +216,7 @@ def _prompt_inputs(task_type: TaskType = TaskType.simple_explanation) -> PromptI
 def _seed_user(
     session: Session,
     *,
+    cloud_processing_enabled: bool = True,
     external_llm_enabled: bool = True,
     raw_note_processing_enabled: bool = True,
 ) -> User:
@@ -225,7 +228,7 @@ def _seed_user(
             user_id=user.id,
             consent_version="v1",
             health_categories_enabled=["sleep", "heart_rate"],
-            cloud_processing_enabled=True,
+            cloud_processing_enabled=cloud_processing_enabled,
             external_llm_enabled=external_llm_enabled,
             raw_note_processing_enabled=raw_note_processing_enabled,
             timestamp=dt.datetime(2026, 7, 4, 8, 0, tzinfo=dt.UTC),
@@ -248,6 +251,7 @@ def _orchestrator(session: Session, *providers: FakeProvider) -> LLMOrchestrator
 
 def _unit_orchestrator(
     *providers: FakeProvider,
+    cloud_processing_enabled: bool = True,
     external_llm_enabled: bool = True,
     raw_note_processing_enabled: bool = True,
     safety_status: str = "passed",
@@ -260,6 +264,7 @@ def _unit_orchestrator(
             strong_model="strong-planner",
         ),
         consent_resolver=FakeConsentResolver(
+            cloud_processing_enabled=cloud_processing_enabled,
             external_llm_enabled=external_llm_enabled,
             raw_note_processing_enabled=raw_note_processing_enabled,
         ),
@@ -408,6 +413,19 @@ async def test_model_routing_uses_strong_model_for_planning_without_db() -> None
     )
 
     assert provider.calls[0].model == "strong-planner"
+
+
+@pytest.mark.asyncio
+async def test_cloud_processing_disabled_degrades_without_prompt_or_provider_call() -> None:
+    provider = FakeProvider(name="mock-primary", responses=[_valid_output()])
+    orchestrator, logger = _unit_orchestrator(provider, cloud_processing_enabled=False)
+
+    result = await orchestrator.explain(user_id=uuid4(), prompt_inputs=_prompt_inputs())
+
+    assert result.degraded is True
+    assert result.degrade_reason == "cloud_processing_disabled"
+    assert provider.calls == []
+    assert logger.records == []
 
 
 @pytest.mark.asyncio
@@ -701,6 +719,29 @@ async def test_model_routing_uses_strong_model_for_planning(db_session: Session)
 
 
 @pytest.mark.asyncio
+async def test_cloud_processing_disabled_degrades_without_provider_call(
+    db_session: Session,
+) -> None:
+    user = _seed_user(
+        db_session,
+        cloud_processing_enabled=False,
+        external_llm_enabled=True,
+        raw_note_processing_enabled=True,
+    )
+    provider = FakeProvider(name="mock-primary", responses=[_valid_output()])
+
+    result = await _orchestrator(db_session, provider).explain(
+        user_id=user.id,
+        prompt_inputs=_prompt_inputs(),
+    )
+
+    assert result.degraded is True
+    assert result.degrade_reason == "cloud_processing_disabled"
+    assert provider.calls == []
+    assert list(db_session.exec(select(ModelRun)).all()) == []
+
+
+@pytest.mark.asyncio
 async def test_consent_disabled_degrades_without_provider_call(db_session: Session) -> None:
     user = _seed_user(db_session, external_llm_enabled=False)
     provider = FakeProvider(name="mock-primary", responses=[_valid_output()])
@@ -714,6 +755,29 @@ async def test_consent_disabled_degrades_without_provider_call(db_session: Sessi
     assert result.degrade_reason == "external_llm_disabled"
     assert provider.calls == []
     assert list(db_session.exec(select(ModelRun)).all()) == []
+
+
+@pytest.mark.asyncio
+async def test_consent_disabled_skips_external_and_uses_local_provider() -> None:
+    external = FakeProvider(name="external-primary", responses=[_valid_output("External.")])
+    local = FakeProvider(
+        name="local-fallback",
+        responses=[_valid_output("Local fallback.")],
+        requires_external_llm_consent=False,
+    )
+    orchestrator, logger = _unit_orchestrator(
+        external,
+        local,
+        external_llm_enabled=False,
+    )
+
+    result = await orchestrator.explain(user_id=uuid4(), prompt_inputs=_prompt_inputs())
+
+    assert result.degraded is False
+    assert result.output.summary == "Local fallback."
+    assert external.calls == []
+    assert len(local.calls) == 1
+    assert [record.model_provider for record in logger.records] == ["local-fallback"]
 
 
 @pytest.mark.asyncio
