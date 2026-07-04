@@ -24,6 +24,7 @@ from baseline_api.schemas.api import (
     DailyCheckInResponse,
     DataExportRequest,
     DataExportResponse,
+    GoalRequest,
     HealthSyncRequest,
     HealthSyncResponse,
     RecommendationFeedbackRequest,
@@ -311,6 +312,42 @@ def test_recommendation_rejects_missing_mandatory_fields(field_name: str) -> Non
 
     with pytest.raises(ValidationError):
         RecommendationContract.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "constraints",
+    [
+        {"sexual_health": "medication dose 50mg"},
+        {"notes": "diagnosis should improve"},
+        {"lifestyle": "symptom tracking"},
+    ],
+)
+def test_goal_request_rejects_clinical_constraint_values(
+    constraints: dict[str, str],
+) -> None:
+    with pytest.raises(ValidationError):
+        GoalRequest.model_validate(
+            {
+                "category": "long_term_wellness",
+                "priority": 3,
+                "time_horizon": "medium_term",
+                "success_metric": "high-level lifestyle consistency",
+                "constraints": constraints,
+            }
+        )
+
+
+def test_goal_request_rejects_clinical_success_metric() -> None:
+    with pytest.raises(ValidationError):
+        GoalRequest.model_validate(
+            {
+                "category": "long_term_wellness",
+                "priority": 3,
+                "time_horizon": "medium_term",
+                "success_metric": "reduce erectile dysfunction symptoms",
+                "constraints": {},
+            }
+        )
 
 
 def test_contract_stubs_return_consistent_error_envelope() -> None:

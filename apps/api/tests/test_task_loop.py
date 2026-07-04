@@ -622,6 +622,11 @@ def test_finish_task_runs_gates_review_and_complete_without_agent(monkeypatch) -
     )
     monkeypatch.setattr(
         TASK_LOOP,
+        "cleanup_generated_python_artifacts",
+        lambda: calls.append("cleanup") and 0,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
         "run_review",
         lambda *args, **kwargs: calls.append("review") or (True, "review passed"),
     )
@@ -636,10 +641,64 @@ def test_finish_task_runs_gates_review_and_complete_without_agent(monkeypatch) -
     assert calls == [
         "state:finish_existing_diff",
         "gates",
+        "cleanup",
         "review",
         "complete",
         "state:complete",
     ]
+
+
+def test_final_repair_allows_finish_args_without_max_attempts(monkeypatch) -> None:
+    task = {
+        "id": "P3-01",
+        "title": "goal management",
+        "prompt": "tasks/P3-01-goal-management.md",
+    }
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure, *, agent: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_logged",
+        lambda *args, **kwargs: calls.append("codex") or 0,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or (True, "quality gates passed"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "cleanup_generated_python_artifacts",
+        lambda: calls.append("cleanup") and 0,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_review",
+        lambda *args, **kwargs: calls.append("review") or (True, "review passed"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "complete_task",
+        lambda *args, **kwargs: calls.append("complete"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            finish_args(),
+            "review failed; see file\n\nReview decision JSON:\n{}",
+        )
+        is True
+    )
+
+    assert calls == ["attempt:1", "codex", "gates", "cleanup", "review", "complete"]
 
 
 def test_implementation_timeout_candidate_changes_are_detected() -> None:

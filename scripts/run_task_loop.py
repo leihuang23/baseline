@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -509,6 +510,25 @@ def normalize_log_limit_bytes(value: int) -> int | None:
     return value
 
 
+def cleanup_generated_python_artifacts() -> int:
+    removed = 0
+    ignored_roots = {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".task-runs",
+        ".uv-cache",
+        ".venv",
+    }
+    for pycache_dir in ROOT.rglob("__pycache__"):
+        if any(part in ignored_roots for part in pycache_dir.relative_to(ROOT).parts):
+            continue
+        shutil.rmtree(pycache_dir, ignore_errors=True)
+        removed += 1
+    return removed
+
+
 def validate_heartbeat_seconds(value: int) -> None:
     if value < 0:
         raise LoopError("Heartbeat seconds must be non-negative; use 0 to disable heartbeats.")
@@ -941,10 +961,11 @@ def run_final_repair(
     args: argparse.Namespace,
     previous_failure: str,
 ) -> bool:
+    max_attempts = getattr(args, "max_attempts", 0)
     task_run_dir = RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-final-repair"
     prompt = implementation_prompt(
         task,
-        args.max_attempts + 1,
+        max_attempts + 1,
         previous_failure,
         agent=AGENT_CODEX,
     )
@@ -952,8 +973,8 @@ def run_final_repair(
     base_status = {
         "task_id": task["id"],
         "task_title": task["title"],
-        "attempt": args.max_attempts + 1,
-        "max_attempts": args.max_attempts,
+        "attempt": max_attempts + 1,
+        "max_attempts": max_attempts,
         "run_dir": relative_to_root(task_run_dir),
         "final_repair": True,
     }
@@ -987,6 +1008,10 @@ def run_final_repair(
     if not gates_ok:
         print(f"  failed: {gate_result}")
         return False
+
+    removed_artifacts = cleanup_generated_python_artifacts()
+    if removed_artifacts:
+        print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
 
     if not args.skip_review:
         is_repair_verification = review_failure_is_actionable(previous_failure)
@@ -1090,6 +1115,10 @@ def run_finish_task(
         block_task(task, base_status, "finish blocked by quality gate failure")
         print(gate_result)
         return False
+
+    removed_artifacts = cleanup_generated_python_artifacts()
+    if removed_artifacts:
+        print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
 
     if not args.skip_review:
         review_ok, review_result = run_review(
@@ -1316,6 +1345,10 @@ def run_task(
             print(f"  failed: {gate_result}")
             # Gate failures are not retried; fall through to final-repair logic below.
             break
+
+        removed_artifacts = cleanup_generated_python_artifacts()
+        if removed_artifacts:
+            print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
 
         if not args.skip_review:
             review_ok, review_result = run_review(
