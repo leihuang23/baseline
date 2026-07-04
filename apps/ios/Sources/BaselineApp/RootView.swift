@@ -83,13 +83,26 @@ struct OnboardingView: View {
 }
 
 struct BaselineHomeView: View {
+    @EnvironmentObject private var appModel: BaselineAppModel
+    @StateObject private var briefingModel: DailyBriefingViewModel
     @StateObject private var checkInModel: DailyCheckInViewModel
     @StateObject private var goalsModel: GoalsViewModel
     private let privacyMode: () -> PrivacyMode
 
     init(apiBaseURL: URL, privacyMode: @escaping () -> PrivacyMode) {
         let apiClient = URLSessionHealthSyncAPIClient(baseURL: apiBaseURL)
+        let supportDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0].appendingPathComponent("Baseline", isDirectory: true)
         self.privacyMode = privacyMode
+        _briefingModel = StateObject(
+            wrappedValue: DailyBriefingViewModel(
+                apiClient: apiClient,
+                briefingStore: try! FileBriefingStore(rootURL: supportDirectory),
+                privacyMode: privacyMode
+            )
+        )
         _checkInModel = StateObject(
             wrappedValue: DailyCheckInViewModel(apiClient: apiClient, privacyMode: privacyMode)
         )
@@ -98,6 +111,10 @@ struct BaselineHomeView: View {
 
     var body: some View {
         TabView {
+            DailyBriefingView(viewModel: briefingModel)
+                .tabItem {
+                    Label("Briefing", systemImage: "sunrise")
+                }
             DailyCheckInView(viewModel: checkInModel, privacyMode: privacyMode)
                 .tabItem {
                     Label("Check-in", systemImage: "checkmark.circle")
@@ -110,6 +127,11 @@ struct BaselineHomeView: View {
                 .tabItem {
                     Label("Sync", systemImage: "arrow.triangle.2.circlepath")
                 }
+        }
+        .task {
+            briefingModel.setSyncAction {
+                await appModel.syncNow()
+            }
         }
     }
 }

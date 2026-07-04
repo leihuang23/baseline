@@ -11,7 +11,12 @@ from uuid import UUID, uuid4
 
 from sqlmodel import Session, col, select
 
-from baseline_api.db.models.assessment import DailyAnalysisJob, ReasoningTrace, Recommendation
+from baseline_api.db.models.assessment import (
+    DailyAnalysisJob,
+    ReadinessAssessment,
+    ReasoningTrace,
+    Recommendation,
+)
 from baseline_api.db.models.checkin import DailyCheckIn
 from baseline_api.db.models.enums import (
     RecommendationType as ModelRecommendationType,
@@ -48,6 +53,7 @@ from baseline_api.observability.tracing import create_job_context, use_trace_con
 from baseline_api.reasoning.service import ReasoningService, features_to_mapping
 from baseline_api.safety.engine import SafetyPolicyEngine
 from baseline_api.schemas.api import (
+    BriefingTraceInspection,
     CandidateOption,
     DailyAnalysisRequest,
     DailyAnalysisResponse,
@@ -63,6 +69,7 @@ from baseline_api.schemas.enums import (
 )
 from baseline_api.schemas.recommendation import (
     DataQualityNote,
+    ExternalCitation,
     FollowUpPrompt,
     MemoryObservation,
     PersonalEvidence,
@@ -152,6 +159,21 @@ class DailyBriefingService:
         self._session.add(job)
         self._session.commit()
         return job
+
+    def get_daily_job(self, job_id: UUID) -> DailyAnalysisResponse:
+        user = self._get_single_user()
+        job = self._session.get(DailyAnalysisJob, job_id)
+        if job is None or job.user_id != user.id:
+            raise BriefingError(
+                code="analysis_job_not_found",
+                message="Daily analysis job not found.",
+                status_code=404,
+            )
+        return DailyAnalysisResponse(
+            analysis_job_id=job.id,
+            status=AnalysisJobStatus(job.status),
+            estimated_completion_seconds=0 if job.status in {"completed", "failed"} else 5,
+        )
 
     async def run_daily_job(self, job_id: UUID) -> DailyAnalysisResponse:
         job = self._session.get(DailyAnalysisJob, job_id)
@@ -385,6 +407,51 @@ class DailyBriefingService:
                 status_code=409,
             )
         return DailyBriefingResponse.model_validate(recommendation.briefing_payload)
+
+    def get_trace(self, trace_id: UUID) -> BriefingTraceInspection:
+        user = self._get_single_user()
+        trace = self._session.get(ReasoningTrace, trace_id)
+        if trace is None or trace.user_id != user.id:
+            raise BriefingError(
+                code="trace_not_found",
+                message="Briefing trace not found.",
+                status_code=404,
+            )
+        assessment = self._session.exec(
+            select(ReadinessAssessment).where(
+                ReadinessAssessment.user_id == user.id,
+                ReadinessAssessment.reasoning_trace_id == trace_id,
+            )
+        ).first()
+        recommendation = self._session.exec(
+            select(Recommendation)
+            .where(
+                Recommendation.user_id == user.id,
+                Recommendation.reasoning_trace_id == trace_id,
+            )
+            .order_by(col(Recommendation.created_at).desc())
+        ).first()
+        briefing_payload = recommendation.briefing_payload if recommendation else {}
+        generation = trace.trace_payload.get("briefing_generation", {})
+        return BriefingTraceInspection(
+            trace_id=trace.id,
+            data_freshness=(
+                DataFreshness.model_validate(briefing_payload["data_freshness"])
+                if briefing_payload.get("data_freshness")
+                else None
+            ),
+            feature_values=_personal_evidence(assessment.evidence_items if assessment else []),
+            rules_fired=_rule_labels(trace.rules_fired),
+            retrieved_memory=[
+                MemoryObservation.model_validate(item)
+                for item in briefing_payload.get("memory_observations", [])
+            ],
+            external_sources=[
+                ExternalCitation.model_validate(item)
+                for item in briefing_payload.get("external_citations", [])
+            ],
+            model_metadata=_model_metadata(trace.trace_payload, generation),
+        )
 
     def _load_or_compute_features(
         self,
@@ -876,6 +943,47 @@ def _personal_evidence(items: Sequence[Mapping[str, Any]]) -> list[PersonalEvide
             source="reasoning_engine",
         )
     ]
+
+
+def _rule_labels(items: Sequence[Mapping[str, Any]]) -> list[str]:
+    labels: list[str] = []
+    for item in items:
+        rule_id = str(item.get("rule_id") or "rule")
+        evidence = item.get("evidence")
+        if isinstance(evidence, Mapping) and evidence:
+            evidence_text = ", ".join(
+                f"{key}={_evidence_value(value)}" for key, value in evidence.items()
+            )
+            labels.append(f"{rule_id}: {evidence_text}")
+        else:
+            labels.append(rule_id)
+    return labels
+
+
+def _model_metadata(
+    trace_payload: Mapping[str, Any],
+    generation: Mapping[str, Any],
+) -> dict[str, str]:
+    metadata: dict[str, str] = {
+        "assessment_version": str(trace_payload.get("assessment_version", "unknown")),
+        "input_hash": str(trace_payload.get("inputs_hash", "unknown")),
+        "request_route": str(trace_payload.get("request_route", "unknown")),
+        "briefing_generation_status": str(generation.get("status", "unknown")),
+    }
+    for key in (
+        "degrade_reason",
+        "retrieval_degraded",
+        "retrieval_degrade_reason",
+        "model_run_ids",
+        "total_cost",
+        "latency_ms",
+        "within_p95_target",
+        "generated_at",
+    ):
+        value = generation.get(key)
+        if value is not None:
+            metadata[key] = str(value)
+    return metadata
 
 
 def _evidence_value(value: Any) -> str | int | float | bool:

@@ -257,6 +257,17 @@ class DataFreshness(ContractModel):
     stale_sources: list[str] = Field(default_factory=list)
 
 
+class BriefingTraceInspection(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    trace_id: UUID
+    data_freshness: DataFreshness | None = None
+    feature_values: list[PersonalEvidence] = Field(default_factory=list)
+    rules_fired: list[str] = Field(default_factory=list)
+    retrieved_memory: list[MemoryObservation] = Field(default_factory=list)
+    external_sources: list[ExternalCitation] = Field(default_factory=list)
+    model_metadata: dict[str, str] = Field(default_factory=dict)
+
+
 class CandidateOption(ContractModel):
     label: str = Field(min_length=1)
     recommendation_band: RecommendationBand
@@ -352,6 +363,7 @@ __all__ = [
     "ActiveGoalSet",
     "AssistantQueryRequest",
     "AssistantQueryResponse",
+    "BriefingTraceInspection",
     "CandidateOption",
     "DailyAnalysisRequest",
     "DailyAnalysisResponse",

@@ -301,6 +301,334 @@ final class BaselineAppTests: XCTestCase {
     }
 
     @MainActor
+    func testBriefingGeneratePollsAndFetchesBriefing() async throws {
+        let briefing = sampleBriefing()
+        let api = MockBriefingAPIClient(
+            generateResult: DailyAnalysisResponse(
+                analysisJobID: UUID(),
+                status: "queued",
+                estimatedCompletionSeconds: 1
+            ),
+            jobResults: [
+                DailyAnalysisResponse(
+                    analysisJobID: UUID(),
+                    status: "running",
+                    estimatedCompletionSeconds: 1
+                ),
+                DailyAnalysisResponse(
+                    analysisJobID: UUID(),
+                    status: "completed",
+                    estimatedCompletionSeconds: 0
+                ),
+            ],
+            briefingResults: [
+                .failure(BaselineAPIError.unsuccessfulStatus(404)),
+                .success(briefing),
+            ],
+            traceResult: sampleTrace()
+        )
+        let store = InMemoryBriefingStore()
+        var syncCount = 0
+        let viewModel = DailyBriefingViewModel(
+            apiClient: api,
+            briefingStore: store,
+            privacyMode: { .hybrid },
+            syncBeforeGenerate: { syncCount += 1 },
+            sleep: { _ in },
+            maxFetchAttempts: 3,
+            dateProvider: { "2026-07-04" }
+        )
+
+        await viewModel.generateBriefing()
+
+        XCTAssertEqual(syncCount, 1)
+        XCTAssertEqual(api.generatedRequests.single?.date, "2026-07-04")
+        XCTAssertEqual(api.generatedRequests.single?.privacyMode, .hybrid)
+        XCTAssertEqual(api.jobRequestIDs.count, 2)
+        XCTAssertEqual(api.fetchRequests.map(\.date), ["2026-07-04", "2026-07-04"])
+        XCTAssertEqual(viewModel.briefing?.trace, sampleTrace())
+        XCTAssertEqual(store.savedBriefing?.trace, sampleTrace())
+        XCTAssertFalse(viewModel.isOfflineFallback)
+        XCTAssertEqual(viewModel.statusMessage, "Briefing is fresh.")
+    }
+
+    @MainActor
+    func testBriefingGenerateExposesLoadingStateDuringRequest() async {
+        let api = MockBriefingAPIClient(traceResult: sampleTrace())
+        let store = InMemoryBriefingStore()
+        let viewModel = DailyBriefingViewModel(
+            apiClient: api,
+            briefingStore: store,
+            privacyMode: { .hybrid },
+            sleep: { _ in },
+            dateProvider: { "2026-07-04" }
+        )
+        api.beforeGenerateReturn = {
+            XCTAssertTrue(viewModel.isGenerating)
+            XCTAssertEqual(viewModel.statusMessage, "Generating daily briefing...")
+        }
+
+        await viewModel.generateBriefing()
+
+        XCTAssertFalse(viewModel.isGenerating)
+    }
+
+    @MainActor
+    func testBriefingGenerateTimesOutWithoutFetchingBriefing() async {
+        let cached = sampleBriefing(recommendation: "Cached briefing.")
+        let api = MockBriefingAPIClient(
+            generateResult: DailyAnalysisResponse(
+                analysisJobID: UUID(),
+                status: "queued",
+                estimatedCompletionSeconds: 1
+            ),
+            jobResults: [
+                DailyAnalysisResponse(
+                    analysisJobID: UUID(),
+                    status: "running",
+                    estimatedCompletionSeconds: 1
+                ),
+            ],
+            briefingResults: [.success(sampleBriefing(recommendation: "Should not appear."))],
+            traceResult: sampleTrace()
+        )
+        let viewModel = DailyBriefingViewModel(
+            apiClient: api,
+            briefingStore: InMemoryBriefingStore(initialBriefing: cached),
+            privacyMode: { .hybrid },
+            sleep: { _ in },
+            maxFetchAttempts: 2,
+            dateProvider: { "2026-07-04" }
+        )
+
+        await viewModel.generateBriefing()
+
+        XCTAssertEqual(api.generatedRequests.count, 1)
+        XCTAssertEqual(api.jobRequestIDs.count, 1)
+        XCTAssertTrue(api.fetchRequests.isEmpty)
+        XCTAssertEqual(viewModel.briefing, cached)
+        XCTAssertTrue(viewModel.isOfflineFallback)
+        XCTAssertEqual(viewModel.statusMessage, "Analysis is still running. Showing latest saved briefing.")
+    }
+
+    @MainActor
+    func testBriefingGenerateIgnoresDuplicateRequestWhileGenerating() async {
+        let api = MockBriefingAPIClient(traceResult: sampleTrace())
+        var viewModel: DailyBriefingViewModel!
+        viewModel = DailyBriefingViewModel(
+            apiClient: api,
+            briefingStore: InMemoryBriefingStore(),
+            privacyMode: { .hybrid },
+            syncBeforeGenerate: {
+                await viewModel.generateBriefing()
+            },
+            sleep: { _ in },
+            dateProvider: { "2026-07-04" }
+        )
+
+        await viewModel.generateBriefing()
+
+        XCTAssertEqual(api.generatedRequests.count, 1)
+        XCTAssertEqual(api.fetchRequests.count, 1)
+        XCTAssertFalse(viewModel.isGenerating)
+    }
+
+    @MainActor
+    func testBriefingGenerateClearsStaleFollowUpAnswer() async {
+        let refreshed = sampleBriefing(recommendation: "Fresh briefing.")
+        let api = MockBriefingAPIClient(
+            briefingResults: [.success(refreshed)],
+            traceResult: sampleTrace()
+        )
+        let viewModel = DailyBriefingViewModel(
+            apiClient: api,
+            briefingStore: InMemoryBriefingStore(initialBriefing: sampleBriefing()),
+            privacyMode: { .hybrid },
+            sleep: { _ in },
+            dateProvider: { "2026-07-04" }
+        )
+        viewModel.followUpQuestion = "Why this recommendation?"
+        await viewModel.askFollowUp()
+        XCTAssertNotNil(viewModel.followUpAnswer)
+
+        await viewModel.generateBriefing()
+
+        XCTAssertEqual(viewModel.briefing?.recommendation.primary, "Fresh briefing.")
+        XCTAssertNil(viewModel.followUpAnswer)
+    }
+
+    @MainActor
+    func testBriefingGenerateShowsDeterministicDegradedState() async {
+        let degraded = sampleBriefing(
+            recommendation: "Deterministic fallback: keep training moderate."
+        )
+        let api = MockBriefingAPIClient(
+            generateResult: DailyAnalysisResponse(
+                analysisJobID: UUID(),
+                status: "completed",
+                estimatedCompletionSeconds: 0
+            ),
+            briefingResults: [.success(degraded)],
+            traceResult: sampleTrace(status: "degraded", degradeReason: "llm_not_configured")
+        )
+        let viewModel = DailyBriefingViewModel(
+            apiClient: api,
+            briefingStore: InMemoryBriefingStore(),
+            privacyMode: { .cloudAssisted },
+            sleep: { _ in },
+            dateProvider: { "2026-07-04" }
+        )
+
+        await viewModel.generateBriefing()
+
+        XCTAssertEqual(viewModel.briefing?.recommendation.primary, degraded.recommendation.primary)
+        XCTAssertEqual(viewModel.statusMessage, "Generated with deterministic fallback.")
+    }
+
+    @MainActor
+    func testBriefingFollowUpRendersEvidenceBackedAnswer() async throws {
+        let answer = AssistantQueryResponse(
+            answer: "Sleep debt makes intervals less attractive today.",
+            personalEvidence: [
+                PersonalEvidence(
+                    metric: "sleep_debt_hours",
+                    value: .double(1.8),
+                    interpretation: "Higher than baseline.",
+                    source: "briefing_trace"
+                ),
+            ],
+            externalSources: [
+                ExternalCitation(
+                    title: "Training load note",
+                    source: "Baseline",
+                    citedClaim: "Reduce intensity when recovery signals are mixed."
+                ),
+            ],
+            confidence: "medium",
+            uncertainty: ["No soreness check-in."],
+            safetyStatus: "passed",
+            traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        )
+        let api = MockBriefingAPIClient(assistantResult: answer)
+        let viewModel = DailyBriefingViewModel(
+            apiClient: api,
+            briefingStore: InMemoryBriefingStore(initialBriefing: sampleBriefing()),
+            privacyMode: { .localOnly },
+            dateProvider: { "2026-07-04" }
+        )
+        viewModel.followUpQuestion = "Why not intervals?"
+
+        await viewModel.askFollowUp()
+
+        XCTAssertEqual(api.assistantRequests.single?.question, "Why not intervals?")
+        XCTAssertEqual(api.assistantRequests.single?.allowedDataScope, ["briefing_trace", "recent_health"])
+        XCTAssertEqual(api.assistantRequests.single?.privacyMode, .localOnly)
+        XCTAssertEqual(viewModel.followUpAnswer, answer)
+        XCTAssertEqual(viewModel.followUpQuestion, "")
+        XCTAssertEqual(viewModel.statusMessage, "Follow-up answered from trace-backed evidence.")
+    }
+
+    @MainActor
+    func testFollowUpSnapshotSeparatesEvidenceCitationsAndUncertainty() {
+        let answer = AssistantQueryResponse(
+            answer: "Keep it moderate.",
+            personalEvidence: [
+                PersonalEvidence(
+                    metric: "hrv_deviation_pct",
+                    value: .double(-8),
+                    interpretation: "Below recent baseline.",
+                    source: "briefing_trace"
+                ),
+            ],
+            externalSources: [
+                ExternalCitation(
+                    title: "Safety note",
+                    source: "Baseline",
+                    citedClaim: "Avoid medical certainty."
+                ),
+            ],
+            confidence: "medium",
+            uncertainty: ["Check-in is missing."],
+            safetyStatus: "passed",
+            traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        )
+        let snapshot = renderedStrings(in: AssistantAnswerView(answer: answer).body)
+
+        XCTAssertTrue(snapshot.contains("Personal evidence"))
+        XCTAssertTrue(snapshot.contains("External citations"))
+        XCTAssertTrue(snapshot.contains("Uncertainty"))
+        XCTAssertTrue(snapshot.contains("briefing_trace"))
+        XCTAssertTrue(snapshot.contains("Safety note"))
+    }
+
+    @MainActor
+    func testBriefingOfflineFallbackShowsLastSavedBriefing() async {
+        let cached = sampleBriefing(recommendation: "Cached briefing.")
+        let api = MockBriefingAPIClient(generateError: TestError.failed)
+        let viewModel = DailyBriefingViewModel(
+            apiClient: api,
+            briefingStore: InMemoryBriefingStore(initialBriefing: cached),
+            privacyMode: { .hybrid },
+            dateProvider: { "2026-07-04" }
+        )
+
+        await viewModel.generateBriefing()
+
+        XCTAssertEqual(viewModel.briefing, cached)
+        XCTAssertTrue(viewModel.isOfflineFallback)
+        XCTAssertTrue(viewModel.statusMessage.contains("Showing latest saved briefing"))
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    @MainActor
+    func testBriefingSnapshotKeepsSafetyNoteAndFreshnessVisible() {
+        let viewModel = DailyBriefingViewModel(
+            apiClient: MockBriefingAPIClient(),
+            briefingStore: InMemoryBriefingStore(initialBriefing: sampleBriefing()),
+            privacyMode: { .hybrid },
+            dateProvider: { "2026-07-04" }
+        )
+        let view = DailyBriefingView(viewModel: viewModel)
+        if #available(iOS 16.0, macOS 13.0, *) {
+            let renderer = ImageRenderer(content: view.frame(width: 390, height: 844))
+            XCTAssertNotNil(renderer.cgImage)
+        }
+        let snapshot = renderedStrings(in: view.body)
+
+        XCTAssertTrue(snapshot.contains("Freshness"))
+        XCTAssertTrue(snapshot.contains("Safety note"))
+        XCTAssertTrue(snapshot.contains("This is wellness decision support, not medical advice."))
+        XCTAssertTrue(snapshot.contains { $0.contains("Latest sample") })
+        XCTAssertTrue(snapshot.contains { $0.contains("Generated:") })
+    }
+
+    @MainActor
+    func testTraceViewRendersInspectionSectionsFromTracePayload() {
+        let view = TraceInspectionView(briefing: sampleBriefing(), trace: sampleTrace())
+        let snapshot = renderedStrings(in: view.body)
+
+        XCTAssertTrue(snapshot.contains("Data freshness"))
+        XCTAssertTrue(snapshot.contains("Feature values"))
+        XCTAssertTrue(snapshot.contains("Rules fired"))
+        XCTAssertTrue(snapshot.contains("Retrieved memory"))
+        XCTAssertTrue(snapshot.contains("External sources"))
+        XCTAssertTrue(snapshot.contains("Model metadata"))
+        XCTAssertTrue(snapshot.contains("sleep_debt_rule: sleep_debt_hours=1.5"))
+        XCTAssertTrue(snapshot.contains("Briefing generation status"))
+        XCTAssertFalse(snapshot.contains("Trace details are unavailable for this briefing."))
+    }
+
+    @MainActor
+    func testTraceViewGracefullyShowsMissingTrace() {
+        let view = TraceInspectionView(briefing: sampleBriefing(), trace: nil)
+        let snapshot = renderedStrings(in: view.body)
+
+        XCTAssertTrue(snapshot.contains("Trace availability"))
+        XCTAssertTrue(snapshot.contains("Trace details are unavailable for this briefing."))
+        XCTAssertTrue(snapshot.contains("No feature values were exposed for this trace."))
+    }
+
+    @MainActor
     func testCheckInUIKeepsFastSubmitUnderOneMinuteBar() {
         let api = MockCheckInAPIClient()
         let viewModel = DailyCheckInViewModel(apiClient: api, privacyMode: { .hybrid })
@@ -459,6 +787,231 @@ private final class MockGoalsAPIClient: GoalsAPIClient, @unchecked Sendable {
         pausedIDs.append(id)
         return pauseResult
     }
+}
+
+private final class MockBriefingAPIClient: DailyBriefingAPIClient, @unchecked Sendable {
+    private let generateResult: DailyAnalysisResponse
+    private let generateError: Error?
+    private var jobResults: [DailyAnalysisResponse]
+    private var briefingResults: [Result<DailyBriefingResponse, Error>]
+    private let traceResult: BriefingTraceInspection?
+    private let traceError: Error?
+    private let assistantResult: AssistantQueryResponse
+    private let assistantError: Error?
+    var beforeGenerateReturn: (@MainActor () async -> Void)?
+    private(set) var generatedRequests: [DailyAnalysisRequest] = []
+    private(set) var jobRequestIDs: [UUID] = []
+    private(set) var fetchRequests: [(date: String, offlineLast: Bool)] = []
+    private(set) var traceRequestIDs: [UUID] = []
+    private(set) var assistantRequests: [AssistantQueryRequest] = []
+
+    init(
+        generateResult: DailyAnalysisResponse = DailyAnalysisResponse(
+            analysisJobID: UUID(),
+            status: "completed",
+            estimatedCompletionSeconds: 0
+        ),
+        generateError: Error? = nil,
+        jobResults: [DailyAnalysisResponse] = [],
+        briefingResults: [Result<DailyBriefingResponse, Error>] = [.success(sampleBriefing())],
+        traceResult: BriefingTraceInspection? = nil,
+        traceError: Error? = nil,
+        assistantResult: AssistantQueryResponse = AssistantQueryResponse(
+            answer: "Use the briefing trace for context.",
+            personalEvidence: [
+                PersonalEvidence(
+                    metric: "sleep_debt_hours",
+                    value: .double(1.2),
+                    interpretation: "Slightly elevated.",
+                    source: "briefing_trace"
+                ),
+            ],
+            confidence: "medium",
+            uncertainty: ["No extra evidence requested."],
+            safetyStatus: "passed",
+            traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+        ),
+        assistantError: Error? = nil
+    ) {
+        self.generateResult = generateResult
+        self.generateError = generateError
+        self.jobResults = jobResults
+        self.briefingResults = briefingResults
+        self.traceResult = traceResult
+        self.traceError = traceError
+        self.assistantResult = assistantResult
+        self.assistantError = assistantError
+    }
+
+    func generateDailyAnalysis(_ request: DailyAnalysisRequest) async throws -> DailyAnalysisResponse {
+        generatedRequests.append(request)
+        if let beforeGenerateReturn {
+            await beforeGenerateReturn()
+        }
+        if let generateError {
+            throw generateError
+        }
+        return generateResult
+    }
+
+    func fetchDailyAnalysisJob(id: UUID) async throws -> DailyAnalysisResponse {
+        jobRequestIDs.append(id)
+        guard !jobResults.isEmpty else {
+            return generateResult
+        }
+        return jobResults.removeFirst()
+    }
+
+    func fetchDailyBriefing(date: String, offlineLast: Bool) async throws -> DailyBriefingResponse {
+        fetchRequests.append((date, offlineLast))
+        return try briefingResults.removeFirst().get()
+    }
+
+    func fetchBriefingTrace(traceID: UUID) async throws -> BriefingTraceInspection {
+        traceRequestIDs.append(traceID)
+        if let traceError {
+            throw traceError
+        }
+        if let traceResult {
+            return traceResult
+        }
+        throw BaselineAPIError.unsuccessfulStatus(404)
+    }
+
+    func submitAssistantQuery(_ request: AssistantQueryRequest) async throws -> AssistantQueryResponse {
+        assistantRequests.append(request)
+        if let assistantError {
+            throw assistantError
+        }
+        return assistantResult
+    }
+}
+
+private final class InMemoryBriefingStore: BriefingPersisting, @unchecked Sendable {
+    private(set) var savedBriefing: DailyBriefingResponse?
+
+    init(initialBriefing: DailyBriefingResponse? = nil) {
+        savedBriefing = initialBriefing
+    }
+
+    func loadLatestBriefing() throws -> DailyBriefingResponse? {
+        savedBriefing
+    }
+
+    func saveLatestBriefing(_ briefing: DailyBriefingResponse) throws {
+        savedBriefing = briefing
+    }
+}
+
+private func sampleBriefing(
+    recommendation: String = "Keep training moderate."
+) -> DailyBriefingResponse {
+    DailyBriefingResponse(
+        date: "2026-07-04",
+        readinessState: "mixed",
+        confidence: "medium",
+        dataFreshness: DataFreshness(
+            latestSampleAt: "2026-07-04T06:30:00Z",
+            latestCheckInDate: "2026-07-04",
+            staleSources: []
+        ),
+        evidence: [
+            PersonalEvidence(
+                metric: "sleep_debt_hours",
+                value: .double(1.5),
+                interpretation: "Slight sleep debt.",
+                source: "features.sleep"
+            ),
+        ],
+        memoryObservations: [
+            MemoryObservation(
+                observation: "Moderate days after short sleep were rated useful.",
+                relevance: "Supports conservative training."
+            ),
+        ],
+        externalCitations: [
+            ExternalCitation(
+                title: "Baseline safety policy",
+                source: "Baseline",
+                citedClaim: "Briefings should avoid medical certainty."
+            ),
+        ],
+        riskFlags: ["sleep_debt"],
+        recommendation: RecommendationSummary(primary: recommendation),
+        recommendationBand: "moderate_or_upper_body",
+        candidateOptions: [
+            CandidateOption(
+                label: "Upper body strength",
+                recommendationBand: "moderate_or_upper_body",
+                rationale: "Keeps work productive without lower-body load."
+            ),
+        ],
+        goalTradeoffs: [
+            GoalTradeoff(goal: "VO2 max", tradeoff: "Delay intervals one day."),
+        ],
+        uncertainty: ["No soreness check-in yet."],
+        dataQualityNotes: [
+            DataQualityNote(metric: "hrv", note: "HRV sample is recent.", severity: "info"),
+        ],
+        whatWouldChangeMyMind: ["A low soreness check-in and normal HRV would support intensity."],
+        alternatives: [
+            RecommendationAlternative(label: "Rest", rationale: "Valid if subjective fatigue is high."),
+        ],
+        followUp: FollowUpPrompt(
+            question: "Why not intervals today?",
+            reason: "Explains the main tradeoff."
+        ),
+        safetyStatus: "passed",
+        safetyNotes: ["This is wellness decision support, not medical advice."],
+        traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+        generatedAt: "2026-07-04T06:40:00Z"
+    )
+}
+
+private func sampleTrace(
+    status: String = "success",
+    degradeReason: String? = nil
+) -> BriefingTraceInspection {
+    var metadata = [
+        "assessment_version": "test-v1",
+        "briefing_generation_status": status,
+        "input_hash": "input-hash",
+        "model_run_ids": "[00000000-0000-0000-0000-000000000099]",
+    ]
+    if let degradeReason {
+        metadata["degrade_reason"] = degradeReason
+    }
+    return BriefingTraceInspection(
+        traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+        dataFreshness: DataFreshness(
+            latestSampleAt: "2026-07-04T06:30:00Z",
+            latestCheckInDate: "2026-07-04",
+            staleSources: []
+        ),
+        featureValues: [
+            PersonalEvidence(
+                metric: "sleep_debt_hours",
+                value: .double(1.5),
+                interpretation: "Slight sleep debt.",
+                source: "sleep_features.values.sleep_debt_hours"
+            ),
+        ],
+        rulesFired: ["sleep_debt_rule: sleep_debt_hours=1.5"],
+        retrievedMemory: [
+            MemoryObservation(
+                observation: "Prior moderate day was useful.",
+                relevance: "Recent prior briefing context."
+            ),
+        ],
+        externalSources: [
+            ExternalCitation(
+                title: "Baseline safety policy",
+                source: "Baseline",
+                citedClaim: "Avoid medical certainty."
+            ),
+        ],
+        modelMetadata: metadata
+    )
 }
 
 private extension Array {
