@@ -1,5 +1,7 @@
 UV_CACHE_DIR ?= .uv-cache
+DATABASE_URL ?= postgresql+psycopg://baseline@localhost:5433/baseline
 export UV_CACHE_DIR
+export DATABASE_URL
 
 .PHONY: dev test lint typecheck migrate fmt eval task-status task-next task-current task-current-watch task-finish task-finish-commit task-loop-one task-loop-one-codex task-loop-one-commit task-loop-one-commit-codex task-loop-p0-cluster task-loop-p0-cluster-codex
 

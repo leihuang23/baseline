@@ -50,7 +50,7 @@ class FakeNormalizationQueue:
 
 
 def _settings(
-    database_url: str = "postgresql+psycopg://baseline@localhost:5432/baseline",
+    database_url: str = "postgresql+psycopg://baseline@localhost:5433/baseline",
 ) -> Settings:
     return Settings(
         APP_ENV="test",

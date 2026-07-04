@@ -135,6 +135,7 @@ class AssistantQueryService:
         uncertainty = list(draft.uncertainty)
         if safety.status is not SafetyStatus.passed and safety.safety_note not in uncertainty:
             uncertainty.append(safety.safety_note)
+        uncertainty = _contract_uncertainty(uncertainty)
 
         latency_ms = int((time.perf_counter() - started) * 1000)
         trace_id = self._record_trace(
@@ -358,8 +359,8 @@ class AssistantQueryService:
             external_sources=_external_sources(request),
             confidence=ConfidenceLevel.medium,
             uncertainty=[
-                "This is an option set for planning, not medical, treatment, or coaching "
-                "instruction.",
+                "This is an option set for planning, not a prescription, medical treatment, "
+                "or coaching instruction.",
                 "Update the plan as the week's data changes.",
             ]
             + _external_uncertainty(request),
@@ -449,7 +450,7 @@ class AssistantQueryService:
             personal_evidence=evidence,
             external_sources=_external_sources(request),
             confidence=ConfidenceLevel.high,
-            uncertainty=_external_uncertainty(request),
+            uncertainty=_contract_uncertainty(_external_uncertainty(request)),
             trace_payload={
                 "intent": "modality",
                 "table": "workout_session",
@@ -946,6 +947,12 @@ def _external_uncertainty(request: AssistantQueryRequest) -> list[str]:
     if DataScope.external_knowledge not in request.allowed_data_scope:
         return ["External knowledge was requested but not allowed by data scope."]
     return ["External retrieval is not implemented in this slice; no external claims were used."]
+
+
+def _contract_uncertainty(uncertainty: list[str]) -> list[str]:
+    if uncertainty:
+        return uncertainty
+    return ["No material grounding gaps in the retrieved structured data."]
 
 
 def _period_uncertainty(

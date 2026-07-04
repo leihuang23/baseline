@@ -205,6 +205,92 @@
         }
       }
     },
+    "/v1/analysis/daily/{job_id}": {
+      "get": {
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Get Daily Analysis Job",
+        "operationId": "get_daily_analysis_job_v1_analysis_daily__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyAnalysisResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/analysis/traces/{trace_id}": {
+      "get": {
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Get Analysis Trace",
+        "operationId": "get_analysis_trace_v1_analysis_traces__trace_id__get",
+        "parameters": [
+          {
+            "name": "trace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Trace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_BriefingTraceInspection_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/briefings/{date}": {
       "get": {
         "tags": [
@@ -841,6 +927,47 @@
         ],
         "title": "APIEnvelope[AssistantQueryResponse]"
       },
+      "APIEnvelope_BriefingTraceInspection_": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BriefingTraceInspection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/APIResponseMeta"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[BriefingTraceInspection]"
+      },
       "APIEnvelope_DailyAnalysisResponse_": {
         "properties": {
           "status": {
@@ -1448,6 +1575,72 @@
           "trace_id"
         ],
         "title": "AssistantQueryResponse"
+      },
+      "BriefingTraceInspection": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "trace_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Trace Id"
+          },
+          "data_freshness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DataFreshness"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feature_values": {
+            "items": {
+              "$ref": "#/components/schemas/PersonalEvidence"
+            },
+            "type": "array",
+            "title": "Feature Values"
+          },
+          "rules_fired": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rules Fired"
+          },
+          "retrieved_memory": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryObservation"
+            },
+            "type": "array",
+            "title": "Retrieved Memory"
+          },
+          "external_sources": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalCitation"
+            },
+            "type": "array",
+            "title": "External Sources"
+          },
+          "model_metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Model Metadata"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "trace_id"
+        ],
+        "title": "BriefingTraceInspection"
       },
       "CandidateOption": {
         "properties": {

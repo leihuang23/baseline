@@ -41,7 +41,7 @@ FIXED_DATETIME = datetime(2026, 1, 15, 8, 30, tzinfo=UTC)
 def _settings() -> Settings:
     return Settings(
         APP_ENV="test",
-        DATABASE_URL="postgresql+psycopg://baseline@localhost:5432/baseline",
+        DATABASE_URL="postgresql+psycopg://baseline@localhost:5433/baseline",
         REDIS_URL="redis://localhost:6379/0",
     )
 

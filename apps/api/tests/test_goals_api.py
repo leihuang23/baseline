@@ -21,7 +21,7 @@ from baseline_api.goals import GoalService
 def _settings() -> Settings:
     return Settings(
         APP_ENV="test",
-        DATABASE_URL="postgresql+psycopg://baseline@localhost:5432/baseline",
+        DATABASE_URL="postgresql+psycopg://baseline@localhost:5433/baseline",
         REDIS_URL="redis://localhost:6379/0",
     )
 

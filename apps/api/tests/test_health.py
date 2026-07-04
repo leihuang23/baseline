@@ -7,7 +7,7 @@ from baseline_api.config import Settings
 def test_health_endpoints_return_ok() -> None:
     settings = Settings(
         APP_ENV="test",
-        DATABASE_URL="postgresql+psycopg://baseline@localhost:5432/baseline",
+        DATABASE_URL="postgresql+psycopg://baseline@localhost:5433/baseline",
         REDIS_URL="redis://localhost:6379/0",
     )
     client = TestClient(create_app(settings))

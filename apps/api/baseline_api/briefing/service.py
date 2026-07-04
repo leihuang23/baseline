@@ -190,6 +190,8 @@ class DailyBriefingService:
                 message="No Baseline user is available for briefing generation.",
                 status_code=409,
             )
+        job_record_id = job.id
+        user_id = user.id
         request = DailyAnalysisRequest(
             date=job.date,
             force_recompute=job.force_recompute,
@@ -197,16 +199,16 @@ class DailyBriefingService:
             privacy_mode=PrivacyMode(job.privacy_mode),
         )
         context = create_job_context(
-            job_id=str(job.id),
+            job_id=str(job_record_id),
             trace_id=job.request_trace_id,
-            internal_user_id=str(user.id),
+            internal_user_id=str(user_id),
         )
         started = time.perf_counter()
         job.status = AnalysisJobStatus.running.value
         job.started_at = dt.datetime.now(dt.UTC)
         job.stage_trace = [
             *job.stage_trace,
-            _stage_event("job_running", trace_id=context.trace_id, job_id=job.id),
+            _stage_event("job_running", trace_id=context.trace_id, job_id=job_record_id),
         ]
         self._session.add(job)
         self._session.commit()
@@ -214,55 +216,56 @@ class DailyBriefingService:
         with use_trace_context(context):
             try:
                 feature = self._load_or_compute_features(
-                    user_id=user.id,
+                    user_id=user_id,
                     target_date=request.date,
                     force_recompute=request.force_recompute,
                 )
-                checkin = self._load_checkin(user.id, request.date)
+                checkin = self._load_checkin(user_id, request.date)
                 freshness = _data_freshness(self._session, feature, checkin)
                 stage_trace = [
                     *job.stage_trace,
                     _stage_event(
                         "features",
                         trace_id=context.trace_id,
-                        job_id=job.id,
+                        job_id=job_record_id,
                         derived_daily_feature_id=str(feature.id),
                         feature_version=feature.feature_version,
                     ),
                     _stage_event(
                         "data_freshness",
                         trace_id=context.trace_id,
-                        job_id=job.id,
+                        job_id=job_record_id,
                         data_freshness=freshness.model_dump(mode="json"),
                     ),
                 ]
                 active_goals = self._active_goals()
                 assessment = ReasoningService(self._session).assess_and_persist(
-                    user_id=user.id,
+                    user_id=user_id,
                     derived_features=feature,
                     active_goals=active_goals,
                     recent_memory=[],
                     daily_check_in=_checkin_mapping(checkin),
                     include_external_knowledge=request.include_external_knowledge,
                 )
-                briefing_trace_id = str(assessment.reasoning_trace_id)
+                assessment_data = _assessment_mapping(assessment)
+                briefing_trace_id = str(assessment_data["reasoning_trace_id"])
                 stage_trace = _retarget_stage_trace(stage_trace, trace_id=briefing_trace_id)
                 stage_trace.append(
                     _stage_event(
                         "reasoning",
                         trace_id=briefing_trace_id,
-                        job_id=job.id,
-                        reasoning_trace_id=str(assessment.reasoning_trace_id),
+                        job_id=job_record_id,
+                        reasoning_trace_id=briefing_trace_id,
                         readiness_state=assessment.readiness_state.value,
                         recommendation_band=assessment.recommendation_band.value,
                     )
                 )
-                retrieval = self._retrieve_recent_history(user.id, request.date)
+                retrieval = self._retrieve_recent_history(user_id, request.date)
                 stage_trace.append(
                     _stage_event(
                         "retrieval",
                         trace_id=briefing_trace_id,
-                        job_id=job.id,
+                        job_id=job_record_id,
                         status="degraded" if retrieval.degraded else "success",
                         degraded=retrieval.degraded,
                         degrade_reason=retrieval.degrade_reason,
@@ -272,7 +275,7 @@ class DailyBriefingService:
                 prompt_inputs = PromptInputs(
                     task_type=TaskType.simple_explanation,
                     request_text="Generate today's Baseline daily briefing.",
-                    deterministic_assessment=_assessment_mapping(assessment),
+                    deterministic_assessment=assessment_data,
                     derived_features=features_to_mapping(feature),
                     retrieved_evidence=retrieval.trace_items,
                     external_knowledge=[],
@@ -280,7 +283,7 @@ class DailyBriefingService:
                     raw_notes=[],
                 )
                 explanation = await self._explain(
-                    user_id=user.id,
+                    user_id=user_id,
                     prompt_inputs=prompt_inputs,
                     privacy_mode=request.privacy_mode,
                 )
@@ -288,7 +291,7 @@ class DailyBriefingService:
                     _stage_event(
                         "llm_explanation",
                         trace_id=briefing_trace_id,
-                        job_id=job.id,
+                        job_id=job_record_id,
                         status="degraded" if explanation.degraded else "success",
                         degraded=explanation.degraded,
                         degrade_reason=explanation.degrade_reason,
@@ -300,7 +303,7 @@ class DailyBriefingService:
                 )
                 briefing = self._assemble_briefing(
                     target_date=request.date,
-                    assessment=_assessment_mapping(assessment),
+                    assessment=assessment_data,
                     feature=feature,
                     checkin=checkin,
                     freshness=freshness,
@@ -311,16 +314,16 @@ class DailyBriefingService:
                     _stage_event(
                         "safety",
                         trace_id=briefing_trace_id,
-                        job_id=job.id,
+                        job_id=job_record_id,
                         status=briefing.safety_status.value,
                         safety_notes=briefing.safety_notes,
                     )
                 )
                 recommendation = self._persist_recommendation(
-                    user_id=user.id,
+                    user_id=user_id,
                     target_date=request.date,
                     briefing=briefing,
-                    assessment=_assessment_mapping(assessment),
+                    assessment=assessment_data,
                     explanation=explanation,
                 )
                 latency_ms = int((time.perf_counter() - started) * 1000)
@@ -328,14 +331,14 @@ class DailyBriefingService:
                     _stage_event(
                         "persistence",
                         trace_id=briefing_trace_id,
-                        job_id=job.id,
+                        job_id=job_record_id,
                         recommendation_id=str(recommendation.id),
-                        reasoning_trace_id=str(assessment.reasoning_trace_id),
+                        reasoning_trace_id=briefing_trace_id,
                     )
                 )
                 self._record_trace(
-                    trace_id=assessment.reasoning_trace_id,
-                    job_id=job.id,
+                    trace_id=assessment_data["reasoning_trace_id"],
+                    job_id=job_record_id,
                     latency_ms=latency_ms,
                     recommendation=recommendation,
                     retrieval=retrieval,
@@ -343,7 +346,7 @@ class DailyBriefingService:
                     stage_trace=stage_trace,
                 )
                 job.status = AnalysisJobStatus.completed.value
-                job.reasoning_trace_id = assessment.reasoning_trace_id
+                job.reasoning_trace_id = assessment_data["reasoning_trace_id"]
                 job.recommendation_id = recommendation.id
                 job.stage_trace = stage_trace
                 job.completed_at = dt.datetime.now(dt.UTC)
@@ -355,18 +358,18 @@ class DailyBriefingService:
                 )
                 _record_model_cost(explanation)
                 return DailyAnalysisResponse(
-                    analysis_job_id=job.id,
+                    analysis_job_id=job_record_id,
                     status=AnalysisJobStatus.completed,
                     estimated_completion_seconds=0,
                 )
             except BriefingError:
-                self._mark_job_failed(job.id, error_code="briefing_error", error_message=None)
+                self._mark_job_failed(job_id, error_code="briefing_error", error_message=None)
                 increment_llm_generation_result(status="failed")
                 raise
             except Exception as exc:
                 self._session.rollback()
                 self._mark_job_failed(
-                    job.id,
+                    job_id,
                     error_code=type(exc).__name__,
                     error_message="Daily briefing generation failed.",
                 )
@@ -433,6 +436,7 @@ class DailyBriefingService:
         ).first()
         briefing_payload = recommendation.briefing_payload if recommendation else {}
         generation = trace.trace_payload.get("briefing_generation", {})
+        rules_fired = trace.rules_fired or trace.trace_payload.get("rules_fired", [])
         return BriefingTraceInspection(
             trace_id=trace.id,
             data_freshness=(
@@ -441,7 +445,7 @@ class DailyBriefingService:
                 else None
             ),
             feature_values=_personal_evidence(assessment.evidence_items if assessment else []),
-            rules_fired=_rule_labels(trace.rules_fired),
+            rules_fired=_rule_labels(rules_fired, fallback=trace.assessment_version),
             retrieved_memory=[
                 MemoryObservation.model_validate(item)
                 for item in briefing_payload.get("memory_observations", [])
@@ -606,7 +610,7 @@ class DailyBriefingService:
             confidence=assessment["confidence"],
             personal_evidence=_personal_evidence(assessment["evidence_items"]),
             memory_observations=retrieval.observations,
-            external_citations=explanation.external_citations,
+            external_citations=_external_citations_from_llm(explanation.external_citations),
             risk_flags=assessment["risk_flags"],
             recommendation=RecommendationSummary(
                 primary=_primary_recommendation(assessment, explanation),
@@ -945,7 +949,18 @@ def _personal_evidence(items: Sequence[Mapping[str, Any]]) -> list[PersonalEvide
     ]
 
 
-def _rule_labels(items: Sequence[Mapping[str, Any]]) -> list[str]:
+def _external_citations_from_llm(items: Sequence[Any]) -> list[ExternalCitation]:
+    citations: list[ExternalCitation] = []
+    for item in items:
+        if isinstance(item, ExternalCitation):
+            citations.append(item)
+            continue
+        payload = item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+        citations.append(ExternalCitation.model_validate(payload))
+    return citations
+
+
+def _rule_labels(items: Sequence[Mapping[str, Any]], *, fallback: str | None = None) -> list[str]:
     labels: list[str] = []
     for item in items:
         rule_id = str(item.get("rule_id") or "rule")
@@ -957,6 +972,8 @@ def _rule_labels(items: Sequence[Mapping[str, Any]]) -> list[str]:
             labels.append(f"{rule_id}: {evidence_text}")
         else:
             labels.append(rule_id)
+    if not labels and fallback:
+        labels.append(f"deterministic_assessment: {fallback}")
     return labels
 
 
@@ -1001,7 +1018,7 @@ def _primary_recommendation(
         return summary
     state = assessment["readiness_state"].value
     band = assessment["recommendation_band"].value.replace("_", " ")
-    return f"Today reads as {state}; keep the plan in the {band} range."
+    return f"Deterministic assessment: today reads as {state}; keep the plan in the {band} range."
 
 
 def _avoidance_note(assessment: Mapping[str, Any]) -> str | None:
