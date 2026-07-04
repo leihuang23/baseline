@@ -46,6 +46,7 @@ class PromptInputs(ContractModel):
     """Minimized context allowed into the LLM prompt."""
 
     task_type: TaskType = TaskType.simple_explanation
+    request_text: str | None = None
     deterministic_assessment: dict[str, Any]
     derived_features: dict[str, Any] = Field(default_factory=dict)
     retrieved_evidence: list[dict[str, Any]] = Field(default_factory=list)

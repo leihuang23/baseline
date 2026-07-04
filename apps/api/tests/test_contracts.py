@@ -279,6 +279,7 @@ def test_prd_recommendation_example_validates() -> None:
         "uncertainty": ["No soreness check-in was available."],
         "safety_status": "passed",
         "safety_note": "This is wellness decision support, not medical advice.",
+        "safety_result": {"status": "passed", "policy_version": "test"},
     }
 
     contract = RecommendationContract.model_validate(payload)
@@ -289,7 +290,14 @@ def test_prd_recommendation_example_validates() -> None:
 
 @pytest.mark.parametrize(
     "field_name",
-    ["personal_evidence", "confidence", "uncertainty", "safety_status", "safety_note"],
+    [
+        "personal_evidence",
+        "confidence",
+        "uncertainty",
+        "safety_status",
+        "safety_note",
+        "safety_result",
+    ],
 )
 def test_recommendation_rejects_missing_mandatory_fields(field_name: str) -> None:
     payload = {
@@ -307,6 +315,7 @@ def test_recommendation_rejects_missing_mandatory_fields(field_name: str) -> Non
         "uncertainty": ["No soreness check-in was available."],
         "safety_status": "passed",
         "safety_note": "This is wellness decision support, not medical advice.",
+        "safety_result": {"status": "passed", "policy_version": "test"},
     }
     payload.pop(field_name)
 

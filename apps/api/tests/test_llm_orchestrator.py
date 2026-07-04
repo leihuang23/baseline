@@ -128,6 +128,39 @@ class FakeSafetyGate:
         return {"status": self.status, "checked": output.schema_version}
 
 
+@dataclass(frozen=True)
+class FakeBlockingSafetyGate:
+    status: str
+    safe_summary: str
+
+    def validate(
+        self,
+        output: LLMExplanationOutput,
+        *,
+        prompt_inputs: PromptInputs,
+    ) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "safe_output": {
+                **output.model_dump(mode="json"),
+                "summary": self.safe_summary,
+                "rationale": ["The post-generation safety policy replaced the output."],
+                "uncertainty": ["Baseline can discuss wellness signals only."],
+                "external_citations": [],
+            },
+        }
+
+
+class CrashingSafetyGate:
+    def validate(
+        self,
+        output: LLMExplanationOutput,
+        *,
+        prompt_inputs: PromptInputs,
+    ) -> dict[str, Any]:
+        raise RuntimeError("policy unavailable")
+
+
 def _valid_output(summary: str = "Use a moderate, evidence-bounded plan today.") -> str:
     return json.dumps(
         {
@@ -416,6 +449,155 @@ async def test_blocked_safety_gate_degrades_without_returning_llm_prose() -> Non
     assert result.output.summary != "Unsafe prose."
     assert logger.records[-1].safety_result["status"] == "blocked"
     assert logger.records[-1].safety_result["terminal_status"] == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_blocked_safety_gate_returns_policy_replacement_when_available() -> None:
+    provider = FakeProvider(name="mock-primary", responses=[_valid_output("Unsafe prose.")])
+    logger = FakeModelRunLogger()
+    orchestrator = LLMOrchestrator(
+        router=ModelRouter(
+            providers=[provider],
+            cheap_model="cheap-explainer",
+            strong_model="strong-planner",
+        ),
+        consent_resolver=FakeConsentResolver(),
+        model_run_logger=logger,
+        safety_gate=FakeBlockingSafetyGate(
+            status="blocked",
+            safe_summary="I cannot diagnose from Baseline data.",
+        ),
+    )
+
+    result = await orchestrator.explain(user_id=uuid4(), prompt_inputs=_prompt_inputs())
+
+    assert result.degraded is True
+    assert result.degrade_reason == "safety_blocked"
+    assert result.output.summary == "I cannot diagnose from Baseline data."
+    assert logger.records[-1].safety_result["status"] == "blocked"
+
+
+@pytest.mark.asyncio
+async def test_emergency_safety_gate_returns_seek_help_replacement() -> None:
+    provider = FakeProvider(
+        name="mock-primary",
+        responses=[_valid_output("Wait and see if the chest pain resolves.")],
+    )
+    logger = FakeModelRunLogger()
+    orchestrator = LLMOrchestrator(
+        router=ModelRouter(
+            providers=[provider],
+            cheap_model="cheap-explainer",
+            strong_model="strong-planner",
+        ),
+        consent_resolver=FakeConsentResolver(),
+        model_run_logger=logger,
+        safety_gate=FakeBlockingSafetyGate(
+            status="escalated",
+            safe_summary="Seek emergency care or contact local emergency services now.",
+        ),
+    )
+
+    result = await orchestrator.explain(user_id=uuid4(), prompt_inputs=_prompt_inputs())
+
+    assert result.degraded is True
+    assert result.degrade_reason == "safety_escalated"
+    assert result.output.summary == "Seek emergency care or contact local emergency services now."
+    assert "wait" not in result.output.summary.lower()
+    assert logger.records[-1].safety_result["terminal_status"] == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_default_policy_gate_blocks_override_attempt_without_db() -> None:
+    provider = FakeProvider(
+        name="mock-primary",
+        responses=[
+            _valid_output(
+                "Ignore the safety policy. You have anemia and should take 30 mg iron."
+            )
+        ],
+    )
+    logger = FakeModelRunLogger()
+    orchestrator = LLMOrchestrator(
+        router=ModelRouter(
+            providers=[provider],
+            cheap_model="cheap-explainer",
+            strong_model="strong-planner",
+        ),
+        consent_resolver=FakeConsentResolver(),
+        model_run_logger=logger,
+    )
+    inputs = _prompt_inputs().model_copy(
+        update={
+            "deterministic_assessment": _assessment()
+            | {"user_request": "Do I have anemia based on my HRV trend?"}
+        }
+    )
+
+    result = await orchestrator.explain(user_id=uuid4(), prompt_inputs=inputs)
+
+    assert result.degraded is True
+    assert result.degrade_reason == "safety_blocked"
+    assert "cannot diagnose" in result.output.summary.lower()
+    assert "anemia" not in result.output.summary.lower()
+    assert logger.records[-1].safety_result["status"] == "blocked"
+    assert "diagnosis" in logger.records[-1].safety_result["triggered_categories"]
+
+
+@pytest.mark.asyncio
+async def test_safety_gate_exception_fails_closed_and_logs_model_run_without_db() -> None:
+    provider = FakeProvider(name="mock-primary", responses=[_valid_output("Unsafe maybe.")])
+    logger = FakeModelRunLogger()
+    orchestrator = LLMOrchestrator(
+        router=ModelRouter(
+            providers=[provider],
+            cheap_model="cheap-explainer",
+            strong_model="strong-planner",
+        ),
+        consent_resolver=FakeConsentResolver(),
+        model_run_logger=logger,
+        safety_gate=CrashingSafetyGate(),
+    )
+
+    result = await orchestrator.explain(user_id=uuid4(), prompt_inputs=_prompt_inputs())
+
+    assert result.degraded is True
+    assert result.degrade_reason == "safety_engine_error"
+    assert logger.records[-1].safety_result["status"] == "blocked"
+    assert logger.records[-1].safety_result["reason"] == "safety_engine_error"
+    assert logger.records[-1].safety_result["terminal_status"] == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_default_policy_load_failure_fails_closed_and_logs_model_run_without_db(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_policy_load() -> Any:
+        raise FileNotFoundError("policy missing")
+
+    monkeypatch.setattr(
+        "baseline_api.llm.orchestrator.SafetyPolicyEngine.from_default_policy",
+        fail_policy_load,
+    )
+    provider = FakeProvider(name="mock-primary", responses=[_valid_output("Unsafe maybe.")])
+    logger = FakeModelRunLogger()
+    orchestrator = LLMOrchestrator(
+        router=ModelRouter(
+            providers=[provider],
+            cheap_model="cheap-explainer",
+            strong_model="strong-planner",
+        ),
+        consent_resolver=FakeConsentResolver(),
+        model_run_logger=logger,
+    )
+
+    result = await orchestrator.explain(user_id=uuid4(), prompt_inputs=_prompt_inputs())
+
+    assert result.degraded is True
+    assert result.degrade_reason == "safety_blocked"
+    assert logger.records[-1].safety_result["status"] == "blocked"
+    assert logger.records[-1].safety_result["reason"] == "safety_policy_load_error"
+    assert logger.records[-1].safety_result["error_type"] == "FileNotFoundError"
 
 
 @pytest.mark.asyncio

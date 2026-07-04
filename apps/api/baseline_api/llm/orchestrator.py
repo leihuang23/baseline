@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlmodel import Session, col, select
 
 from baseline_api.db.models.enums import RunType
@@ -21,6 +22,7 @@ from baseline_api.llm.validation import (
     degraded_output,
     parse_structured_output,
 )
+from baseline_api.safety.engine import SafetyPolicyEngine
 
 
 class LLMConsentError(Exception):
@@ -98,7 +100,7 @@ class DatabaseConsentResolver:
 
 
 class PassThroughSafetyGate:
-    """Default safety gate stub until P3-05 wires the real policy engine."""
+    """Explicit test helper for callers that intentionally bypass policy checks."""
 
     def validate(
         self,
@@ -110,6 +112,26 @@ class PassThroughSafetyGate:
             "status": "passed",
             "gate": "pass_through",
             "schema_version": output.schema_version,
+        }
+
+
+@dataclass(frozen=True)
+class FailClosedSafetyGate:
+    """Safety gate used when the policy engine cannot be initialized."""
+
+    reason: str
+    error_type: str
+
+    def validate(
+        self,
+        output: LLMExplanationOutput,
+        *,
+        prompt_inputs: PromptInputs,
+    ) -> dict[str, Any]:
+        return {
+            "status": "blocked",
+            "reason": self.reason,
+            "error_type": self.error_type,
         }
 
 
@@ -143,7 +165,7 @@ class LLMOrchestrator:
             )
         self._router = router
         self._prompts = prompt_registry or PromptRegistry()
-        self._safety_gate = safety_gate or PassThroughSafetyGate()
+        self._safety_gate = safety_gate or _default_safety_gate()
         self._consent_resolver = consent_resolver or DatabaseConsentResolver(
             _require_session(session)
         )
@@ -257,9 +279,54 @@ class LLMOrchestrator:
                     )
                     continue
 
-                safety_result = self._safety_gate.validate(output, prompt_inputs=prompt_inputs)
+                try:
+                    safety_result = self._safety_gate.validate(output, prompt_inputs=prompt_inputs)
+                except Exception as exc:
+                    safety_result = {
+                        "status": "blocked",
+                        "reason": "safety_engine_error",
+                        "error_type": type(exc).__name__,
+                        "terminal_status": "degraded",
+                    }
+                    model_runs.append(
+                        self._logger.log(
+                            user_id=user_id,
+                            run_type=run_type,
+                            provider=response.provider,
+                            model=response.model,
+                            prompt_version=attempt_prompt.version,
+                            schema_version=SCHEMA_VERSION,
+                            input_payload=input_payload,
+                            output_payload=response.content,
+                            token_usage=response.token_usage,
+                            cost=response.cost,
+                            latency_ms=response.latency_ms,
+                            safety_result=safety_result,
+                        )
+                    )
+                    return self._degrade(
+                        reason="safety_engine_error",
+                        prompt_inputs=prompt_inputs,
+                        model_runs=model_runs,
+                    )
                 safety_status = str(safety_result.get("status", "failed"))
-                if safety_status != "passed":
+                replacement_output: LLMExplanationOutput | None = None
+                if safety_status in {"rewritten", "blocked", "escalated"}:
+                    try:
+                        replacement_output = LLMExplanationOutput.model_validate(
+                            safety_result["safe_output"]
+                        )
+                    except (KeyError, TypeError, ValidationError):
+                        safety_result = {
+                            **safety_result,
+                            "status": "blocked",
+                            "terminal_status": "degraded",
+                            "rewrite_error": "safe_output_invalid",
+                        }
+                        safety_status = "blocked"
+                if replacement_output is not None:
+                    output = replacement_output
+                if safety_status not in {"passed", "rewritten"}:
                     safety_result = {**safety_result, "terminal_status": "degraded"}
                 model_runs.append(
                     self._logger.log(
@@ -277,7 +344,14 @@ class LLMOrchestrator:
                         safety_result=safety_result,
                     )
                 )
-                if safety_status != "passed":
+                if safety_status not in {"passed", "rewritten"}:
+                    if replacement_output is not None:
+                        return OrchestratorResult(
+                            output=output,
+                            model_runs=model_runs,
+                            degraded=True,
+                            degrade_reason=f"safety_{safety_status}",
+                        )
                     return self._degrade(
                         reason=f"safety_{safety_status}",
                         prompt_inputs=prompt_inputs,
@@ -310,3 +384,13 @@ def _require_session(session: Session | None) -> Session:
     if session is None:
         raise ValueError("session is required for database-backed LLM orchestration")
     return session
+
+
+def _default_safety_gate() -> SafetyGate:
+    try:
+        return SafetyPolicyEngine.from_default_policy()
+    except Exception as exc:
+        return FailClosedSafetyGate(
+            reason="safety_policy_load_error",
+            error_type=type(exc).__name__,
+        )
