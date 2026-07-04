@@ -21,6 +21,7 @@ from baseline_api.db.models import (
     NormalizedHealthMetricSourceSample,
     RawHealthSample,
     ReadinessAssessment,
+    ReasoningTrace,
     Recommendation,
     SleepSession,
     User,
@@ -88,6 +89,7 @@ def _today():
 
 def test_insert_and_read_each_entity(db_session, user, model_run) -> None:
     """All PRD §15 entities can be persisted and read back."""
+    trace_id = uuid4()
     entities = [
         ConsentRecord(
             user_id=user.id,
@@ -164,6 +166,17 @@ def test_insert_and_read_each_entity(db_session, user, model_run) -> None:
             computed_at=_now(),
             source_sample_ids=[str(uuid4())],
         ),
+        ReasoningTrace(
+            id=trace_id,
+            user_id=user.id,
+            date=_today(),
+            trace_version="v1",
+            assessment_version="v1",
+            input_hash="input-hash",
+            rules_fired=[{"rule_id": "test"}],
+            hard_safety_flags=[],
+            trace_payload={"reasoning_trace_id": "test"},
+        ),
         ReadinessAssessment(
             user_id=user.id,
             date=_today(),
@@ -174,8 +187,11 @@ def test_insert_and_read_each_entity(db_session, user, model_run) -> None:
             uncertainty=["no soreness check-in"],
             evidence_items=[{"metric": "hrv", "value": 45.0}],
             risk_flags=["high_training_density"],
-            goal_tradeoffs={"vo2_max": "prioritized"},
-            reasoning_trace_id=uuid4(),
+            candidate_options=[{"label": "easy", "recommendation_band": "easy"}],
+            follow_up_questions=[{"question": "Soreness?", "reason": "Missing check-in"}],
+            goal_tradeoffs=[{"goal": "vo2_max", "tradeoff": "prioritized"}],
+            hard_safety_flags=[],
+            reasoning_trace_id=trace_id,
         ),
         Recommendation(
             user_id=user.id,
