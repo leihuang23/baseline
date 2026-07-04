@@ -61,6 +61,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     config.addinivalue_line("markers", "db: requires a reachable Postgres test database")
+    config.addinivalue_line(
+        "markers",
+        "require_db: fail collection instead of skipping when Postgres is unavailable",
+    )
     reason = _database_unavailable_reason()
     setattr(config, _DB_SKIP_REASON_ATTR, reason)
     if reason is None:
@@ -77,11 +81,20 @@ def pytest_configure(config: pytest.Config) -> None:
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     reason = _db_skip_reason(config)
     skip_db = pytest.mark.skip(reason=reason) if reason is not None else None
+    required_db_items: list[str] = []
     for item in items:
         if {"db_engine", "db_session"} & set(getattr(item, "fixturenames", ())):
             item.add_marker(pytest.mark.db)
             if skip_db is not None:
+                if item.get_closest_marker("require_db") is not None:
+                    required_db_items.append(item.nodeid)
+                    continue
                 item.add_marker(skip_db)
+    if required_db_items:
+        sample = ", ".join(required_db_items[:3])
+        if len(required_db_items) > 3:
+            sample += f", ... ({len(required_db_items)} tests)"
+        raise pytest.UsageError(f"{reason}; required DB tests cannot be skipped: {sample}")
 
 
 @pytest.fixture(scope="session")

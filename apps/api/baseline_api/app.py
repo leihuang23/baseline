@@ -5,6 +5,7 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from baseline_api.api.assistant import router as assistant_router
 from baseline_api.api.checkins import router as checkins_router
 from baseline_api.api.goals import router as goals_router
 from baseline_api.api.health import router as health_router
@@ -24,6 +25,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.middleware("http")(trace_id_middleware)
     app.include_router(health_router)
     app.include_router(v1_health_router)
+    app.include_router(assistant_router)
     app.include_router(v1_contracts_router)
     app.include_router(checkins_router)
     app.include_router(goals_router)

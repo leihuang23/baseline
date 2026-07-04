@@ -15,8 +15,6 @@ from baseline_api.db.session import get_db_session
 from baseline_api.llm.factory import build_default_router
 from baseline_api.llm.orchestrator import LLMOrchestrator
 from baseline_api.schemas.api import (
-    AssistantQueryRequest,
-    AssistantQueryResponse,
     DailyAnalysisRequest,
     DailyAnalysisResponse,
     DailyBriefingResponse,
@@ -107,14 +105,6 @@ async def get_daily_briefing(
     except BriefingError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
-
-
-@router.post("/assistant/query", response_model=APIEnvelope[AssistantQueryResponse])
-async def ask_assistant(
-    request: AssistantQueryRequest,
-    response: Response,
-) -> APIEnvelope[None]:
-    return _stub(response)
 
 
 @router.post(
