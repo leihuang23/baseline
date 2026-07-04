@@ -88,6 +88,64 @@ class MemoryService:
             self._session.commit()
         return persisted
 
+    def generate_monthly_summary(
+        self,
+        *,
+        user_id: UUID,
+        start_date: dt.date,
+        end_date: dt.date,
+        commit: bool = True,
+    ) -> MemorySummary:
+        """Compile and upsert a monthly summary from persisted daily/weekly summaries."""
+
+        dailies = self._summaries.daily_between(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        weeklies = self._summaries.weekly_between(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        summary = self._compiler.compile_monthly(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            daily_summaries=dailies,
+            weekly_summaries=weeklies,
+        )
+        persisted = self._upsert_summary(summary)
+        if commit:
+            self._session.commit()
+        return persisted
+
+    def generate_quarterly_summary(
+        self,
+        *,
+        user_id: UUID,
+        start_date: dt.date,
+        end_date: dt.date,
+        commit: bool = True,
+    ) -> MemorySummary:
+        """Compile and upsert a quarterly summary from persisted monthly summaries."""
+
+        monthlies = self._summaries.monthly_between(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        summary = self._compiler.compile_quarterly(
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            monthly_summaries=monthlies,
+        )
+        persisted = self._upsert_summary(summary)
+        if commit:
+            self._session.commit()
+        return persisted
+
     def recent_for_reasoning(
         self,
         *,
