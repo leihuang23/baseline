@@ -3,7 +3,7 @@
 import datetime as dt
 from uuid import UUID
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from baseline_api.db.models.assessment import ReadinessAssessment, ReasoningTrace, Recommendation
 from baseline_api.db.repositories.base import BaseRepository
@@ -27,6 +27,22 @@ class ReadinessAssessmentRepository(BaseRepository[ReadinessAssessment]):
         )
         return self.session.exec(statement).first()
 
+    def latest_for_user_date(
+        self,
+        *,
+        user_id: UUID,
+        date: dt.date,
+    ) -> ReadinessAssessment | None:
+        statement = (
+            select(ReadinessAssessment)
+            .where(
+                ReadinessAssessment.user_id == user_id,
+                ReadinessAssessment.date == date,
+            )
+            .order_by(col(ReadinessAssessment.created_at).desc())
+        )
+        return self.session.exec(statement).first()
+
 
 class ReasoningTraceRepository(BaseRepository[ReasoningTrace]):
     def __init__(self, session: Session) -> None:
@@ -36,3 +52,35 @@ class ReasoningTraceRepository(BaseRepository[ReasoningTrace]):
 class RecommendationRepository(BaseRepository[Recommendation]):
     def __init__(self, session: Session) -> None:
         super().__init__(session, Recommendation)
+
+    def latest_for_user_date(
+        self,
+        *,
+        user_id: UUID,
+        date: dt.date,
+    ) -> Recommendation | None:
+        statement = (
+            select(Recommendation)
+            .where(
+                Recommendation.user_id == user_id,
+                Recommendation.date == date,
+            )
+            .order_by(col(Recommendation.created_at).desc())
+        )
+        return self.session.exec(statement).first()
+
+    def latest_for_user_on_or_before(
+        self,
+        *,
+        user_id: UUID,
+        date: dt.date,
+    ) -> Recommendation | None:
+        statement = (
+            select(Recommendation)
+            .where(
+                Recommendation.user_id == user_id,
+                Recommendation.date <= date,
+            )
+            .order_by(col(Recommendation.date).desc(), col(Recommendation.created_at).desc())
+        )
+        return self.session.exec(statement).first()

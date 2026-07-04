@@ -144,6 +144,14 @@ class Recommendation(BaseDBModel, table=True):
         default=None,
         foreign_key="model_run.id",
     )
+    reasoning_trace_id: UUID | None = Field(
+        default=None,
+        foreign_key="reasoning_trace.id",
+    )
+    briefing_payload: dict[str, Any] = Field(
+        sa_type=JSONB,
+        default_factory=dict,
+    )
     accepted_action: dict[str, Any] | None = Field(
         sa_type=JSONB,
         default=None,
@@ -152,3 +160,34 @@ class Recommendation(BaseDBModel, table=True):
         sa_type=JSONB,
         default=None,
     )
+
+
+class DailyAnalysisJob(BaseDBModel, table=True):
+    """Persisted status for a requested daily briefing pipeline run."""
+
+    __tablename__ = "daily_analysis_job"
+    __table_args__ = (Index("ix_daily_analysis_job_user_id_date", "user_id", "date"),)
+
+    user_id: UUID = Field(foreign_key="user.id", nullable=False)
+    date: dt.date = Field(nullable=False)
+    status: str = Field(nullable=False)
+    force_recompute: bool = Field(nullable=False, default=False)
+    include_external_knowledge: bool = Field(nullable=False, default=False)
+    privacy_mode: str = Field(nullable=False)
+    request_trace_id: str = Field(nullable=False)
+    reasoning_trace_id: UUID | None = Field(
+        default=None,
+        foreign_key="reasoning_trace.id",
+    )
+    recommendation_id: UUID | None = Field(
+        default=None,
+        foreign_key="recommendation.id",
+    )
+    stage_trace: list[dict[str, Any]] = Field(
+        sa_type=JSONB,
+        default_factory=list,
+    )
+    error_code: str | None = Field(default=None)
+    error_message: str | None = Field(default=None)
+    started_at: dt.datetime | None = Field(default=None)
+    completed_at: dt.datetime | None = Field(default=None)

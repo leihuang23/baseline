@@ -33,8 +33,11 @@ from baseline_api.schemas.enums import (
 from baseline_api.schemas.recommendation import (
     DataQualityNote,
     ExternalCitation,
+    FollowUpPrompt,
+    MemoryObservation,
     PersonalEvidence,
     RecommendationAlternative,
+    RecommendationSummary,
 )
 
 Score = int
@@ -265,6 +268,10 @@ class GoalTradeoff(ContractModel):
     tradeoff: str = Field(min_length=1)
 
 
+def _default_recommendation_summary() -> RecommendationSummary:
+    return RecommendationSummary(primary="Review the recommendation band and candidate options.")
+
+
 class DailyBriefingResponse(ContractModel):
     schema_version: Literal["v1"] = "v1"
     date: dt.date
@@ -272,10 +279,19 @@ class DailyBriefingResponse(ContractModel):
     confidence: ConfidenceLevel
     data_freshness: DataFreshness
     evidence: list[PersonalEvidence] = Field(min_length=1)
+    memory_observations: list[MemoryObservation] = Field(default_factory=list)
+    external_citations: list[ExternalCitation] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
+    recommendation: RecommendationSummary = Field(default_factory=_default_recommendation_summary)
     recommendation_band: RecommendationBand
     candidate_options: list[CandidateOption] = Field(default_factory=list)
     goal_tradeoffs: list[GoalTradeoff] = Field(default_factory=list)
     uncertainty: list[str] = Field(min_length=1)
+    data_quality_notes: list[DataQualityNote] = Field(default_factory=list)
+    what_would_change_my_mind: list[str] = Field(default_factory=list)
+    alternatives: list[RecommendationAlternative] = Field(default_factory=list)
+    follow_up: FollowUpPrompt | None = None
+    safety_status: SafetyStatus = SafetyStatus.passed
     safety_notes: list[str] = Field(min_length=1)
     trace_id: UUID
     generated_at: dt.datetime
