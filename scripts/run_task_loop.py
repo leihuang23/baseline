@@ -26,7 +26,8 @@ DEFAULT_AGENT_TIMEOUT_SECONDS = 3600
 DEFAULT_REVIEW_TIMEOUT_SECONDS = 600
 DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS = 900
 DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS = 300
-DEFAULT_FINAL_REPAIR_ATTEMPTS = 2
+DEFAULT_FINAL_REPAIR_ATTEMPTS = 0
+DEFAULT_NO_PROGRESS_REPAIR_LIMIT = 3
 DEFAULT_HEARTBEAT_SECONDS = 30
 DEFAULT_AGENT_LOG_LIMIT_BYTES = 0
 DEFAULT_REVIEW_LOG_LIMIT_BYTES = 0
@@ -48,6 +49,7 @@ PROTECTED_NON_AUTOMATION_PATHS = (
 )
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\a]*(?:\a|\x1b\\))")
 TOKEN_USAGE_RE = re.compile(r"tokens used\s*\n\s*([0-9][0-9,]*)", re.IGNORECASE)
+FAILURE_SUMMARY_MAX_CHARS = 220
 CODEX_REPAIR_GUIDANCE = """Repair mode:
 - Treat the existing working tree as the current draft.
 - Start from the concrete failure details below and any cited files or lines.
@@ -941,6 +943,15 @@ def validate_positive_int(value: int, label: str) -> None:
         raise LoopError(f"{label} must be greater than 0.")
 
 
+def validate_non_negative_int(value: int, label: str) -> None:
+    if value < 0:
+        raise LoopError(f"{label} must be non-negative.")
+
+
+def repair_limit_label(value: int) -> str:
+    return "unlimited" if value == 0 else str(value)
+
+
 def read_failure_context(path: Path) -> str:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -1016,7 +1027,12 @@ def render_current_run(line_count: int = CURRENT_LOG_TAIL_LINES) -> str:
         lines.insert(3, f"pass: {pass_label}")
     elif state.get("final_repair"):
         repair_attempt = state.get("repair_attempt", "?")
-        repair_attempts = state.get("final_repair_attempts", "?")
+        raw_repair_attempts = state.get("final_repair_attempts", "?")
+        repair_attempts = (
+            repair_limit_label(raw_repair_attempts)
+            if isinstance(raw_repair_attempts, int)
+            else raw_repair_attempts
+        )
         repair_kind = state.get("repair_failure_kind", "unknown")
         lines.insert(3, f"repair: {repair_attempt}/{repair_attempts} ({repair_kind})")
     elif state.get("attempt") is not None:
@@ -1035,6 +1051,12 @@ def render_current_run(line_count: int = CURRENT_LOG_TAIL_LINES) -> str:
     prompt_file = state.get("prompt_file")
     if isinstance(prompt_file, str):
         lines.append(f"prompt: {prompt_file}")
+    stop_reason = state.get("stop_reason")
+    if isinstance(stop_reason, str):
+        lines.append(f"stop reason: {stop_reason}")
+    current_failure_summary = state.get("current_failure_summary")
+    if isinstance(current_failure_summary, str):
+        lines.append(f"current finding: {current_failure_summary}")
     git_status = state.get("git_status", {})
     if isinstance(git_status, dict):
         lines.append(f"git: {git_status.get('summary', 'unknown')}")
@@ -1113,6 +1135,76 @@ def format_review_failure(output_file: Path, decision: dict[str, Any]) -> str:
 
 def format_audit_failure(output_file: Path, decision: dict[str, Any]) -> str:
     return format_decision_failure(DECISION_LABEL_AUDIT, output_file, decision)
+
+
+def decision_payload_from_failure(failure_result: str) -> dict[str, Any] | None:
+    for marker in ("Review decision JSON:", "Audit decision JSON:"):
+        marker_index = failure_result.find(marker)
+        if marker_index == -1:
+            continue
+        payload = failure_result[marker_index + len(marker) :].strip()
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def normalized_failure_text(value: object, limit: int = 360) -> str:
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
+
+
+def failure_progress_signature(failure_result: str) -> str:
+    failure_kind = repair_failure_kind(failure_result) or "unknown"
+    decision = decision_payload_from_failure(failure_result)
+    if decision is not None:
+        findings = decision.get("findings")
+        if isinstance(findings, list) and findings:
+            parts: list[str] = []
+            for finding in findings:
+                if not isinstance(finding, dict):
+                    parts.append(normalized_failure_text(finding))
+                    continue
+                parts.append(
+                    "|".join(
+                        [
+                            normalized_failure_text(finding.get("severity", "")),
+                            normalized_failure_text(finding.get("file", "")),
+                            normalized_failure_text(finding.get("line", "")),
+                            normalized_failure_text(finding.get("message", "")),
+                        ]
+                    )
+                )
+            return f"{failure_kind}:findings:{'||'.join(parts)}"
+        return f"{failure_kind}:summary:{normalized_failure_text(decision.get('summary', ''))}"
+    first_line = failure_result.strip().splitlines()[0] if failure_result.strip() else ""
+    return f"{failure_kind}:text:{normalized_failure_text(first_line)}"
+
+
+def failure_status_summary(failure_result: str) -> str:
+    decision = decision_payload_from_failure(failure_result)
+    if decision is not None:
+        findings = decision.get("findings")
+        if isinstance(findings, list) and findings:
+            first = findings[0]
+            if isinstance(first, dict):
+                location = str(first.get("file") or "unknown")
+                line = first.get("line")
+                if line is not None:
+                    location = f"{location}:{line}"
+                severity = str(first.get("severity") or "finding")
+                message = normalized_failure_text(first.get("message", ""), 140)
+                return normalized_failure_text(f"{severity} {location}: {message}")
+        summary = decision.get("summary")
+        if summary:
+            return normalized_failure_text(summary, FAILURE_SUMMARY_MAX_CHARS)
+    first_line = failure_result.strip().splitlines()[0] if failure_result.strip() else ""
+    return normalized_failure_text(first_line, FAILURE_SUMMARY_MAX_CHARS)
 
 
 def resumable_dirty_task(
@@ -1706,6 +1798,19 @@ def failure_is_actionable(failure_result: str) -> bool:
     )
 
 
+def remember_final_repair_stop(
+    args: argparse.Namespace,
+    *,
+    stop_reason: str,
+    message: str,
+    failure_result: str | None = None,
+) -> None:
+    args.last_stop_reason = stop_reason
+    args.last_block_message = message
+    if failure_result is not None:
+        args.last_failure_summary = failure_status_summary(failure_result)
+
+
 def codex_exec_command(codex_bin: str, sandbox: str, *, lean: bool) -> list[str]:
     command = [codex_bin, "exec"]
     if lean:
@@ -1749,17 +1854,54 @@ def run_final_repair(
 ) -> bool:
     max_attempts = getattr(args, "max_attempts", 0)
     repair_attempts = getattr(args, "final_repair_attempts", DEFAULT_FINAL_REPAIR_ATTEMPTS)
+    no_progress_limit = getattr(
+        args,
+        "max_no_progress_repairs",
+        DEFAULT_NO_PROGRESS_REPAIR_LIMIT,
+    )
     current_failure = previous_failure
     attempts_by_kind = {"gate": 0, "decision": 0}
+    repeated_no_progress: dict[tuple[str, str, str], int] = {}
     repair_index = 0
     while True:
         failure_kind = repair_failure_kind(current_failure)
         if failure_kind is None:
             print("  failed: final repair failure is not actionable")
+            remember_final_repair_stop(
+                args,
+                stop_reason="non_actionable",
+                message="final repair failure is not actionable",
+                failure_result=current_failure,
+            )
             return False
-        if attempts_by_kind[failure_kind] >= repair_attempts:
-            print(f"  failed: exhausted {repair_attempts} {failure_kind} repair attempt(s)")
+        if repair_attempts and attempts_by_kind[failure_kind] >= repair_attempts:
+            message = f"exhausted {repair_attempts} {failure_kind} repair attempt(s)"
+            print(f"  failed: {message}")
+            remember_final_repair_stop(
+                args,
+                stop_reason="budget_exhausted",
+                message=message,
+                failure_result=current_failure,
+            )
             return False
+        failure_signature = failure_progress_signature(current_failure)
+        failure_fingerprint = git_worktree_fingerprint(exclude_protected=True) or "unavailable"
+        no_progress_key = (failure_kind, failure_signature, failure_fingerprint)
+        no_progress_count = repeated_no_progress.get(no_progress_key, 0)
+        if no_progress_limit and no_progress_count >= no_progress_limit:
+            message = (
+                "same actionable finding repeated without worktree progress "
+                f"{no_progress_count} time(s)"
+            )
+            print(f"  failed: {message}")
+            remember_final_repair_stop(
+                args,
+                stop_reason="no_progress",
+                message=message,
+                failure_result=current_failure,
+            )
+            return False
+        repeated_no_progress[no_progress_key] = no_progress_count + 1
         attempts_by_kind[failure_kind] += 1
         repair_index += 1
         task_run_dir = (
@@ -1786,12 +1928,16 @@ def run_final_repair(
             "final_repair": True,
             "repair_attempt": repair_index,
             "final_repair_attempts": repair_attempts,
+            "max_no_progress_repairs": no_progress_limit,
             "repair_failure_kind": failure_kind,
             "repair_failure_kind_attempt": attempts_by_kind[failure_kind],
+            "current_failure_signature": failure_signature,
+            "current_failure_summary": failure_status_summary(current_failure),
         }
         print(
             "  final repair: codex exec for actionable findings "
-            f"({failure_kind} {attempts_by_kind[failure_kind]}/{repair_attempts}, "
+            f"({failure_kind} {attempts_by_kind[failure_kind]}/"
+            f"{repair_limit_label(repair_attempts)}, "
             f"overall {repair_index}) -> run {relative_to_root(task_run_dir)}"
         )
         prompt_file = write_prompt_snapshot(task_run_dir, "final-repair-prompt.md", prompt)
@@ -1967,15 +2113,41 @@ def run_final_repair(
         return True
 
 
-def block_task(task: dict[str, Any], base_status: dict[str, Any], message: str) -> None:
+def block_task(
+    task: dict[str, Any],
+    base_status: dict[str, Any],
+    message: str,
+    *,
+    stop_reason: str | None = None,
+    failure_summary: str | None = None,
+) -> None:
     print(f"blocked: {task['id']}")
+    extra_status: dict[str, Any] = {}
+    if stop_reason:
+        extra_status["stop_reason"] = stop_reason
+    if failure_summary:
+        extra_status["current_failure_summary"] = failure_summary
     write_static_run_state(
         CURRENT_RUN_PATH,
-        base_status,
+        {**base_status, **extra_status},
         status="blocked",
         stage="blocked",
         message=message,
     )
+
+
+def last_repair_block_message(args: argparse.Namespace, fallback: str) -> str:
+    return str(getattr(args, "last_block_message", fallback))
+
+
+def last_repair_stop_reason(args: argparse.Namespace) -> str | None:
+    stop_reason = getattr(args, "last_stop_reason", None)
+    return stop_reason if isinstance(stop_reason, str) else None
+
+
+def last_repair_failure_summary(args: argparse.Namespace) -> str | None:
+    summary = getattr(args, "last_failure_summary", None)
+    return summary if isinstance(summary, str) else None
 
 
 def run_finish_task(
@@ -2037,7 +2209,13 @@ def run_finish_task(
             and run_final_repair(ledger, task, args, gate_result)
         ):
             return True
-        block_task(task, base_status, "finish blocked by quality gate failure")
+        block_task(
+            task,
+            base_status,
+            last_repair_block_message(args, "finish blocked by quality gate failure"),
+            stop_reason=last_repair_stop_reason(args),
+            failure_summary=last_repair_failure_summary(args),
+        )
         print(gate_result)
         return False
 
@@ -2069,7 +2247,13 @@ def run_finish_task(
                 and run_final_repair(ledger, task, args, review_result, prompt_pack)
             ):
                 return True
-            block_task(task, base_status, "finish blocked by review failure")
+            block_task(
+                task,
+                base_status,
+                last_repair_block_message(args, "finish blocked by review failure"),
+                stop_reason=last_repair_stop_reason(args),
+                failure_summary=last_repair_failure_summary(args),
+            )
             print(review_result)
             return False
         print(f"  {review_result}")
@@ -2096,7 +2280,13 @@ def run_finish_task(
                 and run_final_repair(ledger, task, args, audit_result, prompt_pack)
             ):
                 return True
-            block_task(task, base_status, "finish blocked by audit failure")
+            block_task(
+                task,
+                base_status,
+                last_repair_block_message(args, "finish blocked by audit failure"),
+                stop_reason=last_repair_stop_reason(args),
+                failure_summary=last_repair_failure_summary(args),
+            )
             print(audit_result)
             return False
         print(f"  {audit_result}")
@@ -2116,7 +2306,13 @@ def run_finish_task(
                 and run_final_repair(ledger, task, args, extra_result, prompt_pack)
             ):
                 return True
-            block_task(task, base_status, "finish blocked by extra audit failure")
+            block_task(
+                task,
+                base_status,
+                last_repair_block_message(args, "finish blocked by extra audit failure"),
+                stop_reason=last_repair_stop_reason(args),
+                failure_summary=last_repair_failure_summary(args),
+            )
             print(extra_result)
             return False
 
@@ -2687,7 +2883,13 @@ def run_task(
     ):
         return True
 
-    print(f"blocked: {task['id']} after {args.max_attempts} attempt(s)")
+    stop_reason = getattr(args, "last_stop_reason", "unknown")
+    block_message = getattr(
+        args,
+        "last_block_message",
+        f"blocked after {args.max_attempts} implementation attempt(s)",
+    )
+    print(f"blocked: {task['id']} - {block_message}")
     write_static_run_state(
         CURRENT_RUN_PATH,
         {
@@ -2695,10 +2897,12 @@ def run_task(
             "task_title": task["title"],
             "attempt": args.max_attempts,
             "max_attempts": args.max_attempts,
+            "stop_reason": stop_reason,
+            "current_failure_summary": getattr(args, "last_failure_summary", None),
         },
         status="blocked",
         stage="blocked",
-        message=f"blocked after {args.max_attempts} attempt(s)",
+        message=block_message,
     )
     if previous_failure:
         print(previous_failure)
@@ -2778,7 +2982,19 @@ def parse_args() -> argparse.Namespace:
         "--final-repair-attempts",
         type=int,
         default=DEFAULT_FINAL_REPAIR_ATTEMPTS,
-        help="Maximum focused Codex repair attempts after actionable gate/review/audit findings.",
+        help=(
+            "Maximum focused Codex repair attempts after actionable gate/review/audit findings; "
+            "0 means no fixed cap."
+        ),
+    )
+    finish_parser.add_argument(
+        "--max-no-progress-repairs",
+        type=int,
+        default=DEFAULT_NO_PROGRESS_REPAIR_LIMIT,
+        help=(
+            "Stop after this many repeated repair cycles with the same actionable finding and "
+            "unchanged worktree fingerprint; 0 disables this guard."
+        ),
     )
     finish_parser.add_argument(
         "--no-final-repair",
@@ -2884,7 +3100,19 @@ def parse_args() -> argparse.Namespace:
         "--final-repair-attempts",
         type=int,
         default=DEFAULT_FINAL_REPAIR_ATTEMPTS,
-        help="Maximum focused Codex repair attempts after actionable gate/review/audit findings.",
+        help=(
+            "Maximum focused Codex repair attempts after actionable gate/review/audit findings; "
+            "0 means no fixed cap."
+        ),
+    )
+    run_parser.add_argument(
+        "--max-no-progress-repairs",
+        type=int,
+        default=DEFAULT_NO_PROGRESS_REPAIR_LIMIT,
+        help=(
+            "Stop after this many repeated repair cycles with the same actionable finding and "
+            "unchanged worktree fingerprint; 0 disables this guard."
+        ),
     )
     run_parser.add_argument(
         "--no-final-repair",
@@ -2989,7 +3217,8 @@ def main() -> int:
     normalize_timeout_seconds(args.repair_review_timeout_seconds)
     normalize_log_limit_bytes(args.agent_log_limit_bytes)
     normalize_log_limit_bytes(args.review_log_limit_bytes)
-    validate_positive_int(args.final_repair_attempts, "final repair attempts")
+    validate_non_negative_int(args.final_repair_attempts, "final repair attempts")
+    validate_non_negative_int(args.max_no_progress_repairs, "max no-progress repairs")
     if args.command == "finish":
         if args.task:
             candidates = [task_map(ledger)[args.task]]

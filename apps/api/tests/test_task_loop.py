@@ -80,7 +80,8 @@ def test_run_command_defaults_to_one_attempt_with_bounded_review(monkeypatch) ->
     assert args.agent_timeout_seconds == 3600
     assert args.review_timeout_seconds == 600
     assert args.repair_review_timeout_seconds == 300
-    assert args.final_repair_attempts == 2
+    assert args.final_repair_attempts == 0
+    assert args.max_no_progress_repairs == 3
     assert args.agent_log_limit_bytes == 0
     assert args.review_log_limit_bytes == 0
     assert args.codex_lean is False
@@ -402,7 +403,7 @@ def test_current_view_uses_repair_label_instead_of_attempt_count(monkeypatch, tm
                 "task_title": "data controls consent",
                 "final_repair": True,
                 "repair_attempt": 1,
-                "final_repair_attempts": 2,
+                "final_repair_attempts": 0,
                 "repair_failure_kind": "gate",
                 "command_label": "codex final repair",
                 "elapsed": "1m 00s",
@@ -418,7 +419,7 @@ def test_current_view_uses_repair_label_instead_of_attempt_count(monkeypatch, tm
 
     rendered = TASK_LOOP.render_current_run()
 
-    assert "repair: 1/2 (gate)" in rendered
+    assert "repair: 1/unlimited (gate)" in rendered
     assert "attempt:" not in rendered
 
 
@@ -525,7 +526,8 @@ def test_finish_command_defaults_to_bounded_verification(monkeypatch) -> None:
     assert args.task == "P3-01"
     assert args.review_timeout_seconds == 600
     assert args.repair_review_timeout_seconds == 300
-    assert args.final_repair_attempts == 2
+    assert args.final_repair_attempts == 0
+    assert args.max_no_progress_repairs == 3
     assert args.agent_log_limit_bytes == 0
     assert args.review_log_limit_bytes == 0
     assert args.final_repair is True
@@ -1133,7 +1135,8 @@ def finish_args(**overrides: object) -> SimpleNamespace:
         "skip_prompt_pack": False,
         "pause_policy": "auto",
         "final_repair": True,
-        "final_repair_attempts": 2,
+        "final_repair_attempts": 0,
+        "max_no_progress_repairs": 3,
         "agent_log_limit_bytes": 0,
         "final_repair_timeout_seconds": 900,
         "repair_review_timeout_seconds": 300,
@@ -1438,6 +1441,152 @@ def test_final_repair_defers_prompt_pack_when_repair_review_fails(monkeypatch) -
     )
 
     assert calls == ["attempt:1", "codex", "gates", "review"]
+
+
+def test_final_repair_continues_actionable_review_findings_without_fixed_cap(
+    monkeypatch,
+) -> None:
+    task = {
+        "id": "P4-04",
+        "title": "data controls consent",
+        "prompt": "tasks/P4-04-data-controls-consent.md",
+    }
+    calls: list[str] = []
+    review_results = [
+        (False, "review failed; see file\n\nReview decision JSON:\n{}"),
+        (False, "review failed; see file\n\nReview decision JSON:\n{}"),
+        (True, "review passed"),
+    ]
+    fingerprints = iter(["fp-1", "fp-2", "fp-3"])
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or (True, "quality gates passed"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "cleanup_generated_python_artifacts", lambda: 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_worktree_fingerprint",
+        lambda **_kwargs: next(fingerprints),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "prepare_prompt_pack",
+        lambda *args, **kwargs: (
+            calls.append("prompt-pack")
+            or {
+                "review_prompt": "review",
+                "audit_prompt": "audit",
+                "extra_audits": [],
+                "requires_human_pause": False,
+                "pause_reasons": [],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_review",
+        lambda *args, **kwargs: calls.append("review") or review_results.pop(0),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_audit",
+        lambda *args, **kwargs: calls.append("audit") or (True, "audit passed"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_extra_audits", lambda *args, **kwargs: (True, "ok"))
+    monkeypatch.setattr(TASK_LOOP, "remember_pause_reasons", lambda *args, **kwargs: [])
+    monkeypatch.setattr(TASK_LOOP, "complete_task", lambda *args, **kwargs: calls.append("done"))
+    monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            finish_args(final_repair_attempts=0, max_no_progress_repairs=3),
+            "review failed; see file\n\nReview decision JSON:\n{}",
+        )
+        is True
+    )
+
+    assert calls == [
+        "attempt:1",
+        "codex",
+        "gates",
+        "review",
+        "attempt:2",
+        "codex",
+        "gates",
+        "review",
+        "attempt:3",
+        "codex",
+        "gates",
+        "review",
+        "prompt-pack",
+        "audit",
+        "done",
+    ]
+
+
+def test_final_repair_stops_repeated_no_progress_findings(monkeypatch) -> None:
+    task = {
+        "id": "P4-04",
+        "title": "data controls consent",
+        "prompt": "tasks/P4-04-data-controls-consent.md",
+    }
+    args = finish_args(final_repair_attempts=0, max_no_progress_repairs=2)
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or (True, "quality gates passed"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "cleanup_generated_python_artifacts", lambda: 0)
+    monkeypatch.setattr(TASK_LOOP, "git_worktree_fingerprint", lambda **_kwargs: "same-fp")
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_review",
+        lambda *args, **kwargs: (
+            calls.append("review")
+            or (False, "review failed; see file\n\nReview decision JSON:\n{}")
+        ),
+    )
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            args,
+            "review failed; see file\n\nReview decision JSON:\n{}",
+        )
+        is False
+    )
+
+    assert calls == [
+        "attempt:1",
+        "codex",
+        "gates",
+        "review",
+        "attempt:2",
+        "codex",
+        "gates",
+        "review",
+    ]
+    assert args.last_stop_reason == "no_progress"
+    assert "same actionable finding repeated" in args.last_block_message
 
 
 def test_final_repair_retries_actionable_audit_findings(monkeypatch) -> None:
