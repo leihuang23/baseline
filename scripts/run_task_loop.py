@@ -2511,6 +2511,74 @@ def decision_file_passed(path: Path | None) -> bool:
     return isinstance(decision, dict) and decision.get("decision") == "pass"
 
 
+def state_decision_failure(state: dict[str, Any]) -> str | None:
+    output_path = state_output_last_message_path(state)
+    if output_path is None:
+        return None
+    try:
+        decision = json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(decision, dict) or decision.get("decision") == "pass":
+        return None
+
+    stage = str(state.get("stage") or "").lower()
+    command_label = str(state.get("command_label") or "").lower()
+    output_name = output_path.name.lower()
+    label = (
+        DECISION_LABEL_AUDIT
+        if "audit" in stage or "audit" in command_label or "audit" in output_name
+        else DECISION_LABEL_REVIEW
+    )
+    failure = format_decision_failure(label, output_path, decision)
+    return failure if decision_failure_is_actionable(failure) else None
+
+
+def current_diff_fingerprint_matches_state(task: dict[str, Any], state: dict[str, Any]) -> bool:
+    restore_tracked_protected_churn(task)
+    previous_fingerprint = state.get("git_non_protected_fingerprint")
+    if isinstance(previous_fingerprint, str) and previous_fingerprint:
+        return git_worktree_fingerprint(exclude_protected=True) == previous_fingerprint
+
+    try:
+        current_entries = git_status_entries()
+    except LoopError:
+        return False
+    current_paths = product_status_paths_from_entries(task, current_entries)
+    git_status = state.get("git_status")
+    if not isinstance(git_status, dict) or git_status.get("truncated") is True:
+        return False
+    previous_files = git_status.get("files")
+    if not isinstance(previous_files, list) or not all(
+        isinstance(item, str) for item in previous_files
+    ):
+        return False
+    previous_paths = product_status_paths_from_lines(task, cast(list[str], previous_files))
+    return bool(current_paths) and current_paths == previous_paths
+
+
+def prompt_pack_from_state_run_dir(
+    state: dict[str, Any],
+    status_snapshot: str,
+) -> dict[str, Any] | None:
+    run_dir = state_run_dir(state)
+    if run_dir is None:
+        return None
+    prompt_pack_path = run_dir / "prompt-pack.json"
+    try:
+        raw_prompt_pack = json.loads(prompt_pack_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw_prompt_pack, dict):
+        return None
+    try:
+        prompt_pack = validate_prompt_pack(raw_prompt_pack)
+    except LoopError:
+        return None
+    prompt_pack["_scope_files"] = sorted(scope_files_from_snapshot(status_snapshot))
+    return prompt_pack
+
+
 def run_summary_has_successful_quality_gates(
     run_dir: Path | None,
     ledger: dict[str, Any],
@@ -2540,30 +2608,7 @@ def run_summary_has_successful_quality_gates(
 
 
 def current_scope_matches_successful_state(task: dict[str, Any], state: dict[str, Any]) -> bool:
-    restore_tracked_protected_churn(task)
-    try:
-        current_entries = git_status_entries()
-    except LoopError:
-        return False
-
-    current_paths = product_status_paths_from_entries(task, current_entries)
-    git_status = state.get("git_status")
-    if not isinstance(git_status, dict) or git_status.get("truncated") is True:
-        return False
-    previous_files = git_status.get("files")
-    if not isinstance(previous_files, list) or not all(
-        isinstance(item, str) for item in previous_files
-    ):
-        return False
-    previous_paths = product_status_paths_from_lines(task, cast(list[str], previous_files))
-    if not current_paths or current_paths != previous_paths:
-        return False
-
-    previous_fingerprint = state.get("git_non_protected_fingerprint")
-    if isinstance(previous_fingerprint, str) and previous_fingerprint:
-        return git_worktree_fingerprint(exclude_protected=True) == previous_fingerprint
-
-    return True
+    return current_diff_fingerprint_matches_state(task, state)
 
 
 def fast_forward_completed_current_run(
@@ -2621,6 +2666,35 @@ def fast_forward_completed_current_run(
     )
     print(f"  complete: {task['id']}")
     return True
+
+
+def resume_actionable_current_run(
+    ledger: dict[str, Any],
+    task: dict[str, Any],
+    args: argparse.Namespace,
+) -> bool | None:
+    state = read_current_run_state()
+    if state is None:
+        return None
+    if state.get("task_id") != task["id"]:
+        return None
+    if state.get("status") != "blocked":
+        return None
+
+    previous_failure = state_decision_failure(state)
+    if previous_failure is None:
+        return None
+    if not current_diff_fingerprint_matches_state(task, state):
+        print("  resume: prior actionable finding is stale for the current diff")
+        return None
+
+    status_snapshot = review_scope_snapshot()
+    prompt_pack = prompt_pack_from_state_run_dir(state, status_snapshot)
+    if prompt_pack is not None:
+        print("  resume: continuing focused repair from prior actionable finding")
+    else:
+        print("  resume: continuing focused repair from prior actionable finding without pack")
+    return run_final_repair(ledger, task, args, previous_failure, prompt_pack)
 
 
 def run_task(
@@ -3248,9 +3322,15 @@ def main() -> int:
         if fast_forward_completed_current_run(ledger, resume_task, args):
             pass
         else:
-            print("  resume: prior success is not reusable; running finish lane")
-            if not run_finish_task(ledger, resume_task, args):
+            resumed_repair = resume_actionable_current_run(ledger, resume_task, args)
+            if resumed_repair is True:
+                pass
+            elif resumed_repair is False:
                 return 1
+            else:
+                print("  resume: prior success is not reusable; running finish lane")
+                if not run_finish_task(ledger, resume_task, args):
+                    return 1
         completed_count += 1
         pause_reasons = getattr(args, "last_pause_reasons", [])
         if pause_reasons:

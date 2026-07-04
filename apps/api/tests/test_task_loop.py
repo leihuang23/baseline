@@ -267,6 +267,121 @@ def test_run_fast_forwards_dirty_task_after_successful_audit(
     assert calls == ["complete:P4-01:True", "run:P4-02"]
 
 
+def test_run_resumes_actionable_blocked_task_with_focused_repair(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    ledger = {
+        "active_cluster": "P4-memory-data-controls",
+        "clusters": [
+            {
+                "id": "P4-memory-data-controls",
+                "description": "Memory tasks.",
+                "tasks": ["P4-04", "P4-05"],
+            }
+        ],
+        "quality_gates": ["make test"],
+        "tasks": [
+            {"id": "P4-04", "status": "pending", "title": "data controls consent"},
+            {"id": "P4-05", "status": "pending", "title": "next task"},
+        ],
+    }
+    run_dir = tmp_path / "blocked-run"
+    run_dir.mkdir()
+    decision_file = run_dir / "review-decision.json"
+    decision_file.write_text(
+        json.dumps(
+            {
+                "decision": "fail",
+                "summary": "Consent update path still bypasses cloud gate.",
+                "findings": [
+                    {
+                        "severity": "blocker",
+                        "file": "apps/api/baseline_api/checkin/service.py",
+                        "line": 111,
+                        "message": "Preserved-note updates skip cloud consent.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "prompt-pack.json").write_text(
+        json.dumps(
+            {
+                "summary": "generated",
+                "review_prompt": "review",
+                "audit_prompt": "audit",
+                "extra_audits": [],
+                "targeted_gates": [],
+                "requires_human_pause": False,
+                "pause_reasons": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    current_path = tmp_path / "current.json"
+    current_path.write_text(
+        json.dumps(
+            {
+                "status": "blocked",
+                "stage": "blocked",
+                "task_id": "P4-04",
+                "task_title": "data controls consent",
+                "pid": None,
+                "run_dir": str(run_dir),
+                "command_label": "codex repair verification",
+                "command": ["codex", "--output-last-message", str(decision_file)],
+                "git_non_protected_fingerprint": "same-fp",
+            }
+        ),
+        encoding="utf-8",
+    )
+    status_results = [[" M apps/api/example.py"], []]
+    calls: list[str] = []
+
+    def fake_repair(_ledger, task, _args, failure, prompt_pack) -> bool:
+        calls.append(f"repair:{task['id']}:{prompt_pack['review_prompt'].strip()}")
+        assert "Review decision JSON" in failure
+        task["status"] = "complete"
+        return True
+
+    monkeypatch.setattr("sys.argv", ["run_task_loop.py", "run", "--limit", "1", "--commit"])
+    monkeypatch.setattr(TASK_LOOP, "CURRENT_RUN_PATH", current_path)
+    monkeypatch.setattr(TASK_LOOP, "load_ledger", lambda: ledger)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_status_lines",
+        lambda: status_results.pop(0) if status_results else [],
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_status_entries",
+        lambda: [(" M", "apps/api/example.py")],
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_worktree_fingerprint",
+        lambda **_kwargs: "same-fp",
+    )
+    monkeypatch.setattr(TASK_LOOP, "review_scope_snapshot", lambda: " M apps/api/example.py")
+    monkeypatch.setattr(TASK_LOOP, "run_final_repair", fake_repair)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_finish_task",
+        lambda *args, **kwargs: calls.append("unexpected-finish") or False,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_task",
+        lambda *args, **kwargs: calls.append("unexpected-run") or True,
+    )
+
+    assert TASK_LOOP.main() == 0
+
+    assert calls == ["repair:P4-04:review"]
+
+
 def test_run_counts_resumed_dirty_task_toward_limit(monkeypatch, tmp_path) -> None:
     ledger = {
         "active_cluster": "P4-memory-data-controls",
