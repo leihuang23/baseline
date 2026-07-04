@@ -156,6 +156,12 @@ audits for likely UI state machines, API/schema/migration contracts,
 auth/permission boundaries, data lifecycle work, reasoning/safety paths, and
 eval or golden-scenario changes.
 
+Focused repair reuses the existing generated prompt pack when the changed-file
+set has not expanded. If a repair adds a new file, the controller regenerates
+the prompt pack so review and audit scope stays current. Pure repair-audit
+verification uses the prior audit finding directly and does not regenerate a
+full review/audit pack.
+
 Disable the repair pass when you want review findings handed back to the App
 instead of letting the controller patch:
 
@@ -240,6 +246,10 @@ limit after producing a candidate diff, the controller keeps the diff and runs
 gates, review, and audit. If it stops without a candidate diff, the task blocks
 for inspection.
 
+Implementation and repair prompts tell agents to run only targeted checks
+inside the agent pass. Prefer `pytest --no-cov` for focused repair tests; the
+controller owns full `make test` coverage gates.
+
 ## Progress And Recovery
 
 Inspect progress:
@@ -259,7 +269,9 @@ The runner writes `.task-runs/current.json` while it works. The current view
 shows task id, stage, attempt, elapsed time, timeout remaining, run directory,
 log file, prompt file, git status summary, and a cleaned log tail. Each run
 directory keeps the exact implementation, review, audit, and repair prompts that
-were sent to Codex.
+were sent to Codex. It also writes `run-summary.json`, a compact machine-readable
+stage list with elapsed seconds, log sizes, exit codes, and token counts when
+Codex reports them.
 
 If a task blocks:
 
@@ -271,6 +283,20 @@ If a task blocks:
 
 Do not launch another broad autonomous implementation pass for a known review,
 audit, or gate finding. Use the existing failure details.
+
+## Protected Controller Files
+
+Normal task commits are not allowed to include task-loop controller files:
+
+- `scripts/run_task_loop.py`
+- `apps/api/tests/test_task_loop.py`
+- `docs/automation/`
+- task-loop prompt/decision schemas
+
+If one of those files changes during a product task, the controller blocks before
+marking the ledger complete. Commit or revert the controller change separately,
+or use an explicit automation task whose prompt/title is about the task loop,
+controller, prompt pack, or automation.
 
 ## Cluster Discipline
 

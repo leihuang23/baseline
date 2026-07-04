@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, cast
 
@@ -37,15 +38,25 @@ PASS_EVIDENCE_TERMS = ("passed", "pass", "success", "succeeded", "all checks pas
 AGENT_CODEX = "codex"
 DECISION_LABEL_REVIEW = "Review"
 DECISION_LABEL_AUDIT = "Audit"
+PROTECTED_NON_AUTOMATION_PATHS = (
+    "scripts/run_task_loop.py",
+    "apps/api/tests/test_task_loop.py",
+    "docs/automation/",
+    "tasks/prompt-pack.schema.json",
+    "tasks/review-decision.schema.json",
+)
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\a]*(?:\a|\x1b\\))")
+TOKEN_USAGE_RE = re.compile(r"tokens used\s*\n\s*([0-9][0-9,]*)", re.IGNORECASE)
 CODEX_REPAIR_GUIDANCE = """Repair mode:
 - Treat the existing working tree as the previous attempt's draft.
 - Start from the concrete failure details below and any cited files or lines.
 - Do not restart broad repo discovery unless the failure text is missing required context.
+- Do not reread the full PRD, task corpus, or broad docs unless the cited failure lacks the
+  contract needed to repair it.
 - Turn each review finding into an explicit checklist item and address every item before stopping.
 - Add or adjust a regression test when the failure is behavioral.
-- Run targeted checks for the touched behavior. The controller will run full quality gates after
-  this pass.
+- Run the smallest targeted checks for the touched behavior. Prefer pytest with `--no-cov` for
+  focused repair checks; the controller will run full quality gates with coverage after this pass.
 - Keep stdout concise. Do not print full diffs, long file listings, or full test logs.
 - Stop after the focused repair and local targeted verification.
 """
@@ -120,6 +131,19 @@ def git_status_lines() -> list[str] | None:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def git_status_paths() -> list[str]:
+    lines = git_status_lines()
+    if lines is None:
+        raise LoopError("Unable to inspect git status.")
+    paths: list[str] = []
+    for line in lines:
+        path = line[3:] if len(line) > 3 else line
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        paths.append(path)
+    return paths
+
+
 def read_current_run_state() -> dict[str, Any] | None:
     if not CURRENT_RUN_PATH.exists():
         return None
@@ -130,6 +154,65 @@ def read_current_run_state() -> dict[str, Any] | None:
     if not isinstance(state, dict):
         raise LoopError(f"Current run state at {CURRENT_RUN_PATH} is not a JSON object.")
     return cast(dict[str, Any], state)
+
+
+def scope_files_from_snapshot(status_snapshot: str) -> set[str]:
+    files: set[str] = set()
+    for raw_line in status_snapshot.splitlines():
+        line = raw_line.rstrip()
+        if not line or line == "clean" or line == "git status unavailable":
+            continue
+        path = line[3:] if len(line) > 3 else line
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        if path:
+            files.add(path)
+    return files
+
+
+def public_prompt_pack(prompt_pack: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in prompt_pack.items() if not key.startswith("_")}
+
+
+def prompt_pack_matches_scope(prompt_pack: dict[str, Any], status_snapshot: str) -> bool:
+    previous = set(cast(list[str], prompt_pack.get("_scope_files", [])))
+    current = scope_files_from_snapshot(status_snapshot)
+    return bool(previous) and current.issubset(previous)
+
+
+def extract_token_usage(log_file: Path) -> int | None:
+    text = read_failure_context(log_file)
+    matches = TOKEN_USAGE_RE.findall(text)
+    if not matches:
+        return None
+    return int(matches[-1].replace(",", ""))
+
+
+def record_stage_summary(log_file: Path, state: dict[str, Any]) -> None:
+    entry = {
+        "stage": state.get("stage"),
+        "command_label": state.get("command_label"),
+        "status": state.get("status"),
+        "exit_code": state.get("exit_code"),
+        "elapsed_seconds": state.get("elapsed_seconds"),
+        "elapsed": state.get("elapsed"),
+        "log_file": state.get("log_file"),
+        "log_bytes": log_size_bytes(log_file),
+        "tokens_used": extract_token_usage(log_file),
+    }
+    summary_file = log_file.parent / "run-summary.json"
+    summary: dict[str, Any] = {"schema_version": 1, "stages": []}
+    if summary_file.exists():
+        try:
+            loaded = json.loads(summary_file.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and isinstance(loaded.get("stages"), list):
+                summary = cast(dict[str, Any], loaded)
+        except (OSError, json.JSONDecodeError):
+            summary = {"schema_version": 1, "stages": []}
+    stages = [item for item in summary["stages"] if item.get("log_file") != entry["log_file"]]
+    stages.append(entry)
+    summary["stages"] = stages
+    write_json_atomic(summary_file, summary)
 
 
 def implementation_has_candidate_changes(
@@ -386,7 +469,7 @@ def run_logged(
             if returncode is not None:
                 log.write(f"\n[exit_code] {returncode}\n")
                 log.flush()
-                write_run_state(
+                state = write_run_state(
                     status_file,
                     base_state,
                     status="succeeded" if returncode == 0 else "failed",
@@ -398,6 +481,8 @@ def run_logged(
                     timeout_seconds=timeout_seconds,
                     exit_code=returncode,
                 )
+                if state is not None:
+                    record_stage_summary(log_file, state)
                 return returncode
 
             elapsed_seconds = int((utc_datetime() - started_at).total_seconds())
@@ -406,7 +491,7 @@ def run_logged(
                 log.write(f"\n[success_sentinel] {success_sentinel}\n")
                 log.write("[exit_code] 0\n")
                 log.flush()
-                write_run_state(
+                state = write_run_state(
                     status_file,
                     base_state,
                     status="succeeded",
@@ -418,6 +503,8 @@ def run_logged(
                     timeout_seconds=timeout_seconds,
                     exit_code=0,
                 )
+                if state is not None:
+                    record_stage_summary(log_file, state)
                 return 0
 
             size_bytes = log_size_bytes(log_file)
@@ -427,7 +514,7 @@ def run_logged(
                 log.write(f"\n[max_log_bytes] {max_log_bytes}\n")
                 log.write(f"[exit_code] {LOG_LIMIT_EXIT_CODE}\n")
                 log.flush()
-                write_run_state(
+                state = write_run_state(
                     status_file,
                     base_state,
                     status="log_limited",
@@ -439,6 +526,8 @@ def run_logged(
                     timeout_seconds=timeout_seconds,
                     exit_code=LOG_LIMIT_EXIT_CODE,
                 )
+                if state is not None:
+                    record_stage_summary(log_file, state)
                 return LOG_LIMIT_EXIT_CODE
 
             if timeout_seconds is not None and elapsed_seconds >= timeout_seconds:
@@ -447,7 +536,7 @@ def run_logged(
                 log.write(f"\n[timeout_seconds] {timeout_seconds}\n")
                 log.write("[exit_code] 124\n")
                 log.flush()
-                write_run_state(
+                state = write_run_state(
                     status_file,
                     base_state,
                     status="timed_out",
@@ -459,6 +548,8 @@ def run_logged(
                     timeout_seconds=timeout_seconds,
                     exit_code=124,
                 )
+                if state is not None:
+                    record_stage_summary(log_file, state)
                 return 124
 
             if heartbeat_seconds > 0 and time.monotonic() - last_heartbeat >= heartbeat_seconds:
@@ -668,7 +759,7 @@ Implementation prompt source:
 
 
 def write_prompt_pack_artifacts(task_run_dir: Path, prompt_pack: dict[str, Any]) -> None:
-    write_json_atomic(task_run_dir / "prompt-pack.json", prompt_pack)
+    write_json_atomic(task_run_dir / "prompt-pack.json", public_prompt_pack(prompt_pack))
     write_prompt_snapshot(task_run_dir, "generated-review-prompt.md", prompt_pack["review_prompt"])
     write_prompt_snapshot(task_run_dir, "generated-audit-prompt.md", prompt_pack["audit_prompt"])
     for audit in prompt_pack["extra_audits"]:
@@ -691,6 +782,7 @@ def prepare_prompt_pack(
         getattr(args, "skip_review", False) and getattr(args, "skip_audit", False)
     ):
         prompt_pack = fallback_prompt_pack(task, changed_files)
+        prompt_pack["_scope_files"] = sorted(scope_files_from_snapshot(changed_files))
         write_prompt_pack_artifacts(task_run_dir, prompt_pack)
         return prompt_pack
 
@@ -735,6 +827,7 @@ def prepare_prompt_pack(
             f"prompt-pack output was not valid JSON: {exc}; see {output_file}\n\n"
             f"Prompt-pack log tail:\n{read_log_tail(log_file)}"
         ) from exc
+    prompt_pack["_scope_files"] = sorted(scope_files_from_snapshot(changed_files))
     write_prompt_pack_artifacts(task_run_dir, prompt_pack)
     return prompt_pack
 
@@ -1591,8 +1684,32 @@ def run_final_repair(
         if removed_artifacts:
             print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
 
-        if prompt_pack is None and (not args.skip_review or not args.skip_audit):
-            prompt_pack = prepare_prompt_pack(task, task_run_dir, args, base_status)
+        needs_prompt_pack = (
+            (not args.skip_review or not args.skip_audit)
+            and not audit_failure_is_actionable(current_failure)
+        )
+        if needs_prompt_pack:
+            current_snapshot = review_scope_snapshot()
+            if prompt_pack is None:
+                prompt_pack = prepare_prompt_pack(
+                    task,
+                    task_run_dir,
+                    args,
+                    base_status,
+                    current_snapshot,
+                )
+            elif prompt_pack_matches_scope(prompt_pack, current_snapshot):
+                print("  prompt-pack: reusing existing generated review/audit prompts")
+                write_prompt_pack_artifacts(task_run_dir, prompt_pack)
+            else:
+                print("  prompt-pack: changed-file scope expanded; regenerating prompts")
+                prompt_pack = prepare_prompt_pack(
+                    task,
+                    task_run_dir,
+                    args,
+                    base_status,
+                    current_snapshot,
+                )
 
         if not args.skip_review and not audit_failure_is_actionable(current_failure):
             is_repair_verification = review_failure_is_actionable(current_failure)
@@ -1887,7 +2004,51 @@ def implementation_agent_invocation(
     return agent_label, command, prompt, command
 
 
+def task_allows_controller_changes(task: dict[str, Any]) -> bool:
+    haystack_parts = [task["id"], task["title"], str(task.get("prompt", ""))]
+    with suppress(OSError):
+        haystack_parts.append(task_prompt_text(task))
+    haystack = "\n".join(haystack_parts).lower()
+    return any(
+        token in haystack
+        for token in (
+            "automation",
+            "task loop",
+            "task-loop",
+            "run_task_loop",
+            "controller",
+            "prompt-pack",
+            "review-decision.schema",
+        )
+    )
+
+
+def protected_path_violations(task: dict[str, Any], paths: list[str]) -> list[str]:
+    if task_allows_controller_changes(task):
+        return []
+    violations: list[str] = []
+    for path in paths:
+        if any(
+            path == protected or path.startswith(protected)
+            for protected in PROTECTED_NON_AUTOMATION_PATHS
+        ):
+            violations.append(path)
+    return sorted(set(violations))
+
+
+def assert_task_commit_allowed(task: dict[str, Any]) -> None:
+    violations = protected_path_violations(task, git_status_paths())
+    if violations:
+        formatted = "\n".join(f"- {path}" for path in violations)
+        raise LoopError(
+            "Task diff touches task-loop controller files, but this is not an automation task. "
+            "Commit or revert those files separately before completing the task:\n"
+            f"{formatted}"
+        )
+
+
 def commit_task(task: dict[str, Any]) -> None:
+    assert_task_commit_allowed(task)
     subprocess.run(["git", "add", "-A"], cwd=ROOT, check=True)
     status = subprocess.run(
         ["git", "status", "--porcelain"],
@@ -1918,6 +2079,8 @@ def complete_task(
     task_run_dir: Path,
     commit: bool,
 ) -> None:
+    if commit:
+        assert_task_commit_allowed(task)
     task["status"] = "complete"
     task["completed_at"] = utc_now()
     task["last_run_dir"] = str(task_run_dir.relative_to(ROOT))
@@ -1933,6 +2096,7 @@ def run_task(
 ) -> bool:
     print(f"task: {task['id']} - {task['title']}")
     previous_failure: str | None = None
+    prompt_pack: dict[str, Any] | None = None
     agent_timeout_seconds = normalize_timeout_seconds(args.agent_timeout_seconds)
     review_timeout_seconds = normalize_timeout_seconds(args.review_timeout_seconds)
     agent_log_limit_bytes = normalize_log_limit_bytes(args.agent_log_limit_bytes)
@@ -2176,7 +2340,7 @@ def run_task(
         args.final_repair
         and previous_failure
         and failure_is_actionable(previous_failure)
-        and run_final_repair(ledger, task, args, previous_failure)
+        and run_final_repair(ledger, task, args, previous_failure, prompt_pack)
     ):
         return True
 

@@ -794,6 +794,30 @@ def test_run_logged_ignores_sentinel_mentions_that_are_not_exact_lines(tmp_path)
     assert state["exit_code"] == 0
 
 
+def test_run_logged_writes_run_summary_with_token_usage(tmp_path) -> None:
+    log_file = tmp_path / "tokenized.log"
+    status_file = tmp_path / "current.json"
+
+    code = TASK_LOOP.run_logged(
+        [
+            sys.executable,
+            "-c",
+            "print('tokens used'); print('1,234')",
+        ],
+        log_file,
+        timeout_seconds=30,
+        status_file=status_file,
+        status={"task_id": "P1-02", "stage": "implementation"},
+        heartbeat_seconds=0,
+    )
+
+    assert code == 0
+    summary = json.loads((tmp_path / "run-summary.json").read_text(encoding="utf-8"))
+    assert summary["stages"][-1]["stage"] == "implementation"
+    assert summary["stages"][-1]["tokens_used"] == 1234
+    assert summary["stages"][-1]["log_bytes"] > 0
+
+
 def test_run_logged_stops_at_log_limit(tmp_path) -> None:
     log_file = tmp_path / "chatty.log"
     status_file = tmp_path / "current.json"
@@ -814,6 +838,35 @@ def test_run_logged_stops_at_log_limit(tmp_path) -> None:
     state = json.loads(status_file.read_text(encoding="utf-8"))
     assert state["status"] == "log_limited"
     assert state["exit_code"] == TASK_LOOP.LOG_LIMIT_EXIT_CODE
+
+
+def test_protected_path_violations_block_non_automation_tasks() -> None:
+    task = {
+        "id": "P4-01",
+        "title": "memory daily weekly",
+        "prompt": "tasks/P4-01-memory-daily-weekly.md",
+    }
+
+    violations = TASK_LOOP.protected_path_violations(
+        task,
+        [
+            "scripts/run_task_loop.py",
+            "docs/automation/loop-engineering.md",
+            "tasks/ledger.json",
+        ],
+    )
+
+    assert violations == ["docs/automation/loop-engineering.md", "scripts/run_task_loop.py"]
+
+
+def test_protected_path_violations_allow_automation_tasks() -> None:
+    task = {
+        "id": "AUTO-01",
+        "title": "automation controller hardening",
+        "prompt": "tasks/P4-01-memory-daily-weekly.md",
+    }
+
+    assert TASK_LOOP.protected_path_violations(task, ["scripts/run_task_loop.py"]) == []
 
 
 def test_review_failure_context_includes_structured_decision(tmp_path) -> None:
@@ -1027,6 +1080,7 @@ def test_finish_task_runs_gates_review_audit_and_complete_without_agent(monkeypa
                 "extra_audits": [],
                 "requires_human_pause": False,
                 "pause_reasons": [],
+                "_scope_files": ["apps/api/example.py"],
             }
         ),
     )
@@ -1130,6 +1184,7 @@ def test_final_repair_allows_finish_args_without_max_attempts(monkeypatch) -> No
         lambda *args, **kwargs: calls.append("complete"),
     )
     monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr(TASK_LOOP, "review_scope_snapshot", lambda: " M apps/api/example.py")
 
     assert (
         TASK_LOOP.run_final_repair(
@@ -1238,7 +1293,6 @@ def test_final_repair_retries_actionable_audit_findings(monkeypatch) -> None:
         "codex",
         "gates",
         "cleanup",
-        "prompt-pack",
         "audit",
         "attempt:2",
         "codex",
@@ -1246,7 +1300,6 @@ def test_final_repair_retries_actionable_audit_findings(monkeypatch) -> None:
         "cleanup",
         "audit",
         "complete",
-        "pause",
     ]
 
 
@@ -1308,6 +1361,7 @@ def test_final_repair_keeps_decision_budget_after_gate_repairs(monkeypatch) -> N
                 "extra_audits": [],
                 "requires_human_pause": False,
                 "pause_reasons": [],
+                "_scope_files": ["apps/api/example.py"],
             }
         ),
     )
@@ -1327,6 +1381,7 @@ def test_final_repair_keeps_decision_budget_after_gate_repairs(monkeypatch) -> N
         lambda *args, **kwargs: calls.append("complete"),
     )
     monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+    monkeypatch.setattr(TASK_LOOP, "review_scope_snapshot", lambda: " M apps/api/example.py")
 
     assert (
         TASK_LOOP.run_final_repair(
@@ -1357,6 +1412,182 @@ def test_final_repair_keeps_decision_budget_after_gate_repairs(monkeypatch) -> N
         "extra-audits",
         "complete",
         "pause",
+    ]
+
+
+def test_final_repair_reuses_prompt_pack_when_scope_is_unchanged(monkeypatch) -> None:
+    task = {
+        "id": "P4-02",
+        "title": "memory monthly quarterly",
+        "prompt": "tasks/P4-02-memory-monthly-quarterly.md",
+    }
+    prompt_pack = {
+        "review_prompt": "review",
+        "audit_prompt": "audit",
+        "extra_audits": [],
+        "requires_human_pause": False,
+        "pause_reasons": [],
+        "_scope_files": ["apps/api/baseline_api/memory/compiler.py"],
+    }
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or (True, "quality gates passed"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "cleanup_generated_python_artifacts", lambda: 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "review_scope_snapshot",
+        lambda: " M apps/api/baseline_api/memory/compiler.py",
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "write_prompt_pack_artifacts",
+        lambda *args, **kwargs: calls.append("reuse-pack"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "prepare_prompt_pack",
+        lambda *args, **kwargs: calls.append("unexpected-generate") or prompt_pack,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_review",
+        lambda *args, **kwargs: calls.append("review") or (True, "review passed"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_audit",
+        lambda *args, **kwargs: calls.append("audit") or (True, "audit passed"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "remember_pause_reasons", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "complete_task",
+        lambda *args, **kwargs: calls.append("complete"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            finish_args(),
+            "review failed; see file\n\nReview decision JSON:\n{}",
+            prompt_pack,
+        )
+        is True
+    )
+
+    assert "unexpected-generate" not in calls
+    assert calls == [
+        "attempt:1",
+        "codex",
+        "gates",
+        "reuse-pack",
+        "review",
+        "audit",
+        "complete",
+    ]
+
+
+def test_final_repair_regenerates_prompt_pack_when_scope_expands(monkeypatch) -> None:
+    task = {
+        "id": "P4-02",
+        "title": "memory monthly quarterly",
+        "prompt": "tasks/P4-02-memory-monthly-quarterly.md",
+    }
+    old_pack = {
+        "review_prompt": "old review",
+        "audit_prompt": "old audit",
+        "extra_audits": [],
+        "requires_human_pause": False,
+        "pause_reasons": [],
+        "_scope_files": ["apps/api/baseline_api/memory/compiler.py"],
+    }
+    new_pack = {
+        "review_prompt": "new review",
+        "audit_prompt": "new audit",
+        "extra_audits": [],
+        "requires_human_pause": False,
+        "pause_reasons": [],
+        "_scope_files": [
+            "apps/api/baseline_api/memory/compiler.py",
+            "apps/api/baseline_api/memory/service.py",
+        ],
+    }
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or (True, "quality gates passed"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "cleanup_generated_python_artifacts", lambda: 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "review_scope_snapshot",
+        lambda: (
+            " M apps/api/baseline_api/memory/compiler.py\n"
+            " M apps/api/baseline_api/memory/service.py"
+        ),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "prepare_prompt_pack",
+        lambda *args, **kwargs: calls.append("generate-pack") or new_pack,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_review",
+        lambda *args, **kwargs: calls.append("review") or (True, "review passed"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_audit",
+        lambda *args, **kwargs: calls.append("audit") or (True, "audit passed"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "remember_pause_reasons", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "complete_task",
+        lambda *args, **kwargs: calls.append("complete"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            finish_args(),
+            "review failed; see file\n\nReview decision JSON:\n{}",
+            old_pack,
+        )
+        is True
+    )
+
+    assert calls == [
+        "attempt:1",
+        "codex",
+        "gates",
+        "generate-pack",
+        "review",
+        "audit",
+        "complete",
     ]
 
 
