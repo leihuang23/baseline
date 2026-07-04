@@ -26,8 +26,8 @@ DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS = 900
 DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS = 300
 DEFAULT_FINAL_REPAIR_ATTEMPTS = 2
 DEFAULT_HEARTBEAT_SECONDS = 30
-DEFAULT_AGENT_LOG_LIMIT_BYTES = 2_000_000
-DEFAULT_REVIEW_LOG_LIMIT_BYTES = 1_000_000
+DEFAULT_AGENT_LOG_LIMIT_BYTES = 0
+DEFAULT_REVIEW_LOG_LIMIT_BYTES = 0
 DONE_SENTINEL = "TASK_LOOP_DONE"
 LOG_LIMIT_EXIT_CODE = 125
 FAILURE_CONTEXT_MAX_CHARS = 6_000
@@ -46,6 +46,7 @@ CODEX_REPAIR_GUIDANCE = """Repair mode:
 - Add or adjust a regression test when the failure is behavioral.
 - Run targeted checks for the touched behavior. The controller will run full quality gates after
   this pass.
+- Keep stdout concise. Do not print full diffs, long file listings, or full test logs.
 - Stop after the focused repair and local targeted verification.
 """
 
@@ -117,6 +118,18 @@ def git_status_lines() -> list[str] | None:
     if result.returncode != 0:
         return None
     return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def read_current_run_state() -> dict[str, Any] | None:
+    if not CURRENT_RUN_PATH.exists():
+        return None
+    try:
+        state = json.loads(CURRENT_RUN_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LoopError(f"Could not read {CURRENT_RUN_PATH}: {exc}") from exc
+    if not isinstance(state, dict):
+        raise LoopError(f"Current run state at {CURRENT_RUN_PATH} is not a JSON object.")
+    return cast(dict[str, Any], state)
 
 
 def implementation_has_candidate_changes(
@@ -904,20 +917,45 @@ def format_audit_failure(output_file: Path, decision: dict[str, Any]) -> str:
     return format_decision_failure(DECISION_LABEL_AUDIT, output_file, decision)
 
 
-def check_clean_worktree(allow_dirty: bool) -> None:
-    result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise LoopError(result.stderr.strip() or "Unable to inspect git status.")
-    if result.stdout.strip() and not allow_dirty:
+def resumable_dirty_task(
+    ledger: dict[str, Any],
+    args: argparse.Namespace,
+) -> dict[str, Any] | None:
+    state = read_current_run_state()
+    if state is None:
+        return None
+
+    pid = state.get("pid")
+    if process_liveness(pid if isinstance(pid, int) else None) == "running":
         raise LoopError(
-            "Worktree is dirty. Commit, stash, or rerun with --allow-dirty if this is intentional."
+            "Current task-loop state still points at a running process. "
+            "Use `python3 scripts/run_task_loop.py current --watch` "
+            "instead of starting another run."
         )
+
+    task_id = state.get("task_id")
+    if not isinstance(task_id, str):
+        return None
+    if state.get("status") == "complete":
+        return None
+    if args.task and args.task != task_id:
+        return None
+
+    tasks = task_map(ledger)
+    task = tasks.get(task_id)
+    if task is None or task.get("status") == "complete":
+        return None
+
+    if args.cluster:
+        cluster = selected_cluster(ledger, args.cluster)
+        if task_id not in cluster["tasks"]:
+            return None
+    else:
+        _, pending = pending_task_selection(ledger, None)
+        if task_id not in {item["id"] for item in pending}:
+            return None
+
+    return task
 
 
 def task_prompt_text(task: dict[str, Any]) -> str:
@@ -958,6 +996,7 @@ Rules:
   quality gates immediately after the pass.
 - The controller will run make fmt, make lint, make typecheck, make test,
   and a review gate after you finish.
+- Keep stdout concise. Do not print full diffs, long file listings, or full test logs.
 - When the task is ready for controller gates, stop. End your final response with exactly
   `{DONE_SENTINEL}` on its own line so the controller can stop waiting immediately.
 {guidance_block}
@@ -1455,6 +1494,14 @@ def codex_exec_command(codex_bin: str, sandbox: str, *, lean: bool) -> list[str]
     return command
 
 
+def repair_failure_kind(failure_result: str) -> str | None:
+    if gate_failure_is_actionable(failure_result):
+        return "gate"
+    if decision_failure_is_actionable(failure_result):
+        return "decision"
+    return None
+
+
 def run_final_repair(
     ledger: dict[str, Any],
     task: dict[str, Any],
@@ -1465,7 +1512,18 @@ def run_final_repair(
     max_attempts = getattr(args, "max_attempts", 0)
     repair_attempts = getattr(args, "final_repair_attempts", DEFAULT_FINAL_REPAIR_ATTEMPTS)
     current_failure = previous_failure
-    for repair_index in range(1, repair_attempts + 1):
+    attempts_by_kind = {"gate": 0, "decision": 0}
+    repair_index = 0
+    while True:
+        failure_kind = repair_failure_kind(current_failure)
+        if failure_kind is None:
+            print("  failed: final repair failure is not actionable")
+            return False
+        if attempts_by_kind[failure_kind] >= repair_attempts:
+            print(f"  failed: exhausted {repair_attempts} {failure_kind} repair attempt(s)")
+            return False
+        attempts_by_kind[failure_kind] += 1
+        repair_index += 1
         task_run_dir = (
             RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-final-repair-{repair_index}"
         )
@@ -1483,10 +1541,13 @@ def run_final_repair(
             "final_repair": True,
             "repair_attempt": repair_index,
             "final_repair_attempts": repair_attempts,
+            "repair_failure_kind": failure_kind,
+            "repair_failure_kind_attempt": attempts_by_kind[failure_kind],
         }
         print(
             "  final repair: codex exec for actionable findings "
-            f"({repair_index}/{repair_attempts}) -> run {relative_to_root(task_run_dir)}"
+            f"({failure_kind} {attempts_by_kind[failure_kind]}/{repair_attempts}, "
+            f"overall {repair_index}) -> run {relative_to_root(task_run_dir)}"
         )
         prompt_file = write_prompt_snapshot(task_run_dir, "final-repair-prompt.md", prompt)
         exec_log = task_run_dir / "codex-final-repair.log"
@@ -1520,7 +1581,7 @@ def run_final_repair(
         )
         if not gates_ok:
             print(f"  failed: {gate_result}")
-            if repair_index < repair_attempts and failure_is_actionable(gate_result):
+            if failure_is_actionable(gate_result):
                 current_failure = gate_result
                 print("  repair: gate failure is actionable; continuing focused repair loop")
                 continue
@@ -1568,7 +1629,7 @@ def run_final_repair(
             )
             if not review_ok:
                 print(f"  failed: {review_result}")
-                if repair_index < repair_attempts and decision_failure_is_actionable(review_result):
+                if decision_failure_is_actionable(review_result):
                     current_failure = review_result
                     print("  repair: review finding remains actionable; continuing repair loop")
                     continue
@@ -1605,7 +1666,7 @@ def run_final_repair(
             )
             if not audit_ok:
                 print(f"  failed: {audit_result}")
-                if repair_index < repair_attempts and audit_failure_is_actionable(audit_result):
+                if audit_failure_is_actionable(audit_result):
                     current_failure = audit_result
                     print("  repair: audit finding remains actionable; continuing repair loop")
                     continue
@@ -1622,7 +1683,7 @@ def run_final_repair(
                 )
                 if not extra_ok:
                     print(f"  failed: {extra_result}")
-                    if repair_index < repair_attempts and audit_failure_is_actionable(extra_result):
+                    if audit_failure_is_actionable(extra_result):
                         current_failure = extra_result
                         print(
                             "  repair: extra audit finding remains actionable; "
@@ -1643,9 +1704,6 @@ def run_final_repair(
         )
         print(f"  complete: {task['id']}")
         return True
-
-    print(f"  failed: exhausted {repair_attempts} final repair attempt(s)")
-    return False
 
 
 def block_task(task: dict[str, Any], base_status: dict[str, Any], message: str) -> None:
@@ -1693,7 +1751,7 @@ def run_finish_task(
 
     verified_gates, prior_verification_path = prior_verified_gates(
         ledger,
-        args.prior_verification_file,
+        getattr(args, "prior_verification_file", None),
     )
     if verified_gates:
         print(
@@ -2437,7 +2495,42 @@ def main() -> int:
             return 0
         return 0 if run_finish_task(ledger, candidates[0], args) else 1
 
-    check_clean_worktree(args.allow_dirty)
+    completed_count = 0
+    current_status_lines = git_status_lines()
+    if current_status_lines is None:
+        raise LoopError("Unable to inspect git status before starting task loop.")
+    if current_status_lines and not args.allow_dirty:
+        resume_task = resumable_dirty_task(ledger, args)
+        if resume_task is None:
+            raise LoopError(
+                "Worktree is dirty and no unfinished task-loop candidate was found in "
+                ".task-runs/current.json. Commit, stash, or run "
+                "`python3 scripts/run_task_loop.py finish --task <task-id> --commit` "
+                "when the dirty diff intentionally belongs to one task."
+            )
+        print(
+            "dirty worktree: resuming unfinished "
+            f"{resume_task['id']} through the finish lane"
+        )
+        if not run_finish_task(ledger, resume_task, args):
+            return 1
+        completed_count += 1
+        pause_reasons = getattr(args, "last_pause_reasons", [])
+        if pause_reasons:
+            print("paused: human verification recommended before continuing to the next task")
+            return 0
+        remaining_status_lines = git_status_lines()
+        if remaining_status_lines is None:
+            raise LoopError("Unable to inspect git status after finishing resumed task.")
+        if remaining_status_lines:
+            raise LoopError(
+                "Finished the resumed task, but the worktree is still dirty. "
+                "Use --commit for continuous runs, or commit/stash the remaining diff "
+                "before starting the next task."
+            )
+        if args.task or (args.limit != 0 and completed_count >= args.limit):
+            return 0
+
     if args.task:
         candidates = [task_map(ledger)[args.task]]
     else:
@@ -2447,7 +2540,8 @@ def main() -> int:
     if not candidates:
         print("No pending tasks.")
         return 0
-    selected = candidates if args.limit == 0 else candidates[: args.limit]
+    remaining_limit = args.limit if args.limit == 0 else max(0, args.limit - completed_count)
+    selected = candidates if remaining_limit == 0 else candidates[:remaining_limit]
     for task in selected:
         if not run_task(ledger, task, args):
             return 1

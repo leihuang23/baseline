@@ -84,6 +84,21 @@ To finish and commit a specific task id:
 python3 scripts/run_task_loop.py finish --task P3-01 --commit
 ```
 
+To restart an interrupted autonomous run with an unfinished dirty diff, use the
+same continuous command again:
+
+```bash
+python3 scripts/run_task_loop.py run --limit 0 --commit
+```
+
+When the worktree is dirty, `run` reads `.task-runs/current.json`. If that state
+file points at a non-complete pending task, the controller first routes the
+current diff through the `finish` lane for that task, including quality gates,
+generated review/audit, focused repair, ledger update, and commit. After the
+commit leaves the tree clean, it continues to the next pending tasks. If the
+dirty diff cannot be tied to one unfinished task-loop run, the controller still
+blocks instead of guessing.
+
 Use no-commit finish only when you want to inspect the completed diff and commit
 manually:
 
@@ -196,9 +211,9 @@ Default budgets:
 - prompt-pack generation/review/audit: 600 seconds
 - focused repair: 900 seconds
 - focused repair review: 300 seconds
-- final repair attempts: 2
-- implementation/final-repair log limit: 2 MB
-- review/audit log limit: 1 MB
+- final repair attempts: 2 per actionable failure class (`gate` and `decision`)
+- implementation/final-repair log limit: disabled by default
+- review/audit log limit: disabled by default
 
 Override budgets only for tasks known to need them:
 
@@ -210,16 +225,20 @@ python3 scripts/run_task_loop.py finish --final-repair-attempts 3
 python3 scripts/run_task_loop.py finish --review-log-limit-bytes 2000000
 ```
 
-Use `0` to disable a timeout or log limit for a trusted long run:
+Use `0` to disable a timeout or log limit:
 
 ```bash
 python3 scripts/run_task_loop.py run --agent-timeout-seconds 0
 python3 scripts/run_task_loop.py finish --review-timeout-seconds 0
 ```
 
-If an autonomous implementation hits a timeout or log limit after producing a
-candidate diff, the controller keeps the diff and runs gates, review, and audit.
-If it stops without a candidate diff, the task blocks for inspection.
+Timeouts remain the default cost brake for runaway Codex sessions. Log limits
+are opt-in because large but productive diffs can produce verbose logs; killing
+the agent for log volume tends to create partial diffs after tokens have already
+been spent. If an autonomous implementation hits a timeout or an explicit log
+limit after producing a candidate diff, the controller keeps the diff and runs
+gates, review, and audit. If it stops without a candidate diff, the task blocks
+for inspection.
 
 ## Progress And Recovery
 

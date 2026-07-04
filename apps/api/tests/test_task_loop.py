@@ -81,8 +81,8 @@ def test_run_command_defaults_to_one_attempt_with_bounded_review(monkeypatch) ->
     assert args.review_timeout_seconds == 600
     assert args.repair_review_timeout_seconds == 300
     assert args.final_repair_attempts == 2
-    assert args.agent_log_limit_bytes == 2_000_000
-    assert args.review_log_limit_bytes == 1_000_000
+    assert args.agent_log_limit_bytes == 0
+    assert args.review_log_limit_bytes == 0
     assert args.codex_lean is False
     assert args.allow_no_changes is False
     assert args.skip_prompt_pack is False
@@ -116,6 +116,132 @@ def test_run_command_accepts_disabled_timeouts_and_log_limits(monkeypatch) -> No
     assert TASK_LOOP.normalize_timeout_seconds(args.repair_review_timeout_seconds) is None
     assert TASK_LOOP.normalize_log_limit_bytes(args.agent_log_limit_bytes) is None
     assert TASK_LOOP.normalize_log_limit_bytes(args.review_log_limit_bytes) is None
+
+
+def test_run_resumes_dirty_current_task_before_pending_queue(monkeypatch, tmp_path) -> None:
+    ledger = {
+        "active_cluster": "P4-memory-data-controls",
+        "clusters": [
+            {
+                "id": "P4-memory-data-controls",
+                "description": "Memory tasks.",
+                "tasks": ["P4-01", "P4-02"],
+            }
+        ],
+        "quality_gates": [],
+        "tasks": [
+            {"id": "P4-01", "status": "pending", "title": "memory daily weekly"},
+            {"id": "P4-02", "status": "pending", "title": "memory monthly quarterly"},
+        ],
+    }
+    current_path = tmp_path / "current.json"
+    current_path.write_text(
+        json.dumps({"status": "blocked", "task_id": "P4-01", "pid": None}),
+        encoding="utf-8",
+    )
+    status_results = [[" M apps/api/example.py"], []]
+    calls: list[str] = []
+
+    def fake_finish(_ledger, task, args) -> bool:
+        calls.append(f"finish:{task['id']}:{args.commit}")
+        task["status"] = "complete"
+        return True
+
+    def fake_run(_ledger, task, _args) -> bool:
+        calls.append(f"run:{task['id']}")
+        task["status"] = "complete"
+        return True
+
+    monkeypatch.setattr("sys.argv", ["run_task_loop.py", "run", "--limit", "0", "--commit"])
+    monkeypatch.setattr(TASK_LOOP, "CURRENT_RUN_PATH", current_path)
+    monkeypatch.setattr(TASK_LOOP, "load_ledger", lambda: ledger)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_status_lines",
+        lambda: status_results.pop(0) if status_results else [],
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_finish_task", fake_finish)
+    monkeypatch.setattr(TASK_LOOP, "run_task", fake_run)
+
+    assert TASK_LOOP.main() == 0
+
+    assert calls == ["finish:P4-01:True", "run:P4-02"]
+
+
+def test_run_counts_resumed_dirty_task_toward_limit(monkeypatch, tmp_path) -> None:
+    ledger = {
+        "active_cluster": "P4-memory-data-controls",
+        "clusters": [
+            {
+                "id": "P4-memory-data-controls",
+                "description": "Memory tasks.",
+                "tasks": ["P4-01", "P4-02"],
+            }
+        ],
+        "quality_gates": [],
+        "tasks": [
+            {"id": "P4-01", "status": "pending", "title": "memory daily weekly"},
+            {"id": "P4-02", "status": "pending", "title": "memory monthly quarterly"},
+        ],
+    }
+    current_path = tmp_path / "current.json"
+    current_path.write_text(
+        json.dumps({"status": "blocked", "task_id": "P4-01", "pid": None}),
+        encoding="utf-8",
+    )
+    status_results = [[" M apps/api/example.py"], []]
+    calls: list[str] = []
+
+    def fake_finish(_ledger, task, _args) -> bool:
+        calls.append(f"finish:{task['id']}")
+        task["status"] = "complete"
+        return True
+
+    monkeypatch.setattr("sys.argv", ["run_task_loop.py", "run", "--limit", "1", "--commit"])
+    monkeypatch.setattr(TASK_LOOP, "CURRENT_RUN_PATH", current_path)
+    monkeypatch.setattr(TASK_LOOP, "load_ledger", lambda: ledger)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_status_lines",
+        lambda: status_results.pop(0) if status_results else [],
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_finish_task", fake_finish)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_task",
+        lambda *args, **kwargs: calls.append("unexpected-run") or True,
+    )
+
+    assert TASK_LOOP.main() == 0
+
+    assert calls == ["finish:P4-01"]
+
+
+def test_run_dirty_without_resumable_current_task_still_blocks(monkeypatch, tmp_path) -> None:
+    ledger = {
+        "active_cluster": "P4-memory-data-controls",
+        "clusters": [
+            {
+                "id": "P4-memory-data-controls",
+                "description": "Memory tasks.",
+                "tasks": ["P4-01"],
+            }
+        ],
+        "quality_gates": [],
+        "tasks": [{"id": "P4-01", "status": "pending", "title": "memory daily weekly"}],
+    }
+
+    monkeypatch.setattr("sys.argv", ["run_task_loop.py", "run", "--limit", "0", "--commit"])
+    monkeypatch.setattr(TASK_LOOP, "CURRENT_RUN_PATH", tmp_path / "missing-current.json")
+    monkeypatch.setattr(TASK_LOOP, "load_ledger", lambda: ledger)
+    monkeypatch.setattr(TASK_LOOP, "git_status_lines", lambda: [" M apps/api/example.py"])
+
+    try:
+        TASK_LOOP.main()
+    except TASK_LOOP.LoopError as exc:
+        assert "no unfinished task-loop candidate" in str(exc)
+    else:
+        raise AssertionError("dirty run without current task should block")
 
 
 def test_finish_command_accepts_prior_verification_file(monkeypatch) -> None:
@@ -271,8 +397,8 @@ def test_finish_command_defaults_to_bounded_verification(monkeypatch) -> None:
     assert args.review_timeout_seconds == 600
     assert args.repair_review_timeout_seconds == 300
     assert args.final_repair_attempts == 2
-    assert args.agent_log_limit_bytes == 2_000_000
-    assert args.review_log_limit_bytes == 1_000_000
+    assert args.agent_log_limit_bytes == 0
+    assert args.review_log_limit_bytes == 0
     assert args.final_repair is True
     assert args.codex_lean is False
     assert args.allow_no_changes is False
@@ -770,12 +896,12 @@ def finish_args(**overrides: object) -> SimpleNamespace:
         "codex_bin": "codex",
         "codex_lean": False,
         "review_timeout_seconds": 600,
-        "review_log_limit_bytes": 1_000_000,
+        "review_log_limit_bytes": 0,
         "skip_prompt_pack": False,
         "pause_policy": "auto",
         "final_repair": True,
         "final_repair_attempts": 2,
-        "agent_log_limit_bytes": 2_000_000,
+        "agent_log_limit_bytes": 0,
         "final_repair_timeout_seconds": 900,
         "repair_review_timeout_seconds": 300,
         "commit": False,
@@ -893,14 +1019,16 @@ def test_finish_task_runs_gates_review_audit_and_complete_without_agent(monkeypa
     monkeypatch.setattr(
         TASK_LOOP,
         "prepare_prompt_pack",
-        lambda *args, **kwargs: calls.append("prompt-pack")
-        or {
-            "review_prompt": "review",
-            "audit_prompt": "audit",
-            "extra_audits": [],
-            "requires_human_pause": False,
-            "pause_reasons": [],
-        },
+        lambda *args, **kwargs: (
+            calls.append("prompt-pack")
+            or {
+                "review_prompt": "review",
+                "audit_prompt": "audit",
+                "extra_audits": [],
+                "requires_human_pause": False,
+                "pause_reasons": [],
+            }
+        ),
     )
     monkeypatch.setattr(
         TASK_LOOP,
@@ -975,14 +1103,16 @@ def test_final_repair_allows_finish_args_without_max_attempts(monkeypatch) -> No
     monkeypatch.setattr(
         TASK_LOOP,
         "prepare_prompt_pack",
-        lambda *args, **kwargs: calls.append("prompt-pack")
-        or {
-            "review_prompt": "review",
-            "audit_prompt": "audit",
-            "extra_audits": [],
-            "requires_human_pause": False,
-            "pause_reasons": [],
-        },
+        lambda *args, **kwargs: (
+            calls.append("prompt-pack")
+            or {
+                "review_prompt": "review",
+                "audit_prompt": "audit",
+                "extra_audits": [],
+                "requires_human_pause": False,
+                "pause_reasons": [],
+            }
+        ),
     )
     monkeypatch.setattr(
         TASK_LOOP,
@@ -1065,14 +1195,16 @@ def test_final_repair_retries_actionable_audit_findings(monkeypatch) -> None:
     monkeypatch.setattr(
         TASK_LOOP,
         "prepare_prompt_pack",
-        lambda *args, **kwargs: calls.append("prompt-pack")
-        or {
-            "review_prompt": "review",
-            "audit_prompt": "audit",
-            "extra_audits": [],
-            "requires_human_pause": False,
-            "pause_reasons": [],
-        },
+        lambda *args, **kwargs: (
+            calls.append("prompt-pack")
+            or {
+                "review_prompt": "review",
+                "audit_prompt": "audit",
+                "extra_audits": [],
+                "requires_human_pause": False,
+                "pause_reasons": [],
+            }
+        ),
     )
     monkeypatch.setattr(
         TASK_LOOP,
@@ -1113,6 +1245,116 @@ def test_final_repair_retries_actionable_audit_findings(monkeypatch) -> None:
         "gates",
         "cleanup",
         "audit",
+        "complete",
+        "pause",
+    ]
+
+
+def test_final_repair_keeps_decision_budget_after_gate_repairs(monkeypatch) -> None:
+    task = {
+        "id": "P4-01",
+        "title": "memory daily weekly",
+        "prompt": "tasks/P4-01-memory-daily-weekly.md",
+    }
+    calls: list[str] = []
+    gate_results = [
+        (False, "make typecheck failed; see file"),
+        (True, "quality gates passed"),
+        (True, "quality gates passed"),
+    ]
+    review_results = [
+        (False, "review failed; see file\n\nReview decision JSON:\n{}"),
+        (True, "review passed"),
+    ]
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_logged",
+        lambda *args, **kwargs: calls.append("codex") or 0,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or gate_results.pop(0),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "cleanup_generated_python_artifacts",
+        lambda: calls.append("cleanup") and 0,
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_review",
+        lambda *args, **kwargs: calls.append("review") or review_results.pop(0),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_audit",
+        lambda *args, **kwargs: calls.append("audit") or (True, "audit passed"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "prepare_prompt_pack",
+        lambda *args, **kwargs: (
+            calls.append("prompt-pack")
+            or {
+                "review_prompt": "review",
+                "audit_prompt": "audit",
+                "extra_audits": [],
+                "requires_human_pause": False,
+                "pause_reasons": [],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_extra_audits",
+        lambda *args, **kwargs: calls.append("extra-audits") or (True, "extra audits passed"),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "remember_pause_reasons",
+        lambda *args, **kwargs: calls.append("pause") or [],
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "complete_task",
+        lambda *args, **kwargs: calls.append("complete"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "write_static_run_state", lambda *args, **kwargs: None)
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            finish_args(),
+            "make typecheck failed; see file",
+        )
+        is True
+    )
+
+    assert calls == [
+        "attempt:1",
+        "codex",
+        "gates",
+        "attempt:2",
+        "codex",
+        "gates",
+        "cleanup",
+        "prompt-pack",
+        "review",
+        "attempt:3",
+        "codex",
+        "gates",
+        "cleanup",
+        "review",
+        "audit",
+        "extra-audits",
         "complete",
         "pause",
     ]
