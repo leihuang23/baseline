@@ -21,3 +21,14 @@ make lint
 make typecheck
 make test
 ```
+
+`make test` uses Postgres integration tests when the configured database is
+reachable. In restricted sandboxes where local TCP to Postgres is blocked, those
+DB-marked tests are skipped and the coverage threshold is relaxed for that run
+so environment policy does not hide non-DB test results. To require the database
+and fail fast when it is unavailable:
+
+```bash
+BASELINE_REQUIRE_TEST_DB=1 make test
+uv run pytest --require-db
+```
