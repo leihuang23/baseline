@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, HttpUrl
 
@@ -71,5 +71,6 @@ class RecommendationContract(ContractModel):
     data_quality_notes: list[DataQualityNote] = Field(default_factory=list)
     safety_status: SafetyStatus
     safety_note: str = Field(min_length=1)
+    safety_result: dict[str, Any] = Field(min_length=1)
     alternatives: list[RecommendationAlternative] = Field(default_factory=list)
     follow_up: FollowUpPrompt | None = None
