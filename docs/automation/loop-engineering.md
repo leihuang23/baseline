@@ -93,11 +93,15 @@ python3 scripts/run_task_loop.py run --limit 0 --commit
 
 When the worktree is dirty, `run` reads `.task-runs/current.json`. If that state
 file points at a non-complete pending task, the controller first routes the
-current diff through the `finish` lane for that task, including quality gates,
-generated review/audit, focused repair, ledger update, and commit. After the
-commit leaves the tree clean, it continues to the next pending tasks. If the
-dirty diff cannot be tied to one unfinished task-loop run, the controller still
-blocks instead of guessing.
+current diff through the cheapest safe resume path for that task. When the last
+recorded audit stage already succeeded, all quality gates are proven in
+`run-summary.json`, and the current product diff still matches the reviewed
+scope, the controller fast-forwards directly to ledger update and commit. When
+that evidence is missing or stale, it falls back to the full `finish` lane:
+quality gates, generated review/audit, focused repair, ledger update, and
+commit. After the commit leaves the tree clean, it continues to the next pending
+tasks. If the dirty diff cannot be tied to one unfinished task-loop run, the
+controller still blocks instead of guessing.
 
 Use no-commit finish only when you want to inspect the completed diff and commit
 manually:
@@ -271,7 +275,11 @@ log file, prompt file, git status summary, and a cleaned log tail. Each run
 directory keeps the exact implementation, review, audit, and repair prompts that
 were sent to Codex. It also writes `run-summary.json`, a compact machine-readable
 stage list with elapsed seconds, log sizes, exit codes, and token counts when
-Codex reports them.
+Codex reports them. Successful terminal stages also record worktree fingerprints
+so an interrupted resume can reuse a prior passing audit only when the current
+product diff still matches the audited content. Older run states that predate
+fingerprints can use a path-scope match once; new runs use the stronger
+fingerprint check.
 
 If a task blocks:
 

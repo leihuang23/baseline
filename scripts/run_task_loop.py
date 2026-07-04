@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -158,6 +159,82 @@ def git_status_entries() -> list[tuple[str, str]]:
     return entries
 
 
+def is_protected_non_automation_path(path: str) -> bool:
+    return any(
+        path == protected or path.startswith(protected)
+        for protected in PROTECTED_NON_AUTOMATION_PATHS
+    )
+
+
+def product_status_paths_from_entries(
+    task: dict[str, Any],
+    entries: list[tuple[str, str]],
+) -> set[str]:
+    if task_allows_controller_changes(task):
+        return {path for _code, path in entries}
+    return {path for _code, path in entries if not is_protected_non_automation_path(path)}
+
+
+def product_status_paths_from_lines(
+    task: dict[str, Any],
+    lines: list[str],
+) -> set[str]:
+    entries: list[tuple[str, str]] = []
+    for line in lines:
+        code = line[:2] if len(line) >= 2 else "??"
+        path = line[3:] if len(line) > 3 else line
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        entries.append((code, path))
+    return product_status_paths_from_entries(task, entries)
+
+
+def iter_fingerprint_files(path: Path) -> list[Path]:
+    if path.is_file():
+        return [path]
+    if not path.is_dir():
+        return []
+    return sorted(item for item in path.rglob("*") if item.is_file())
+
+
+def git_worktree_fingerprint(*, exclude_protected: bool = False) -> str | None:
+    try:
+        entries = git_status_entries()
+    except LoopError:
+        return None
+    digest = hashlib.sha256()
+    for code, path in sorted(entries, key=lambda item: item[1]):
+        if exclude_protected and is_protected_non_automation_path(path):
+            continue
+        digest.update(code.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\0")
+        if code == "??":
+            root_path = ROOT / path
+            for file_path in iter_fingerprint_files(root_path):
+                try:
+                    relative_path = file_path.relative_to(ROOT)
+                    content = file_path.read_bytes()
+                except OSError:
+                    continue
+                digest.update(str(relative_path).encode("utf-8"))
+                digest.update(b"\0")
+                digest.update(hashlib.sha256(content).hexdigest().encode("ascii"))
+                digest.update(b"\0")
+            continue
+        for diff_args in (
+            ["git", "diff", "--binary", "--", path],
+            ["git", "diff", "--cached", "--binary", "--", path],
+        ):
+            result = subprocess.run(diff_args, cwd=ROOT, capture_output=True, check=False)
+            digest.update(result.stdout)
+            digest.update(result.stderr)
+            digest.update(str(result.returncode).encode("ascii"))
+            digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def read_current_run_state() -> dict[str, Any] | None:
     if not CURRENT_RUN_PATH.exists():
         return None
@@ -299,6 +376,9 @@ def write_run_state(
         timeout_seconds=timeout_seconds,
         exit_code=exit_code,
     )
+    if status != "running":
+        state["git_fingerprint"] = git_worktree_fingerprint()
+        state["git_non_protected_fingerprint"] = git_worktree_fingerprint(exclude_protected=True)
     write_json_atomic(status_file, state)
     return state
 
@@ -2018,8 +2098,12 @@ def implementation_agent_invocation(
 
 
 def task_allows_controller_changes(task: dict[str, Any]) -> bool:
-    haystack_parts = [task["id"], task["title"], str(task.get("prompt", ""))]
-    with suppress(OSError):
+    haystack_parts = [
+        str(task.get("id", "")),
+        str(task.get("title", "")),
+        str(task.get("prompt", "")),
+    ]
+    with suppress(KeyError, OSError):
         haystack_parts.append(task_prompt_text(task))
     haystack = "\n".join(haystack_parts).lower()
     return any(
@@ -2145,6 +2229,151 @@ def complete_task(
     save_ledger(ledger)
     if commit:
         commit_task(task)
+
+
+def state_output_last_message_path(state: dict[str, Any]) -> Path | None:
+    command = state.get("command")
+    if not isinstance(command, list):
+        return None
+    try:
+        index = command.index("--output-last-message")
+    except ValueError:
+        return None
+    if index + 1 >= len(command):
+        return None
+    value = command[index + 1]
+    if not isinstance(value, str):
+        return None
+    return resolve_root_relative_path(value)
+
+
+def state_run_dir(state: dict[str, Any]) -> Path | None:
+    value = state.get("run_dir")
+    if not isinstance(value, str) or not value:
+        return None
+    return resolve_root_relative_path(value)
+
+
+def decision_file_passed(path: Path | None) -> bool:
+    if path is None:
+        return False
+    try:
+        decision = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return isinstance(decision, dict) and decision.get("decision") == "pass"
+
+
+def run_summary_has_successful_quality_gates(
+    run_dir: Path | None,
+    ledger: dict[str, Any],
+) -> bool:
+    required_gates = set(cast(list[str], ledger.get("quality_gates", [])))
+    if not required_gates:
+        return True
+    if run_dir is None:
+        return False
+    summary_path = run_dir / "run-summary.json"
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    stages = summary.get("stages") if isinstance(summary, dict) else None
+    if not isinstance(stages, list):
+        return False
+    passed_gates = {
+        stage.get("command_label")
+        for stage in stages
+        if isinstance(stage, dict)
+        and stage.get("stage") == "quality_gate"
+        and stage.get("status") == "succeeded"
+        and stage.get("exit_code") == 0
+    }
+    return required_gates.issubset(passed_gates)
+
+
+def current_scope_matches_successful_state(task: dict[str, Any], state: dict[str, Any]) -> bool:
+    restore_tracked_protected_churn(task)
+    try:
+        current_entries = git_status_entries()
+    except LoopError:
+        return False
+
+    current_paths = product_status_paths_from_entries(task, current_entries)
+    git_status = state.get("git_status")
+    if not isinstance(git_status, dict) or git_status.get("truncated") is True:
+        return False
+    previous_files = git_status.get("files")
+    if not isinstance(previous_files, list) or not all(
+        isinstance(item, str) for item in previous_files
+    ):
+        return False
+    previous_paths = product_status_paths_from_lines(task, cast(list[str], previous_files))
+    if not current_paths or current_paths != previous_paths:
+        return False
+
+    previous_fingerprint = state.get("git_non_protected_fingerprint")
+    if isinstance(previous_fingerprint, str) and previous_fingerprint:
+        return git_worktree_fingerprint(exclude_protected=True) == previous_fingerprint
+
+    return True
+
+
+def fast_forward_completed_current_run(
+    ledger: dict[str, Any],
+    task: dict[str, Any],
+    args: argparse.Namespace,
+) -> bool:
+    state = read_current_run_state()
+    if state is None:
+        return False
+    if state.get("task_id") != task["id"]:
+        return False
+    if state.get("status") != "succeeded" or state.get("stage") != "audit":
+        return False
+    if state.get("exit_code") != 0:
+        return False
+
+    run_dir = state_run_dir(state)
+    if not decision_file_passed(state_output_last_message_path(state)):
+        return False
+    if not run_summary_has_successful_quality_gates(run_dir, ledger):
+        return False
+    if not current_scope_matches_successful_state(task, state):
+        return False
+
+    task_run_dir = run_dir or RUNS_DIR / f"{utc_now().replace(':', '')}-{task['id']}-fast-forward"
+    print("  fast-forward: reusing prior successful gates and audit for unchanged diff")
+    complete_task(ledger, task, task_run_dir, args.commit)
+
+    prompt_pack = {
+        "requires_human_pause": False,
+        "pause_reasons": [],
+    }
+    args.last_pause_reasons = pause_reasons_for_task(
+        task,
+        prompt_pack,
+        review_scope_snapshot(),
+    )
+    if args.last_pause_reasons:
+        print("  pause: human verification recommended before the next task")
+        for reason in args.last_pause_reasons:
+            print(f"    - {reason}")
+
+    write_static_run_state(
+        CURRENT_RUN_PATH,
+        {
+            "task_id": task["id"],
+            "task_title": task["title"],
+            "run_dir": relative_to_root(task_run_dir),
+            "fast_forward": True,
+        },
+        status="complete",
+        stage="complete",
+        message=f"completed {task['id']} by reusing prior successful audit",
+    )
+    print(f"  complete: {task['id']}")
+    return True
 
 
 def run_task(
@@ -2730,9 +2959,13 @@ def main() -> int:
                 "`python3 scripts/run_task_loop.py finish --task <task-id> --commit` "
                 "when the dirty diff intentionally belongs to one task."
             )
-        print(f"dirty worktree: resuming unfinished {resume_task['id']} through the finish lane")
-        if not run_finish_task(ledger, resume_task, args):
-            return 1
+        print(f"dirty worktree: resuming unfinished {resume_task['id']}")
+        if fast_forward_completed_current_run(ledger, resume_task, args):
+            pass
+        else:
+            print("  resume: prior success is not reusable; running finish lane")
+            if not run_finish_task(ledger, resume_task, args):
+                return 1
         completed_count += 1
         pause_reasons = getattr(args, "last_pause_reasons", [])
         if pause_reasons:

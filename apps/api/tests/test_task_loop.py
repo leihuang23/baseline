@@ -168,6 +168,104 @@ def test_run_resumes_dirty_current_task_before_pending_queue(monkeypatch, tmp_pa
     assert calls == ["finish:P4-01:True", "run:P4-02"]
 
 
+def test_run_fast_forwards_dirty_task_after_successful_audit(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    ledger = {
+        "active_cluster": "P4-memory-data-controls",
+        "clusters": [
+            {
+                "id": "P4-memory-data-controls",
+                "description": "Memory tasks.",
+                "tasks": ["P4-01", "P4-02"],
+            }
+        ],
+        "quality_gates": ["make test"],
+        "tasks": [
+            {"id": "P4-01", "status": "pending", "title": "memory daily weekly"},
+            {"id": "P4-02", "status": "pending", "title": "memory monthly quarterly"},
+        ],
+    }
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    decision_file = run_dir / "audit-decision.json"
+    decision_file.write_text(json.dumps({"decision": "pass"}), encoding="utf-8")
+    (run_dir / "run-summary.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "stages": [
+                    {
+                        "stage": "quality_gate",
+                        "command_label": "make test",
+                        "status": "succeeded",
+                        "exit_code": 0,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    current_path = tmp_path / "current.json"
+    current_path.write_text(
+        json.dumps(
+            {
+                "status": "succeeded",
+                "stage": "audit",
+                "exit_code": 0,
+                "task_id": "P4-01",
+                "task_title": "memory daily weekly",
+                "pid": None,
+                "run_dir": str(run_dir),
+                "command": ["codex", "--output-last-message", str(decision_file)],
+                "git_status": {
+                    "files": [" M apps/api/example.py"],
+                    "truncated": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    status_results = [[" M apps/api/example.py"], []]
+    calls: list[str] = []
+
+    def fake_complete(_ledger, task, _run_dir, commit) -> None:
+        calls.append(f"complete:{task['id']}:{commit}")
+        task["status"] = "complete"
+
+    def fake_run(_ledger, task, _args) -> bool:
+        calls.append(f"run:{task['id']}")
+        task["status"] = "complete"
+        return True
+
+    monkeypatch.setattr("sys.argv", ["run_task_loop.py", "run", "--limit", "0", "--commit"])
+    monkeypatch.setattr(TASK_LOOP, "CURRENT_RUN_PATH", current_path)
+    monkeypatch.setattr(TASK_LOOP, "load_ledger", lambda: ledger)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_status_lines",
+        lambda: status_results.pop(0) if status_results else [],
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_status_entries",
+        lambda: [(" M", "apps/api/example.py")],
+    )
+    monkeypatch.setattr(TASK_LOOP, "review_scope_snapshot", lambda: " M apps/api/example.py")
+    monkeypatch.setattr(TASK_LOOP, "complete_task", fake_complete)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_finish_task",
+        lambda *args, **kwargs: calls.append("unexpected-finish") or False,
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_task", fake_run)
+
+    assert TASK_LOOP.main() == 0
+
+    assert calls == ["complete:P4-01:True", "run:P4-02"]
+
+
 def test_run_counts_resumed_dirty_task_toward_limit(monkeypatch, tmp_path) -> None:
     ledger = {
         "active_cluster": "P4-memory-data-controls",
