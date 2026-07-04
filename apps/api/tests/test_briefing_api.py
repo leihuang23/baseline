@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, col, select
 
 from baseline_api.app import create_app
+from baseline_api.briefing.service import _enforce_served_briefing_safety
 from baseline_api.config import Settings
 from baseline_api.db.models import (
     ConsentRecord,
@@ -19,6 +20,7 @@ from baseline_api.db.models import (
     DailyCheckIn,
     DerivedDailyFeature,
     Goal,
+    MemorySummary,
     ModelRun,
     ReasoningTrace,
     Recommendation,
@@ -26,6 +28,7 @@ from baseline_api.db.models import (
 )
 from baseline_api.db.models.enums import (
     GoalCategory,
+    PeriodType,
     RunType,
     SensitiveNotePolicy,
     TimeHorizon,
@@ -34,6 +37,8 @@ from baseline_api.db.session import get_db_session
 from baseline_api.llm.orchestrator import OrchestratorResult
 from baseline_api.llm.schemas import LLMExplanationOutput
 from baseline_api.observability import metrics
+from baseline_api.safety.engine import SafetyPolicyEngine
+from baseline_api.schemas.api import DailyBriefingResponse
 
 TARGET_DATE = dt.date(2026, 7, 4)
 
@@ -308,10 +313,11 @@ def test_fixture_day_produces_complete_persisted_briefing(db_session: Session) -
         "job_running",
         "features",
         "data_freshness",
-        "reasoning",
         "retrieval",
+        "reasoning",
         "llm_explanation",
         "safety",
+        "memory",
         "persistence",
     ]
     stored = recommendation.briefing_payload
@@ -333,6 +339,19 @@ def test_fixture_day_produces_complete_persisted_briefing(db_session: Session) -
     persisted_job = db_session.get(DailyAnalysisJob, UUID(job["analysis_job_id"]))
     assert persisted_job is not None
     assert {stage["trace_id"] for stage in persisted_job.stage_trace} == {briefing["trace_id"]}
+    summaries = list(db_session.exec(select(MemorySummary)).all())
+    assert {summary.period_type for summary in summaries} == {PeriodType.daily, PeriodType.weekly}
+    daily_summary = next(
+        summary for summary in summaries if summary.period_type == PeriodType.daily
+    )
+    weekly_summary = next(
+        summary for summary in summaries if summary.period_type == PeriodType.weekly
+    )
+    assert any(ref["table"] == "recommendation" for ref in daily_summary.source_refs)
+    assert any(
+        ref["table"] == "memory_summary" and ref["id"] == str(daily_summary.id)
+        for ref in weekly_summary.source_refs
+    )
     job_status = client.get(f"/v1/analysis/daily/{job['analysis_job_id']}").json()["data"]
     assert job_status["status"] == "completed"
 
@@ -360,6 +379,88 @@ def test_trace_endpoint_returns_read_only_inspection(db_session: Session) -> Non
     assert trace["external_sources"] == briefing["external_citations"]
     assert trace["model_metadata"]["briefing_generation_status"] == "success"
     assert trace["model_metadata"]["model_run_ids"]
+
+
+def test_daily_briefing_uses_recent_memory_summaries_for_reasoning(
+    db_session: Session,
+) -> None:
+    user = _seed_fixture_day(db_session)
+    db_session.add(
+        MemorySummary(
+            user_id=user.id,
+            period_type=PeriodType.weekly,
+            start_date=TARGET_DATE - dt.timedelta(days=7),
+            end_date=TARGET_DATE - dt.timedelta(days=1),
+            summary_version="memory-summary-v1",
+            observations=[
+                {
+                    "kind": "observation",
+                    "key": "weekly_readiness_arc",
+                    "text": "Illness disrupted two recent training days.",
+                    "confidence": 0.8,
+                    "source_refs": [{"table": "daily_check_in", "id": "checkin-prior"}],
+                }
+            ],
+            hypotheses=[],
+            confidence=0.8,
+            source_refs=[{"table": "daily_check_in", "id": "checkin-prior"}],
+            sensitive_fields_excluded=[],
+        )
+    )
+    db_session.flush()
+    client = _client(db_session)
+
+    _generate(client, privacy_mode="local_only")
+    briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
+    trace = db_session.exec(select(ReasoningTrace)).one()
+
+    assert briefing["memory_observations"]
+    assert briefing["memory_observations"][0]["observation"] == (
+        "Illness disrupted two recent training days."
+    )
+    assert any(item["rule_id"] == "memory_recent_disruption" for item in trace.rules_fired)
+
+
+def test_served_safety_preserves_memory_on_disclaimer_only_rewrite() -> None:
+    briefing = DailyBriefingResponse.model_validate(
+        {
+            "date": TARGET_DATE,
+            "readiness_state": "mixed",
+            "confidence": "medium",
+            "data_freshness": {},
+            "evidence": [
+                {
+                    "metric": "illness_flag",
+                    "value": True,
+                    "interpretation": "Used as a wellness readiness signal.",
+                }
+            ],
+            "memory_observations": [
+                {
+                    "observation": "Illness disrupted two recent training days.",
+                    "relevance": "Recent structured memory summary for readiness continuity.",
+                    "period": "2026-06-27..2026-07-03",
+                }
+            ],
+            "risk_flags": [],
+            "recommendation": {"primary": "Keep the day easy and reversible."},
+            "recommendation_band": "easy_or_recovery",
+            "uncertainty": ["Illness flag is user-reported."],
+            "safety_status": "passed",
+            "safety_notes": ["Baseline is wellness decision support, not medical advice."],
+            "trace_id": "11111111-1111-1111-1111-111111111111",
+            "generated_at": "2026-07-04T08:00:00Z",
+        }
+    )
+
+    enforced = _enforce_served_briefing_safety(
+        SafetyPolicyEngine.from_default_policy(),
+        briefing,
+    )
+
+    assert enforced.safety_status.value == "rewritten"
+    assert enforced.memory_observations == briefing.memory_observations
+    assert "qualified clinician" in " ".join(enforced.safety_notes)
 
 
 def test_daily_analysis_post_returns_queued_job_by_default(
@@ -443,8 +544,8 @@ def test_retrieval_degraded_mode_still_persists_deterministic_briefing(
         nonlocal retrieval_failed
         if (
             not retrieval_failed
-            and "FROM recommendation" in str(statement)
-            and "recommendation.date <" in str(statement)
+            and "FROM memory_summary" in str(statement)
+            and "memory_summary.end_date <" in str(statement)
         ):
             retrieval_failed = True
             raise RuntimeError("forced_retrieval_failure")
@@ -463,7 +564,7 @@ def test_retrieval_degraded_mode_still_persists_deterministic_briefing(
     briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
 
     assert retrieval_failed is True
-    assert rollback_called is True
+    assert rollback_called is False
     assert briefing["evidence"]
     assert any("retrieval" in item.lower() for item in briefing["uncertainty"])
     trace = db_session.exec(select(ReasoningTrace)).one()

@@ -13,9 +13,7 @@ from packages.fixtures import GOLDEN_SCENARIO_NAMES
 def _reasoning_suites():
     registry = build_default_registry()
     return registry, [
-        registry.get(name)
-        for name in registry.names()
-        if name.startswith(REASONING_SUITE_PREFIX)
+        registry.get(name) for name in registry.names() if name.startswith(REASONING_SUITE_PREFIX)
     ]
 
 

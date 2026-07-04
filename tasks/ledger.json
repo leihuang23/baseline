@@ -291,10 +291,12 @@
       "title": "ios briefing trace ui"
     },
     {
+      "completed_at": "2026-07-04T10:00:45Z",
       "id": "P4-01",
+      "last_run_dir": ".task-runs/2026-07-04T095405Z-P4-01-final-repair-2",
       "phase": "P4",
       "prompt": "tasks/P4-01-memory-daily-weekly.md",
-      "status": "pending",
+      "status": "complete",
       "title": "memory daily weekly"
     },
     {
@@ -361,6 +363,6 @@
       "title": "portfolio docs"
     }
   ],
-  "updated_at": "2026-07-04T08:34:45Z",
+  "updated_at": "2026-07-04T10:00:45Z",
   "version": 1
 }

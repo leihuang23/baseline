@@ -205,8 +205,7 @@ class SafetyPolicyEngine:
             for category in _sequence(payload, "refusal_categories")
         ]
         disclaimers = {
-            str(key): str(value)
-            for key, value in _mapping(payload, "required_disclaimers").items()
+            str(key): str(value) for key, value in _mapping(payload, "required_disclaimers").items()
         }
         return cls(
             policy_version=str(payload["policy_version"]),
@@ -231,9 +230,7 @@ class SafetyPolicyEngine:
             if request_categories or status is SafetyStatus.escalated:
                 safe_output = self._blocked_or_redirected_output(triggered_categories)
                 reason = (
-                    "request_escalated"
-                    if status is SafetyStatus.escalated
-                    else "request_refused"
+                    "request_escalated" if status is SafetyStatus.escalated else "request_refused"
                 )
             else:
                 status = SafetyStatus.rewritten

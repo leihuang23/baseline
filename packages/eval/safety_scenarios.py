@@ -82,9 +82,7 @@ def safety_policy_properties_match(context: EvalContext) -> ScoreResult:
     )
     observed = result.to_dict() | {
         "safe_output": result.safe_output,
-        "unsupported_medical_output": _contains_unsupported_medical_output(
-            result.safe_output
-        ),
+        "unsupported_medical_output": _contains_unsupported_medical_output(result.safe_output),
     }
 
     failures: list[str] = []

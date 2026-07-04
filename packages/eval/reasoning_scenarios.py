@@ -378,9 +378,7 @@ def _variant_cases() -> tuple[ReasoningScenarioCase, ...]:
                 required_evidence_metrics=evidence_by_family[family],
             )
         )
-    return tuple(
-        cases
-    )
+    return tuple(cases)
 
 
 REASONING_NAMED_SCENARIO_CASES: tuple[ReasoningScenarioCase, ...] = (

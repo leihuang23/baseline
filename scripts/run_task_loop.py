@@ -2508,10 +2508,7 @@ def main() -> int:
                 "`python3 scripts/run_task_loop.py finish --task <task-id> --commit` "
                 "when the dirty diff intentionally belongs to one task."
             )
-        print(
-            "dirty worktree: resuming unfinished "
-            f"{resume_task['id']} through the finish lane"
-        )
+        print(f"dirty worktree: resuming unfinished {resume_task['id']} through the finish lane")
         if not run_finish_task(ledger, resume_task, args):
             return 1
         completed_count += 1
