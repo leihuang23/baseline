@@ -144,6 +144,20 @@ def git_status_paths() -> list[str]:
     return paths
 
 
+def git_status_entries() -> list[tuple[str, str]]:
+    lines = git_status_lines()
+    if lines is None:
+        raise LoopError("Unable to inspect git status.")
+    entries: list[tuple[str, str]] = []
+    for line in lines:
+        code = line[:2] if len(line) >= 2 else "??"
+        path = line[3:] if len(line) > 3 else line
+        if " -> " in path:
+            path = path.rsplit(" -> ", 1)[1]
+        entries.append((code, path))
+    return entries
+
+
 def read_current_run_state() -> dict[str, Any] | None:
     if not CURRENT_RUN_PATH.exists():
         return None
@@ -1685,9 +1699,8 @@ def run_final_repair(
             print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
 
         needs_prompt_pack = (
-            (not args.skip_review or not args.skip_audit)
-            and not audit_failure_is_actionable(current_failure)
-        )
+            not args.skip_review or not args.skip_audit
+        ) and not audit_failure_is_actionable(current_failure)
         if needs_prompt_pack:
             current_snapshot = review_scope_snapshot()
             if prompt_pack is None:
@@ -2036,7 +2049,52 @@ def protected_path_violations(task: dict[str, Any], paths: list[str]) -> list[st
     return sorted(set(violations))
 
 
-def assert_task_commit_allowed(task: dict[str, Any]) -> None:
+def protected_status_entries(task: dict[str, Any]) -> list[tuple[str, str]]:
+    if task_allows_controller_changes(task):
+        return []
+    return [
+        (code, path)
+        for code, path in git_status_entries()
+        if any(
+            path == protected or path.startswith(protected)
+            for protected in PROTECTED_NON_AUTOMATION_PATHS
+        )
+    ]
+
+
+def restore_tracked_protected_churn(task: dict[str, Any]) -> list[str]:
+    entries = protected_status_entries(task)
+    if not entries:
+        return []
+
+    blocking = sorted(
+        {
+            path
+            for code, path in entries
+            if code == "??" or "A" in code or "R" in code or "C" in code
+        }
+    )
+    if blocking:
+        formatted = "\n".join(f"- {path}" for path in blocking)
+        raise LoopError(
+            "Task diff created new, copied, or renamed task-loop controller files, but this is "
+            "not an automation task. Commit or remove those files separately before completing "
+            f"the task:\n{formatted}"
+        )
+
+    restorable = sorted({path for _code, path in entries})
+    staged = sorted({path for code, path in entries if code[0] != " "})
+    if staged:
+        subprocess.run(["git", "restore", "--staged", "--", *staged], cwd=ROOT, check=True)
+    subprocess.run(["git", "restore", "--", *restorable], cwd=ROOT, check=True)
+    print("  protected cleanup: restored out-of-scope controller file(s)")
+    for path in restorable:
+        print(f"    - {path}")
+    return restorable
+
+
+def prepare_task_diff_for_completion(task: dict[str, Any]) -> None:
+    restore_tracked_protected_churn(task)
     violations = protected_path_violations(task, git_status_paths())
     if violations:
         formatted = "\n".join(f"- {path}" for path in violations)
@@ -2048,7 +2106,7 @@ def assert_task_commit_allowed(task: dict[str, Any]) -> None:
 
 
 def commit_task(task: dict[str, Any]) -> None:
-    assert_task_commit_allowed(task)
+    prepare_task_diff_for_completion(task)
     subprocess.run(["git", "add", "-A"], cwd=ROOT, check=True)
     status = subprocess.run(
         ["git", "status", "--porcelain"],
@@ -2080,7 +2138,7 @@ def complete_task(
     commit: bool,
 ) -> None:
     if commit:
-        assert_task_commit_allowed(task)
+        prepare_task_diff_for_completion(task)
     task["status"] = "complete"
     task["completed_at"] = utc_now()
     task["last_run_dir"] = str(task_run_dir.relative_to(ROOT))

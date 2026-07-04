@@ -869,6 +869,55 @@ def test_protected_path_violations_allow_automation_tasks() -> None:
     assert TASK_LOOP.protected_path_violations(task, ["scripts/run_task_loop.py"]) == []
 
 
+def test_restore_tracked_protected_churn_for_non_automation_tasks(monkeypatch) -> None:
+    task = {
+        "id": "P4-03",
+        "title": "feedback outcome loop",
+        "prompt": "tasks/P4-03-feedback-outcome-loop.md",
+    }
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_status_entries",
+        lambda: [
+            (" M", "scripts/run_task_loop.py"),
+            (" M", "apps/api/baseline_api/schemas/api.py"),
+        ],
+    )
+    monkeypatch.setattr(
+        TASK_LOOP.subprocess,
+        "run",
+        lambda command, **_kwargs: commands.append(command),
+    )
+
+    restored = TASK_LOOP.restore_tracked_protected_churn(task)
+
+    assert restored == ["scripts/run_task_loop.py"]
+    assert commands == [["git", "restore", "--", "scripts/run_task_loop.py"]]
+
+
+def test_restore_protected_churn_blocks_new_controller_files(monkeypatch) -> None:
+    task = {
+        "id": "P4-03",
+        "title": "feedback outcome loop",
+        "prompt": "tasks/P4-03-feedback-outcome-loop.md",
+    }
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_status_entries",
+        lambda: [("??", "docs/automation/new-controller-note.md")],
+    )
+
+    try:
+        TASK_LOOP.restore_tracked_protected_churn(task)
+    except TASK_LOOP.LoopError as exc:
+        assert "new, copied, or renamed task-loop controller files" in str(exc)
+    else:
+        raise AssertionError("new protected files should still block")
+
+
 def test_review_failure_context_includes_structured_decision(tmp_path) -> None:
     decision = {
         "decision": "fail",

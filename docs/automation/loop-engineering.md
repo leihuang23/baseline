@@ -293,10 +293,13 @@ Normal task commits are not allowed to include task-loop controller files:
 - `docs/automation/`
 - task-loop prompt/decision schemas
 
-If one of those files changes during a product task, the controller blocks before
-marking the ledger complete. Commit or revert the controller change separately,
-or use an explicit automation task whose prompt/title is about the task loop,
-controller, prompt pack, or automation.
+If a product task leaves tracked modifications in those files, the controller
+restores them before marking the ledger complete. This protects the loop from
+mutating gates such as `make fmt` touching controller files while a product task
+is in progress. New, copied, or renamed protected files still block completion,
+because deleting unknown files automatically would be too aggressive. Commit or
+remove those files separately, or use an explicit automation task whose
+prompt/title is about the task loop, controller, prompt pack, or automation.
 
 ## Cluster Discipline
 
