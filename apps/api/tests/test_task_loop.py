@@ -1381,13 +1381,63 @@ def test_final_repair_allows_finish_args_without_max_attempts(monkeypatch) -> No
         "codex",
         "gates",
         "cleanup",
-        "prompt-pack",
         "review",
+        "prompt-pack",
         "audit",
         "extra-audits",
         "complete",
         "pause",
     ]
+
+
+def test_final_repair_defers_prompt_pack_when_repair_review_fails(monkeypatch) -> None:
+    task = {
+        "id": "P4-04",
+        "title": "data controls consent",
+        "prompt": "tasks/P4-04-data-controls-consent.md",
+    }
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or (True, "quality gates passed"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "cleanup_generated_python_artifacts", lambda: 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "prepare_prompt_pack",
+        lambda *args, **kwargs: (
+            calls.append("unexpected-prompt-pack")
+            or {"review_prompt": "review", "audit_prompt": "audit", "extra_audits": []}
+        ),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_review",
+        lambda *args, **kwargs: (
+            calls.append("review")
+            or (False, "review failed; see file\n\nReview decision JSON:\n{}")
+        ),
+    )
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            finish_args(final_repair_attempts=1),
+            "review failed; see file\n\nReview decision JSON:\n{}",
+        )
+        is False
+    )
+
+    assert calls == ["attempt:1", "codex", "gates", "review"]
 
 
 def test_final_repair_retries_actionable_audit_findings(monkeypatch) -> None:
@@ -1672,8 +1722,8 @@ def test_final_repair_reuses_prompt_pack_when_scope_is_unchanged(monkeypatch) ->
         "attempt:1",
         "codex",
         "gates",
-        "reuse-pack",
         "review",
+        "reuse-pack",
         "audit",
         "complete",
     ]
@@ -1764,8 +1814,8 @@ def test_final_repair_regenerates_prompt_pack_when_scope_expands(monkeypatch) ->
         "attempt:1",
         "codex",
         "gates",
-        "generate-pack",
         "review",
+        "generate-pack",
         "audit",
         "complete",
     ]

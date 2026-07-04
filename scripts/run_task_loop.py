@@ -1722,6 +1722,24 @@ def repair_failure_kind(failure_result: str) -> str | None:
     return None
 
 
+def ensure_prompt_pack_for_scope(
+    task: dict[str, Any],
+    task_run_dir: Path,
+    args: argparse.Namespace,
+    base_status: dict[str, Any],
+    prompt_pack: dict[str, Any] | None,
+) -> dict[str, Any]:
+    current_snapshot = review_scope_snapshot()
+    if prompt_pack is None:
+        return prepare_prompt_pack(task, task_run_dir, args, base_status, current_snapshot)
+    if prompt_pack_matches_scope(prompt_pack, current_snapshot):
+        print("  prompt-pack: reusing existing generated review/audit prompts")
+        write_prompt_pack_artifacts(task_run_dir, prompt_pack)
+        return prompt_pack
+    print("  prompt-pack: changed-file scope expanded; regenerating prompts")
+    return prepare_prompt_pack(task, task_run_dir, args, base_status, current_snapshot)
+
+
 def run_final_repair(
     ledger: dict[str, Any],
     task: dict[str, Any],
@@ -1818,32 +1836,7 @@ def run_final_repair(
         if removed_artifacts:
             print(f"  cleanup: removed {removed_artifacts} generated Python cache dir(s)")
 
-        needs_prompt_pack = (
-            not args.skip_review or not args.skip_audit
-        ) and not audit_failure_is_actionable(current_failure)
-        if needs_prompt_pack:
-            current_snapshot = review_scope_snapshot()
-            if prompt_pack is None:
-                prompt_pack = prepare_prompt_pack(
-                    task,
-                    task_run_dir,
-                    args,
-                    base_status,
-                    current_snapshot,
-                )
-            elif prompt_pack_matches_scope(prompt_pack, current_snapshot):
-                print("  prompt-pack: reusing existing generated review/audit prompts")
-                write_prompt_pack_artifacts(task_run_dir, prompt_pack)
-            else:
-                print("  prompt-pack: changed-file scope expanded; regenerating prompts")
-                prompt_pack = prepare_prompt_pack(
-                    task,
-                    task_run_dir,
-                    args,
-                    base_status,
-                    current_snapshot,
-                )
-
+        prompt_pack_ready_for_current_scope = False
         if not args.skip_review and not audit_failure_is_actionable(current_failure):
             is_repair_verification = review_failure_is_actionable(current_failure)
             review_timeout_seconds = normalize_timeout_seconds(
@@ -1851,6 +1844,15 @@ def run_final_repair(
                 if is_repair_verification
                 else args.review_timeout_seconds
             )
+            if not is_repair_verification:
+                prompt_pack = ensure_prompt_pack_for_scope(
+                    task,
+                    task_run_dir,
+                    args,
+                    base_status,
+                    prompt_pack,
+                )
+                prompt_pack_ready_for_current_scope = True
             prompt_text = (
                 repair_review_prompt(task, current_failure)
                 if is_repair_verification
@@ -1893,6 +1895,15 @@ def run_final_repair(
                 if is_repair_audit
                 else args.review_timeout_seconds
             )
+            if not is_repair_audit and not prompt_pack_ready_for_current_scope:
+                prompt_pack = ensure_prompt_pack_for_scope(
+                    task,
+                    task_run_dir,
+                    args,
+                    base_status,
+                    prompt_pack,
+                )
+                prompt_pack_ready_for_current_scope = True
             audit_prompt_text = (
                 repair_audit_prompt(task, current_failure)
                 if is_repair_audit

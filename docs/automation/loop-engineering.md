@@ -162,9 +162,9 @@ eval or golden-scenario changes.
 
 Focused repair reuses the existing generated prompt pack when the changed-file
 set has not expanded. If a repair adds a new file, the controller regenerates
-the prompt pack so review and audit scope stays current. Pure repair-audit
-verification uses the prior audit finding directly and does not regenerate a
-full review/audit pack.
+the prompt pack only when a generated review or generated audit actually needs
+the expanded scope. Focused repair-review and repair-audit verification use the
+prior finding directly and do not regenerate a full review/audit pack.
 
 Disable the repair pass when you want review findings handed back to the App
 instead of letting the controller patch:
