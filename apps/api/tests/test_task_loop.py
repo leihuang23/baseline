@@ -88,6 +88,7 @@ def test_run_command_defaults_to_one_attempt_with_bounded_review(monkeypatch) ->
     assert args.review_timeout_seconds == 600
     assert args.repair_review_timeout_seconds == 600
     assert args.final_repair_attempts == 0
+    assert args.total_final_repair_attempts == 6
     assert args.max_no_progress_repairs == 3
     assert args.agent_log_limit_bytes == 0
     assert args.review_log_limit_bytes == 0
@@ -323,6 +324,7 @@ def test_run_resumes_actionable_blocked_task_with_focused_repair(
                 "targeted_gates": [],
                 "requires_human_pause": False,
                 "pause_reasons": [],
+                "scope_files": ["apps/api/example.py"],
             }
         ),
         encoding="utf-8",
@@ -745,6 +747,7 @@ def test_finish_command_defaults_to_bounded_verification(monkeypatch) -> None:
     assert args.review_timeout_seconds == 600
     assert args.repair_review_timeout_seconds == 600
     assert args.final_repair_attempts == 0
+    assert args.total_final_repair_attempts == 6
     assert args.max_no_progress_repairs == 3
     assert args.agent_log_limit_bytes == 0
     assert args.review_log_limit_bytes == 0
@@ -919,12 +922,14 @@ def test_prompt_pack_artifacts_persist_generated_prompts(tmp_path) -> None:
             "targeted_gates": [],
             "requires_human_pause": True,
             "pause_reasons": ["Needs visual verification."],
+            "_scope_files": ["apps/api/example.py"],
         }
     )
 
     TASK_LOOP.write_prompt_pack_artifacts(tmp_path, prompt_pack)
 
-    assert (tmp_path / "prompt-pack.json").exists()
+    persisted = json.loads((tmp_path / "prompt-pack.json").read_text(encoding="utf-8"))
+    assert persisted["scope_files"] == ["apps/api/example.py"]
     assert (tmp_path / "generated-review-prompt.md").read_text(encoding="utf-8") == (
         "Review this task.\n"
     )
@@ -933,6 +938,98 @@ def test_prompt_pack_artifacts_persist_generated_prompts(tmp_path) -> None:
     )
     assert (tmp_path / "extra-audit-ui-state-prompt.md").read_text(encoding="utf-8") == (
         "Audit UI states.\n"
+    )
+
+
+def test_validate_prompt_pack_caps_extra_audits() -> None:
+    prompt_pack = TASK_LOOP.validate_prompt_pack(
+        {
+            "summary": "generated",
+            "review_prompt": "review",
+            "audit_prompt": "audit",
+            "extra_audits": [
+                {
+                    "id": f"audit-{index}",
+                    "title": f"Audit {index}",
+                    "reason": "Risk.",
+                    "prompt": f"Audit {index}.",
+                }
+                for index in range(1, 5)
+            ],
+            "targeted_gates": [],
+            "requires_human_pause": False,
+            "pause_reasons": [],
+        }
+    )
+
+    assert [audit["id"] for audit in prompt_pack["extra_audits"]] == ["audit-1", "audit-2"]
+
+
+def test_prepare_prompt_pack_falls_back_when_generation_fails(monkeypatch, tmp_path) -> None:
+    task = {
+        "id": "P4-04",
+        "title": "data controls consent",
+        "prompt": "tasks/P4-04-data-controls-consent.md",
+    }
+    args = SimpleNamespace(
+        skip_prompt_pack=False,
+        skip_review=False,
+        skip_audit=False,
+        codex_bin="codex",
+        codex_lean=False,
+        review_timeout_seconds=600,
+        review_log_limit_bytes=0,
+        heartbeat_seconds=0,
+    )
+
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: 1)
+
+    prompt_pack = TASK_LOOP.prepare_prompt_pack(
+        task,
+        tmp_path,
+        args,
+        {},
+        " M apps/api/example.py",
+    )
+
+    assert "Review the current repository diff" in prompt_pack["review_prompt"]
+    assert prompt_pack["_scope_files"] == ["apps/api/example.py"]
+    persisted = json.loads((tmp_path / "prompt-pack.json").read_text(encoding="utf-8"))
+    assert persisted["scope_files"] == ["apps/api/example.py"]
+
+
+def test_prompt_pack_from_state_run_dir_rejects_stale_scope(tmp_path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "prompt-pack.json").write_text(
+        json.dumps(
+            {
+                "summary": "generated",
+                "review_prompt": "review",
+                "audit_prompt": "audit",
+                "extra_audits": [],
+                "targeted_gates": [],
+                "requires_human_pause": False,
+                "pause_reasons": [],
+                "scope_files": ["apps/api/old.py"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        TASK_LOOP.prompt_pack_from_run_dir(
+            run_dir,
+            " M apps/api/new.py",
+        )
+        is None
+    )
+    assert (
+        TASK_LOOP.prompt_pack_from_run_dir(
+            run_dir,
+            " M apps/api/old.py",
+        )["review_prompt"]
+        == "review\n"
     )
 
 
@@ -1379,6 +1476,7 @@ def finish_args(**overrides: object) -> SimpleNamespace:
         "pause_policy": "auto",
         "final_repair": True,
         "final_repair_attempts": 0,
+        "total_final_repair_attempts": 6,
         "max_no_progress_repairs": 3,
         "agent_log_limit_bytes": 0,
         "final_repair_timeout_seconds": 900,
@@ -1853,6 +1951,128 @@ def test_gate_failure_signature_uses_failed_pytest_node_not_run_log_path() -> No
         TASK_LOOP.failure_status_summary(first)
         == "apps/api/tests/test_briefing_api.py::test_external_knowledge_opt_in"
     )
+
+
+def test_decision_failure_signature_ignores_line_number_drift() -> None:
+    first = (
+        "review failed; see review-a.json\n\n"
+        "Review decision JSON:\n"
+        '{"decision":"fail","findings":[{"severity":"blocker","file":"apps/api/service.py",'
+        '"line":10,"message":"Consent check is skipped."}]}'
+    )
+    second = (
+        "review failed; see review-b.json\n\n"
+        "Review decision JSON:\n"
+        '{"decision":"fail","findings":[{"severity":"blocker","file":"apps/api/service.py",'
+        '"line":42,"message":"Consent check is skipped."}]}'
+    )
+
+    assert TASK_LOOP.failure_progress_signature(first) == TASK_LOOP.failure_progress_signature(
+        second
+    )
+
+
+def test_final_repair_stops_at_total_budget_for_changing_findings(monkeypatch) -> None:
+    task = {
+        "id": "P4-04",
+        "title": "data controls consent",
+        "prompt": "tasks/P4-04-data-controls-consent.md",
+    }
+    args = finish_args(
+        total_final_repair_attempts=2,
+        max_no_progress_repairs=0,
+    )
+    calls: list[str] = []
+    review_index = 0
+
+    def fake_review(*args, **kwargs) -> tuple[bool, str]:
+        nonlocal review_index
+        review_index += 1
+        calls.append("review")
+        return (
+            False,
+            "review failed; see file\n\n"
+            "Review decision JSON:\n"
+            f'{{"decision":"fail","findings":[{{"severity":"blocker","file":"apps/api/service.py",'
+            f'"line":{review_index},"message":"Issue {review_index} remains."}}]}}',
+        )
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or (True, "quality gates passed"),
+    )
+    monkeypatch.setattr(TASK_LOOP, "cleanup_generated_python_artifacts", lambda: 0)
+    monkeypatch.setattr(TASK_LOOP, "run_review", fake_review)
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            args,
+            "review failed; see file\n\nReview decision JSON:\n{}",
+        )
+        is False
+    )
+
+    assert calls == [
+        "attempt:1",
+        "codex",
+        "gates",
+        "review",
+        "attempt:2",
+        "codex",
+        "gates",
+        "review",
+    ]
+    assert args.last_stop_reason == "budget_exhausted"
+    assert "total final repair attempt" in args.last_block_message
+
+
+def test_final_repair_respects_persisted_total_budget(monkeypatch, tmp_path) -> None:
+    task = {
+        "id": "P4-04",
+        "title": "data controls consent",
+        "prompt": "tasks/P4-04-data-controls-consent.md",
+    }
+    current_path = tmp_path / "current.json"
+    current_path.write_text(
+        json.dumps(
+            {
+                "task_id": "P4-04",
+                "status": "blocked",
+                "final_repair_total_attempts": 2,
+                "repair_attempts_by_kind": {"decision": 2},
+                "repair_no_progress_counts": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = finish_args(total_final_repair_attempts=2)
+
+    monkeypatch.setattr(TASK_LOOP, "CURRENT_RUN_PATH", current_path)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_logged",
+        lambda *args, **kwargs: pytest.fail("should not launch another repair"),
+    )
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            args,
+            "review failed; see file\n\nReview decision JSON:\n{}",
+        )
+        is False
+    )
+    assert args.last_stop_reason == "budget_exhausted"
 
 
 def test_final_repair_stops_repeated_gate_failure_despite_worktree_changes(

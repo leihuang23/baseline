@@ -27,7 +27,9 @@ DEFAULT_REVIEW_TIMEOUT_SECONDS = 600
 DEFAULT_FINAL_REPAIR_TIMEOUT_SECONDS = 900
 DEFAULT_REPAIR_REVIEW_TIMEOUT_SECONDS = 600
 DEFAULT_FINAL_REPAIR_ATTEMPTS = 0
+DEFAULT_TOTAL_FINAL_REPAIR_ATTEMPTS = 6
 DEFAULT_NO_PROGRESS_REPAIR_LIMIT = 3
+DEFAULT_MAX_EXTRA_AUDITS = 2
 DEFAULT_HEARTBEAT_SECONDS = 30
 DEFAULT_AGENT_LOG_LIMIT_BYTES = 0
 DEFAULT_REVIEW_LOG_LIMIT_BYTES = 0
@@ -266,7 +268,11 @@ def scope_files_from_snapshot(status_snapshot: str) -> set[str]:
 
 
 def public_prompt_pack(prompt_pack: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in prompt_pack.items() if not key.startswith("_")}
+    public = {key: value for key, value in prompt_pack.items() if not key.startswith("_")}
+    scope_files = prompt_pack.get("_scope_files")
+    if isinstance(scope_files, list) and all(isinstance(item, str) for item in scope_files):
+        public["scope_files"] = sorted(scope_files)
+    return public
 
 
 def prompt_pack_matches_scope(prompt_pack: dict[str, Any], status_snapshot: str) -> bool:
@@ -776,7 +782,7 @@ def validate_prompt_pack(prompt_pack: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(extra_audits, list):
         raise LoopError("Prompt pack extra_audits must be a list.")
     normalized_audits: list[dict[str, str]] = []
-    for index, item in enumerate(extra_audits, start=1):
+    for index, item in enumerate(extra_audits[:DEFAULT_MAX_EXTRA_AUDITS], start=1):
         if not isinstance(item, dict):
             raise LoopError("Prompt pack extra_audits entries must be objects.")
         prompt = item.get("prompt")
@@ -797,7 +803,12 @@ def validate_prompt_pack(prompt_pack: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(pause_reasons, list):
         raise LoopError("Prompt pack pause_reasons must be a list.")
 
-    return {
+    scope_files = prompt_pack.get("_scope_files", prompt_pack.get("scope_files", []))
+    normalized_scope_files: list[str] = []
+    if isinstance(scope_files, list) and all(isinstance(item, str) for item in scope_files):
+        normalized_scope_files = sorted({item for item in scope_files if item.strip()})
+
+    normalized = {
         **prompt_pack,
         "review_prompt": prompt_pack["review_prompt"].strip() + "\n",
         "audit_prompt": prompt_pack["audit_prompt"].strip() + "\n",
@@ -809,6 +820,9 @@ def validate_prompt_pack(prompt_pack: dict[str, Any]) -> dict[str, Any]:
         "requires_human_pause": bool(prompt_pack.get("requires_human_pause", False)),
         "summary": str(prompt_pack.get("summary") or ""),
     }
+    if normalized_scope_files:
+        normalized["_scope_files"] = normalized_scope_files
+    return normalized
 
 
 def fallback_prompt_pack(task: dict[str, Any], status_snapshot: str) -> dict[str, Any]:
@@ -840,6 +854,8 @@ Generation rules:
 - Add extra_audits only when the task genuinely needs a separate check, such as UI state
   machines, API/schema/migration contracts, auth/permission boundaries, data deletion,
   evidence-backed reasoning, or eval/golden fixture behavior.
+- Emit at most {DEFAULT_MAX_EXTRA_AUDITS} extra_audits; combine related risks into the main
+  audit prompt when possible.
 - Keep prompts bounded. Review/audit agents should inspect changed files and directly
   relevant symbols only; they should not run build/test commands because the controller owns
   executable gates.
@@ -866,6 +882,19 @@ def write_prompt_pack_artifacts(task_run_dir: Path, prompt_pack: dict[str, Any])
             f"extra-audit-{audit['id']}-prompt.md",
             audit["prompt"].strip() + "\n",
         )
+
+
+def fallback_prompt_pack_for_generation_failure(
+    task: dict[str, Any],
+    task_run_dir: Path,
+    changed_files: str,
+    reason: str,
+) -> dict[str, Any]:
+    print(f"  prompt-pack: generation failed; using deterministic fallback ({reason})")
+    prompt_pack = fallback_prompt_pack(task, changed_files)
+    prompt_pack["_scope_files"] = sorted(scope_files_from_snapshot(changed_files))
+    write_prompt_pack_artifacts(task_run_dir, prompt_pack)
+    return prompt_pack
 
 
 def prepare_prompt_pack(
@@ -916,15 +945,22 @@ def prepare_prompt_pack(
         max_log_bytes=normalize_log_limit_bytes(args.review_log_limit_bytes),
     )
     if code != 0:
-        raise LoopError(format_logged_failure("prompt-pack generation failed", log_file))
+        return fallback_prompt_pack_for_generation_failure(
+            task,
+            task_run_dir,
+            changed_files,
+            f"codex exited {code}; see {relative_to_root(log_file)}",
+        )
 
     try:
         prompt_pack = validate_prompt_pack(json.loads(output_file.read_text(encoding="utf-8")))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise LoopError(
-            f"prompt-pack output was not valid JSON: {exc}; see {output_file}\n\n"
-            f"Prompt-pack log tail:\n{read_log_tail(log_file)}"
-        ) from exc
+    except (OSError, json.JSONDecodeError, LoopError) as exc:
+        return fallback_prompt_pack_for_generation_failure(
+            task,
+            task_run_dir,
+            changed_files,
+            f"invalid output: {exc}; see {relative_to_root(log_file)}",
+        )
     prompt_pack["_scope_files"] = sorted(scope_files_from_snapshot(changed_files))
     write_prompt_pack_artifacts(task_run_dir, prompt_pack)
     return prompt_pack
@@ -1142,9 +1178,15 @@ def expanded_repair_verification_timeout(
 ) -> int | None:
     if current_timeout_seconds is None:
         return None
+    review_timeout_seconds = getattr(args, "review_timeout_seconds", 0)
+    final_repair_timeout_seconds = getattr(args, "final_repair_timeout_seconds", 0)
     configured_candidates = [
-        normalize_timeout_seconds(getattr(args, "review_timeout_seconds", None)),
-        normalize_timeout_seconds(getattr(args, "final_repair_timeout_seconds", None)),
+        normalize_timeout_seconds(review_timeout_seconds)
+        if isinstance(review_timeout_seconds, int)
+        else None,
+        normalize_timeout_seconds(final_repair_timeout_seconds)
+        if isinstance(final_repair_timeout_seconds, int)
+        else None,
     ]
     larger_candidates = [
         candidate
@@ -1214,12 +1256,11 @@ def failure_progress_signature(failure_result: str) -> str:
                         [
                             normalized_failure_text(finding.get("severity", "")),
                             normalized_failure_text(finding.get("file", "")),
-                            normalized_failure_text(finding.get("line", "")),
                             normalized_failure_text(finding.get("message", "")),
                         ]
                     )
                 )
-            return f"{failure_kind}:findings:{'||'.join(parts)}"
+            return f"{failure_kind}:findings:{'||'.join(sorted(parts))}"
         return f"{failure_kind}:summary:{normalized_failure_text(decision.get('summary', ''))}"
     first_line = failure_result.strip().splitlines()[0] if failure_result.strip() else ""
     return f"{failure_kind}:text:{normalized_failure_text(first_line)}"
@@ -1882,6 +1923,47 @@ def repair_failure_kind(failure_result: str) -> str | None:
     return None
 
 
+def repair_history_key(failure_kind: str, failure_signature: str) -> str:
+    return json.dumps([failure_kind, failure_signature], separators=(",", ":"))
+
+
+def current_repair_state_for_task(task_id: str) -> dict[str, Any]:
+    state = read_current_run_state()
+    if state is None or state.get("task_id") != task_id:
+        return {}
+    return state
+
+
+def persisted_repair_no_progress_counts(task_id: str) -> dict[str, int]:
+    state = current_repair_state_for_task(task_id)
+    raw_counts = state.get("repair_no_progress_counts", {})
+    if not isinstance(raw_counts, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for key, value in raw_counts.items():
+        if isinstance(key, str) and isinstance(value, int) and value > 0:
+            counts[key] = value
+    return counts
+
+
+def persisted_repair_attempts_by_kind(task_id: str) -> dict[str, int]:
+    state = current_repair_state_for_task(task_id)
+    raw_attempts = state.get("repair_attempts_by_kind", {})
+    attempts = {"gate": 0, "decision": 0}
+    if isinstance(raw_attempts, dict):
+        for key in attempts:
+            value = raw_attempts.get(key)
+            if isinstance(value, int) and value > 0:
+                attempts[key] = value
+    return attempts
+
+
+def persisted_total_repair_attempts(task_id: str) -> int:
+    state = current_repair_state_for_task(task_id)
+    value = state.get("final_repair_total_attempts")
+    return value if isinstance(value, int) and value > 0 else 0
+
+
 def ensure_prompt_pack_for_scope(
     task: dict[str, Any],
     task_run_dir: Path,
@@ -1909,6 +1991,11 @@ def run_final_repair(
 ) -> bool:
     max_attempts = getattr(args, "max_attempts", 0)
     repair_attempts = getattr(args, "final_repair_attempts", DEFAULT_FINAL_REPAIR_ATTEMPTS)
+    total_repair_attempts = getattr(
+        args,
+        "total_final_repair_attempts",
+        DEFAULT_TOTAL_FINAL_REPAIR_ATTEMPTS,
+    )
     no_progress_limit = getattr(
         args,
         "max_no_progress_repairs",
@@ -1918,9 +2005,9 @@ def run_final_repair(
     pending_decision_failure = (
         previous_failure if decision_failure_is_actionable(previous_failure) else None
     )
-    attempts_by_kind = {"gate": 0, "decision": 0}
-    repeated_no_progress: dict[tuple[str, str, str], int] = {}
-    repair_index = 0
+    attempts_by_kind = persisted_repair_attempts_by_kind(task["id"])
+    repeated_no_progress = persisted_repair_no_progress_counts(task["id"])
+    repair_index = persisted_total_repair_attempts(task["id"])
     while True:
         failure_kind = repair_failure_kind(current_failure)
         if failure_kind is None:
@@ -1929,6 +2016,16 @@ def run_final_repair(
                 args,
                 stop_reason="non_actionable",
                 message="final repair failure is not actionable",
+                failure_result=current_failure,
+            )
+            return False
+        if total_repair_attempts and repair_index >= total_repair_attempts:
+            message = f"exhausted {total_repair_attempts} total final repair attempt(s)"
+            print(f"  failed: {message}")
+            remember_final_repair_stop(
+                args,
+                stop_reason="budget_exhausted",
+                message=message,
                 failure_result=current_failure,
             )
             return False
@@ -1943,15 +2040,11 @@ def run_final_repair(
             )
             return False
         failure_signature = failure_progress_signature(current_failure)
-        failure_fingerprint = git_worktree_fingerprint(exclude_protected=True) or "unavailable"
-        no_progress_fingerprint = (
-            "gate-root-failure" if failure_kind == "gate" else failure_fingerprint
-        )
-        no_progress_key = (failure_kind, failure_signature, no_progress_fingerprint)
+        no_progress_key = repair_history_key(failure_kind, failure_signature)
         no_progress_count = repeated_no_progress.get(no_progress_key, 0)
         if no_progress_limit and no_progress_count >= no_progress_limit:
             message = (
-                "same actionable finding repeated without worktree progress "
+                "same actionable finding repeated without resolving the root failure "
                 f"{no_progress_count} time(s)"
             )
             print(f"  failed: {message}")
@@ -1989,7 +2082,11 @@ def run_final_repair(
             "final_repair": True,
             "repair_attempt": repair_index,
             "final_repair_attempts": repair_attempts,
+            "total_final_repair_attempts": total_repair_attempts,
+            "final_repair_total_attempts": repair_index,
             "max_no_progress_repairs": no_progress_limit,
+            "repair_attempts_by_kind": attempts_by_kind,
+            "repair_no_progress_counts": repeated_no_progress,
             "repair_failure_kind": failure_kind,
             "repair_failure_kind_attempt": attempts_by_kind[failure_kind],
             "current_failure_signature": failure_signature,
@@ -2004,7 +2101,8 @@ def run_final_repair(
             "  final repair: codex exec for actionable findings "
             f"({failure_kind} {attempts_by_kind[failure_kind]}/"
             f"{repair_limit_label(repair_attempts)}, "
-            f"overall {repair_index}) -> run {relative_to_root(task_run_dir)}"
+            f"overall {repair_index}/{repair_limit_label(total_repair_attempts)}) "
+            f"-> run {relative_to_root(task_run_dir)}"
         )
         prompt_file = write_prompt_snapshot(task_run_dir, "final-repair-prompt.md", prompt)
         exec_log = task_run_dir / "codex-final-repair.log"
@@ -2027,7 +2125,20 @@ def run_final_repair(
             success_sentinel=DONE_SENTINEL,
         )
         if code != 0:
-            print(f"  failed: {format_logged_failure('codex final repair failed', exec_log)}")
+            failure_result = format_logged_failure("codex final repair failed", exec_log)
+            print(f"  failed: {failure_result}")
+            remember_final_repair_stop(
+                args,
+                stop_reason=(
+                    "agent_timeout"
+                    if code == 124
+                    else "agent_log_limit"
+                    if code == LOG_LIMIT_EXIT_CODE
+                    else "agent_failed"
+                ),
+                message="codex final repair failed",
+                failure_result=failure_result,
+            )
             return False
 
         gates_ok, gate_result = run_quality_gates(
@@ -2050,6 +2161,12 @@ def run_final_repair(
                 else:
                     print("  repair: gate failure is actionable; continuing focused repair loop")
                 continue
+            remember_final_repair_stop(
+                args,
+                stop_reason="gate_non_actionable",
+                message="quality gate failure was not actionable",
+                failure_result=gate_result,
+            )
             return False
 
         removed_artifacts = cleanup_generated_python_artifacts()
@@ -2146,6 +2263,13 @@ def run_final_repair(
                         message="review verifier timed out",
                         failure_result=verification_failure,
                     )
+                else:
+                    remember_final_repair_stop(
+                        args,
+                        stop_reason="verifier_failed",
+                        message="review verifier failed without actionable findings",
+                        failure_result=review_result,
+                    )
                 return False
             print(f"  {review_result}")
             if is_repair_verification and pending_decision_failure == verification_failure:
@@ -2235,6 +2359,13 @@ def run_final_repair(
                         message="audit verifier timed out",
                         failure_result=verification_failure,
                     )
+                else:
+                    remember_final_repair_stop(
+                        args,
+                        stop_reason="verifier_failed",
+                        message="audit verifier failed without actionable findings",
+                        failure_result=audit_result,
+                    )
                 return False
             print(f"  {audit_result}")
             if is_repair_audit and pending_decision_failure == verification_failure:
@@ -2258,6 +2389,16 @@ def run_final_repair(
                             "continuing repair loop"
                         )
                         continue
+                    remember_final_repair_stop(
+                        args,
+                        stop_reason=(
+                            "verifier_timeout"
+                            if command_failure_timed_out(extra_result)
+                            else "verifier_failed"
+                        ),
+                        message="extra audit failed without actionable findings",
+                        failure_result=extra_result,
+                    )
                     return False
 
         complete_task(ledger, task, task_run_dir, args.commit)
@@ -2745,11 +2886,7 @@ def current_diff_fingerprint_matches_state(task: dict[str, Any], state: dict[str
     return bool(current_paths) and current_paths == previous_paths
 
 
-def prompt_pack_from_state_run_dir(
-    state: dict[str, Any],
-    status_snapshot: str,
-) -> dict[str, Any] | None:
-    run_dir = state_run_dir(state)
+def prompt_pack_from_run_dir(run_dir: Path | None, status_snapshot: str) -> dict[str, Any] | None:
     if run_dir is None:
         return None
     prompt_pack_path = run_dir / "prompt-pack.json"
@@ -2763,8 +2900,16 @@ def prompt_pack_from_state_run_dir(
         prompt_pack = validate_prompt_pack(raw_prompt_pack)
     except LoopError:
         return None
-    prompt_pack["_scope_files"] = sorted(scope_files_from_snapshot(status_snapshot))
+    if not prompt_pack_matches_scope(prompt_pack, status_snapshot):
+        return None
     return prompt_pack
+
+
+def prompt_pack_from_state_run_dir(
+    state: dict[str, Any],
+    status_snapshot: str,
+) -> dict[str, Any] | None:
+    return prompt_pack_from_run_dir(state_run_dir(state), status_snapshot)
 
 
 def run_summary_has_successful_quality_gates(
@@ -2964,14 +3109,11 @@ def resume_timed_out_repair_verifier(
     print(f"  {verifier_result}")
 
     complete_task(ledger, task, cast(Path, repair_run_dir), args.commit)
-    remember_pause_reasons(
-        args,
-        task,
-        {
-            "requires_human_pause": False,
-            "pause_reasons": [],
-        },
-    )
+    prompt_pack = prompt_pack_from_run_dir(cast(Path, repair_run_dir), review_scope_snapshot()) or {
+        "requires_human_pause": False,
+        "pause_reasons": [],
+    }
+    remember_pause_reasons(args, task, prompt_pack)
     write_static_run_state(
         CURRENT_RUN_PATH,
         base_status,
@@ -3373,7 +3515,15 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_FINAL_REPAIR_ATTEMPTS,
         help=(
             "Maximum focused Codex repair attempts after actionable gate/review/audit findings; "
-            "0 means no fixed cap."
+            "0 means no per-kind cap."
+        ),
+    )
+    finish_parser.add_argument(
+        "--total-final-repair-attempts",
+        type=int,
+        default=DEFAULT_TOTAL_FINAL_REPAIR_ATTEMPTS,
+        help=(
+            "Maximum total focused Codex repair attempts for one task; 0 disables the total cap."
         ),
     )
     finish_parser.add_argument(
@@ -3381,8 +3531,8 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_NO_PROGRESS_REPAIR_LIMIT,
         help=(
-            "Stop after this many repeated repair cycles with the same actionable finding and "
-            "unchanged worktree fingerprint; 0 disables this guard."
+            "Stop after this many repeated repair cycles with the same actionable root failure; "
+            "0 disables this guard."
         ),
     )
     finish_parser.add_argument(
@@ -3491,7 +3641,15 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_FINAL_REPAIR_ATTEMPTS,
         help=(
             "Maximum focused Codex repair attempts after actionable gate/review/audit findings; "
-            "0 means no fixed cap."
+            "0 means no per-kind cap."
+        ),
+    )
+    run_parser.add_argument(
+        "--total-final-repair-attempts",
+        type=int,
+        default=DEFAULT_TOTAL_FINAL_REPAIR_ATTEMPTS,
+        help=(
+            "Maximum total focused Codex repair attempts for one task; 0 disables the total cap."
         ),
     )
     run_parser.add_argument(
@@ -3499,8 +3657,8 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_NO_PROGRESS_REPAIR_LIMIT,
         help=(
-            "Stop after this many repeated repair cycles with the same actionable finding and "
-            "unchanged worktree fingerprint; 0 disables this guard."
+            "Stop after this many repeated repair cycles with the same actionable root failure; "
+            "0 disables this guard."
         ),
     )
     run_parser.add_argument(
@@ -3607,6 +3765,10 @@ def main() -> int:
     normalize_log_limit_bytes(args.agent_log_limit_bytes)
     normalize_log_limit_bytes(args.review_log_limit_bytes)
     validate_non_negative_int(args.final_repair_attempts, "final repair attempts")
+    validate_non_negative_int(
+        args.total_final_repair_attempts,
+        "total final repair attempts",
+    )
     validate_non_negative_int(args.max_no_progress_repairs, "max no-progress repairs")
     if args.command == "finish":
         if args.task:
