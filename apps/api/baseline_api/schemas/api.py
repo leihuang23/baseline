@@ -279,6 +279,9 @@ class CandidateOption(ContractModel):
 class GoalTradeoff(ContractModel):
     goal: str = Field(min_length=1)
     tradeoff: str = Field(min_length=1)
+    indicator_status: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+    missing_data: list[str] = Field(default_factory=list)
 
 
 def _default_recommendation_summary() -> RecommendationSummary:
@@ -392,6 +395,7 @@ class ConsentRecordRequest(ContractModel):
     cloud_processing_enabled: bool = False
     external_llm_enabled: bool = False
     raw_note_processing_enabled: bool = False
+    privacy_mode: PrivacyMode | None = None
 
 
 class ConsentRecordResponse(ContractModel):

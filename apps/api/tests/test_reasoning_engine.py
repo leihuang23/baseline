@@ -83,7 +83,30 @@ def _features(
             "data_quality": {"flags": [], "completeness": 1.0},
         },
         "goal_features": {
-            "values": {},
+            "values": {
+                "goal_indicators": {
+                    "status": "computed",
+                    "unit": "structured",
+                    "value": {
+                        "vo2_max": {
+                            "status": "computed",
+                            "summary": "VO2 max trend is improving.",
+                            "confidence": "medium",
+                            "evidence_refs": [
+                                "goal_features.values.vo2_trend.values.trend_direction"
+                            ],
+                            "missing_data": [],
+                        },
+                        "sleep": {
+                            "status": "computed",
+                            "summary": "Sleep indicator status is debt_present.",
+                            "confidence": "medium",
+                            "evidence_refs": ["sleep_features.values.sleep_debt_hours"],
+                            "missing_data": [],
+                        },
+                    },
+                }
+            },
             "data_quality": {"flags": [], "completeness": 1.0},
         },
         "data_quality": {
@@ -239,6 +262,26 @@ def test_goal_tradeoffs_are_computed_from_active_goal_set() -> None:
 
     assert [tradeoff["goal"] for tradeoff in result.goal_tradeoffs] == ["vo2_max", "sleep"]
     assert all(tradeoff["tradeoff"] for tradeoff in result.goal_tradeoffs)
+    assert result.goal_tradeoffs[0]["indicator_status"] == "computed"
+    assert result.goal_tradeoffs[0]["evidence_refs"] == [
+        "goal_features.values.vo2_trend.values.trend_direction"
+    ]
+
+
+def test_goal_tradeoffs_explain_missing_goal_indicator_data() -> None:
+    features = _features()
+    features["goal_features"] = {"values": {}, "data_quality": {"flags": [], "completeness": 0.0}}
+
+    result = assess_readiness(
+        _input(
+            features=features,
+            goals=[{"category": "strength", "priority": 2}],
+        )
+    )
+
+    assert result.goal_tradeoffs[0]["indicator_status"] == "unavailable"
+    assert result.goal_tradeoffs[0]["missing_data"] == ["strength_indicator"]
+    assert "missing" in result.goal_tradeoffs[0]["tradeoff"]
 
 
 def test_assessment_and_trace_are_deterministic() -> None:
