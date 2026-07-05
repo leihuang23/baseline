@@ -1053,6 +1053,16 @@
             "title": "Health Categories Enabled",
             "type": "array"
           },
+          "privacy_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PrivacyMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "raw_note_processing_enabled": {
             "default": false,
             "title": "Raw Note Processing Enabled",
@@ -2179,10 +2189,35 @@
       "GoalTradeoff": {
         "additionalProperties": false,
         "properties": {
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
           "goal": {
             "minLength": 1,
             "title": "Goal",
             "type": "string"
+          },
+          "indicator_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indicator Status"
+          },
+          "missing_data": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Data",
+            "type": "array"
           },
           "tradeoff": {
             "minLength": 1,
