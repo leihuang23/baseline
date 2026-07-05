@@ -8,7 +8,7 @@ import datetime as dt
 import hashlib
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
@@ -408,14 +408,15 @@ class _OfflineDemoBriefingService(DailyBriefingService):
             }
         ]
 
-    def _retrieve_external_knowledge(
+    async def _retrieve_external_knowledge(
         self,
         *,
         user_id: UUID,
         include_external_knowledge: bool,
         privacy_mode: PrivacyMode,
+        active_goals: Sequence[Mapping[str, Any]],
     ) -> KnowledgeRetrievalResult:
-        _ = (user_id, include_external_knowledge, privacy_mode)
+        _ = (user_id, include_external_knowledge, privacy_mode, active_goals)
         return KnowledgeRetrievalResult(
             hits=[],
             citations=[],

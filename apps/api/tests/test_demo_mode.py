@@ -211,7 +211,7 @@ def test_demo_loop_uses_product_loaders_and_memory_service(monkeypatch) -> None:
 
     assert calls == {
         "features": 1,
-        "checkin": 1,
+        "checkin": 2,
         "daily_memory": 1,
         "weekly_memory": 1,
     }

@@ -18,6 +18,10 @@ API is reachable from any untrusted network.
   - `python -m arq baseline_api.worker.WorkerSettings`
 - Use managed or hardened Postgres and Redis. Do not use the local
   `POSTGRES_HOST_AUTH_METHOD=trust` compose service for production data.
+- Set `EXPORT_STORAGE_DIR` to a durable private directory owned by the API
+  process. Production and staging reject temp-backed export storage.
+- Set `EXPORT_RETENTION_HOURS` and leave `EXPORT_CLEANUP_ON_START=true` unless
+  an external lifecycle job owns encrypted export cleanup.
 
 ## Data Operations
 
@@ -28,6 +32,8 @@ API is reachable from any untrusted network.
   networks/devices; do not expose the API to the public internet with only that
   embedded token.
 - Keep `.env` and provider keys out of source control and logs.
+- Export download keys are returned only in the create response. Do not persist
+  response bodies that contain `encryption.key_base64` in logs or dashboards.
 - Monitor `/health`, `/v1/health/ping`, sync failures, briefing failures, model
   provider failures, schema validation failures, deletion failures, and cost
   budget alerts.
