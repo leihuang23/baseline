@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from sqlmodel import Session, col, select
 
+from baseline_api.config import Settings
 from baseline_api.db.models import (
     DerivedDailyFeature,
     MemorySummary,
@@ -25,11 +26,12 @@ from baseline_api.db.models.enums import Modality
 from baseline_api.retrieval import (
     KnowledgeRetrievalResult,
     KnowledgeRetrievalService,
+    create_embedder,
     has_external_knowledge_consent,
 )
 from baseline_api.safety.engine import SafetyPolicyEngine
 from baseline_api.schemas.api import AssistantQueryRequest, AssistantQueryResponse
-from baseline_api.schemas.enums import ConfidenceLevel, DataScope, SafetyStatus
+from baseline_api.schemas.enums import ConfidenceLevel, DataScope, PrivacyMode, SafetyStatus
 from baseline_api.schemas.recommendation import ExternalCitation, PersonalEvidence
 
 RECOVERY_LEVELS = {
@@ -76,9 +78,11 @@ class AssistantQueryService:
         self,
         session: Session,
         *,
+        settings: Settings | None = None,
         safety_engine: SafetyPolicyEngine | None = None,
     ) -> None:
         self._session = session
+        self._settings = settings
         self._safety_engine = safety_engine or SafetyPolicyEngine.from_default_policy()
 
     def answer(self, request: AssistantQueryRequest) -> AssistantQueryResponse:
@@ -112,8 +116,9 @@ class AssistantQueryService:
             external_knowledge = _external_knowledge_context(
                 self._session,
                 user.id,
-                request.question,
+                _external_knowledge_query(plan),
                 request,
+                settings=self._settings,
             )
             draft = self._draft_answer(
                 user_id=user.id,
@@ -963,6 +968,8 @@ def _external_knowledge_context(
     user_id: UUID,
     query: str,
     request: AssistantQueryRequest,
+    *,
+    settings: Settings | None = None,
 ) -> KnowledgeRetrievalResult:
     if not request.include_external_knowledge:
         return KnowledgeRetrievalResult(
@@ -970,6 +977,17 @@ def _external_knowledge_context(
             citations=[],
             external_knowledge=[],
             uncertainty=[],
+        )
+    if request.privacy_mode == PrivacyMode.local_only:
+        return KnowledgeRetrievalResult(
+            hits=[],
+            citations=[],
+            external_knowledge=[],
+            uncertainty=[
+                "External knowledge was requested but disabled by local-only privacy mode."
+            ],
+            degraded=True,
+            degrade_reason="privacy_mode_local_only",
         )
     if DataScope.external_knowledge not in request.allowed_data_scope:
         return KnowledgeRetrievalResult(
@@ -985,7 +1003,43 @@ def _external_knowledge_context(
             external_knowledge=[],
             uncertainty=["External knowledge was requested but consent is not active."],
         )
-    return KnowledgeRetrievalService(session).retrieve(query)
+    try:
+        return KnowledgeRetrievalService(
+            session,
+            embedder=create_embedder(settings),
+        ).retrieve(query)
+    except Exception as exc:
+        return KnowledgeRetrievalResult(
+            hits=[],
+            citations=[],
+            external_knowledge=[],
+            uncertainty=[
+                "External knowledge retrieval was unavailable; no external claims were used."
+            ],
+            degraded=True,
+            degrade_reason=type(exc).__name__,
+        )
+
+
+def _external_knowledge_query(plan: QueryPlan) -> str:
+    tokens = ["assistant wellness question", "general research", "non personalized"]
+    if plan.metric == "sleep_debt_hours":
+        tokens.extend(["sleep", "sleep debt", "recovery"])
+    elif plan.metric == "hrv_deviation_pct":
+        tokens.extend(["heart rate variability", "recovery"])
+    elif plan.metric == "rhr_deviation_pct":
+        tokens.extend(["resting heart rate", "recovery"])
+    elif plan.metric == "acute_chronic_ratio":
+        tokens.extend(["training load", "recovery"])
+    elif plan.metric == "recovery_level":
+        tokens.extend(["recovery", "training readiness"])
+    if plan.modality:
+        tokens.extend([plan.modality, "training"])
+    if plan.intent == "candidate_plan":
+        tokens.extend(["training plan", "progression"])
+    elif plan.intent == "briefing_follow_up":
+        tokens.extend(["daily readiness", "training recommendation"])
+    return " ".join(tokens)
 
 
 def _contract_uncertainty(uncertainty: list[str]) -> list[str]:

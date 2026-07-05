@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import urllib.error
+import urllib.request
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import uuid4
 
-from packages.knowledge.embeddings import HashEmbeddingProvider
+import pytest
+from packages.knowledge.embeddings import (
+    EmbeddingProvider,
+    HashEmbeddingProvider,
+    HTTPEmbeddingProvider,
+)
 from sqlmodel import Session
 
 from baseline_api.db.models.enums import TrustLevel
@@ -180,3 +187,85 @@ def test_external_retrieval_uses_lexical_fallback_when_embedding_is_unusable() -
     assert "General research (non-personalized)" in result.citations[0].cited_claim
     assert result.external_knowledge[0]["chunk_id"] == str(chunk.id)
     assert result.citation_accuracy >= 0.95
+
+
+def test_external_retrieval_marks_embedding_failure_fallback_degraded() -> None:
+    source_id = uuid4()
+    chunk_text = (
+        "General research on daily readiness, training recovery, and sleep describes broad "
+        "non-personalized patterns for conservative training choices."
+    )
+    chunk = SimpleNamespace(
+        id=uuid4(),
+        source_id=source_id,
+        source_version="v1",
+        chunk_index=0,
+        text=chunk_text,
+        content_hash="fallback-row",
+        embedding=HashEmbeddingProvider().embed(chunk_text),
+        source_metadata={},
+    )
+    source = SimpleNamespace(
+        title="General Training Recovery Reference",
+        author_or_org="Baseline Test Curation Board",
+        url_or_identifier="https://example.org/general-training-recovery",
+        trust_level=TrustLevel.authoritative,
+        superseded_at=None,
+        removed_at=None,
+    )
+
+    class FailingEmbedder:
+        def embed(self, text: str) -> list[float]:
+            _ = text
+            raise TimeoutError("provider timeout")
+
+    result = KnowledgeRetrievalService(
+        cast(Session, _FakeSession([chunk], {source_id: source})),
+        embedder=cast(EmbeddingProvider, FailingEmbedder()),
+    ).retrieve("daily readiness training recovery sleep general research")
+
+    assert result.degraded is True
+    assert result.degrade_reason == "TimeoutError"
+    assert [citation.title for citation in result.citations] == [
+        "General Training Recovery Reference"
+    ]
+
+
+def test_http_embedding_provider_disables_redirects(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_handlers: list[Any] = []
+
+    class RedirectingOpener:
+        def open(
+            self,
+            request: urllib.request.Request,
+            *,
+            timeout: float,
+        ) -> object:
+            _ = (request, timeout)
+            raise urllib.error.HTTPError(
+                "https://embeddings.example/v1",
+                302,
+                "Found",
+                {},
+                None,
+            )
+
+    def fake_build_opener(*handlers: Any) -> RedirectingOpener:
+        captured_handlers.extend(handlers)
+        return RedirectingOpener()
+
+    monkeypatch.setattr(urllib.request, "build_opener", fake_build_opener)
+    provider = HTTPEmbeddingProvider(
+        api_url="https://embeddings.example/v1",
+        api_key="secret-token",
+        model="test-embedding",
+        max_retries=0,
+    )
+
+    with pytest.raises(urllib.error.HTTPError):
+        provider.embed("sleep recovery")
+
+    assert captured_handlers
+    first_handler = captured_handlers[0]
+    handler = first_handler() if isinstance(first_handler, type) else first_handler
+    assert handler.redirect_request(None, None, 302, "Found", {}, "https://other.example") is None

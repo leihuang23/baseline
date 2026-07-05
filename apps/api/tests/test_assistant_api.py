@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from packages.knowledge.embeddings import HTTPEmbeddingProvider
 from packages.knowledge.models import KnowledgeSourceDocument
 from packages.knowledge.pipeline import KnowledgeIngestionPipeline
 from packages.knowledge.store import SQLModelKnowledgeVectorStore
@@ -34,22 +35,24 @@ from baseline_api.db.models.enums import (
     TrustLevel,
 )
 from baseline_api.db.session import get_db_session
+from baseline_api.retrieval import KnowledgeRetrievalResult, KnowledgeRetrievalService
 
 TARGET_DATE = dt.date(2026, 7, 4)
 
 pytestmark = pytest.mark.require_db
 
 
-def _settings() -> Settings:
+def _settings(**overrides: Any) -> Settings:
     return Settings(
         APP_ENV="test",
         DATABASE_URL="postgresql+psycopg://baseline@localhost:5433/baseline",
         REDIS_URL="redis://localhost:6379/0",
+        **overrides,
     )
 
 
-def _client(db_session: Session) -> TestClient:
-    app = create_app(_settings())
+def _client(db_session: Session, settings: Settings | None = None) -> TestClient:
+    app = create_app(settings or _settings())
 
     def override_session() -> Generator[Session]:
         yield db_session
@@ -169,6 +172,7 @@ def _post_query(
     *,
     scopes: list[str],
     include_external_knowledge: bool = False,
+    privacy_mode: str = "cloud_assisted",
 ) -> dict[str, Any]:
     response = client.post(
         "/v1/assistant/query",
@@ -177,7 +181,7 @@ def _post_query(
             "date_context": TARGET_DATE.isoformat(),
             "allowed_data_scope": scopes,
             "include_external_knowledge": include_external_knowledge,
-            "privacy_mode": "cloud_assisted",
+            "privacy_mode": privacy_mode,
         },
     )
     assert response.status_code == 200
@@ -447,6 +451,116 @@ def test_external_knowledge_opt_in_keeps_sources_separate(db_session: Session) -
         "General Sleep Recovery Reference" not in str(item) for item in data["personal_evidence"]
     )
     assert any("general research context" in item for item in data["uncertainty"])
+
+
+def test_external_knowledge_query_does_not_embed_raw_question(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = _seed_user(db_session)
+    _seed_external_knowledge_consent(db_session, user)
+    db_session.add(_feature_row(user.id, TARGET_DATE, sleep_debt=0.2))
+    db_session.commit()
+    captured_queries: list[str] = []
+
+    def capture_retrieve(
+        self: KnowledgeRetrievalService,
+        query: str,
+        *,
+        limit: int = 3,
+    ) -> KnowledgeRetrievalResult:
+        _ = (self, limit)
+        captured_queries.append(query)
+        return KnowledgeRetrievalResult(
+            hits=[],
+            citations=[],
+            external_knowledge=[],
+            uncertainty=[],
+        )
+
+    monkeypatch.setattr(KnowledgeRetrievalService, "retrieve", capture_retrieve)
+    client = _client(db_session)
+
+    _post_query(
+        client,
+        "How has my sleep looked since my Barcelona race?",
+        scopes=["recent_health", "external_knowledge"],
+        include_external_knowledge=True,
+    )
+
+    assert captured_queries
+    assert "sleep" in captured_queries[0]
+    assert "Barcelona" not in captured_queries[0]
+    assert "race" not in captured_queries[0]
+
+
+def test_external_knowledge_uses_app_embedding_settings(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = _seed_user(db_session)
+    _seed_external_knowledge_consent(db_session, user)
+    db_session.add(_feature_row(user.id, TARGET_DATE, sleep_debt=0.2))
+    db_session.commit()
+    configured_urls: list[str] = []
+
+    def capture_embed(self: HTTPEmbeddingProvider, text: str) -> list[float]:
+        _ = text
+        configured_urls.append(self.api_url)
+        return [0.1] * 16
+
+    monkeypatch.setattr(HTTPEmbeddingProvider, "embed", capture_embed)
+    client = _client(
+        db_session,
+        settings=_settings(
+            KNOWLEDGE_EMBEDDING_PROVIDER="http",
+            KNOWLEDGE_EMBEDDING_API_URL="https://embeddings.example/v1",
+            KNOWLEDGE_EMBEDDING_API_KEY="test-key",
+            KNOWLEDGE_EMBEDDING_MODEL="test-model",
+        ),
+    )
+
+    _post_query(
+        client,
+        "How has my sleep looked recently?",
+        scopes=["recent_health", "external_knowledge"],
+        include_external_knowledge=True,
+    )
+
+    assert configured_urls == ["https://embeddings.example/v1"]
+
+
+def test_external_knowledge_local_only_does_not_retrieve(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = _seed_user(db_session)
+    _seed_external_knowledge_consent(db_session, user)
+    db_session.add(_feature_row(user.id, TARGET_DATE, sleep_debt=0.2))
+    db_session.commit()
+
+    def fail_retrieve(
+        self: KnowledgeRetrievalService,
+        query: str,
+        *,
+        limit: int = 3,
+    ) -> KnowledgeRetrievalResult:
+        _ = (self, query, limit)
+        raise AssertionError("local-only mode must not run external retrieval")
+
+    monkeypatch.setattr(KnowledgeRetrievalService, "retrieve", fail_retrieve)
+    client = _client(db_session)
+
+    data = _post_query(
+        client,
+        "How has my sleep looked recently?",
+        scopes=["recent_health", "external_knowledge"],
+        include_external_knowledge=True,
+        privacy_mode="local_only",
+    )
+
+    assert data["external_sources"] == []
+    assert any("local-only privacy mode" in item for item in data["uncertainty"])
 
 
 def test_plan_for_week_is_framed_as_candidate_not_prescription(db_session: Session) -> None:

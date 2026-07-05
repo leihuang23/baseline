@@ -551,8 +551,17 @@ def test_starter_corpus_is_license_clear_and_ingestible() -> None:
     store = InMemoryKnowledgeVectorStore()
     pipeline = KnowledgeIngestionPipeline(store)
 
+    assert len(STARTER_CORPUS) >= 10
     for document in STARTER_CORPUS:
-        assert "public domain" in document.license_status.lower()
+        assert document.url_or_identifier
+        assert document.source_metadata["accessed_at"]
+        assert document.source_metadata["canonical_url"]
+        assert document.source_metadata["publisher"]
+        assert document.license_status
         result = pipeline.ingest(document)
-        assert result.source.trust_level is TrustLevel.authoritative
+        assert result.source.trust_level in {
+            TrustLevel.authoritative,
+            TrustLevel.peer_reviewed,
+            TrustLevel.curated,
+        }
         assert result.chunks

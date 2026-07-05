@@ -80,6 +80,7 @@ async def generate_daily_analysis(
     service = DailyBriefingService(
         session,
         llm_explainer=_llm_explainer(request, session),
+        settings=request.app.state.settings,
     )
     try:
         job = service.create_daily_job(payload)
@@ -124,9 +125,10 @@ def _daily_briefing_queue(request: Request) -> DailyBriefingJobQueue:
 @router.get("/analysis/daily/{job_id}", response_model=APIEnvelope[DailyAnalysisResponse])
 async def get_daily_analysis_job(
     job_id: UUID,
+    request: Request,
     session: Annotated[Session, Depends(get_db_session)],
 ) -> APIEnvelope[DailyAnalysisResponse] | JSONResponse:
-    service = DailyBriefingService(session)
+    service = DailyBriefingService(session, settings=request.app.state.settings)
     try:
         data = service.get_daily_job(job_id)
     except BriefingError as error:
@@ -137,9 +139,10 @@ async def get_daily_analysis_job(
 @router.get("/analysis/traces/{trace_id}", response_model=APIEnvelope[BriefingTraceInspection])
 async def get_analysis_trace(
     trace_id: UUID,
+    request: Request,
     session: Annotated[Session, Depends(get_db_session)],
 ) -> APIEnvelope[BriefingTraceInspection] | JSONResponse:
-    service = DailyBriefingService(session)
+    service = DailyBriefingService(session, settings=request.app.state.settings)
     try:
         data = service.get_trace(trace_id)
     except BriefingError as error:
@@ -150,10 +153,11 @@ async def get_analysis_trace(
 @router.get("/briefings/{date}", response_model=APIEnvelope[DailyBriefingResponse])
 async def get_daily_briefing(
     date: dt.date,
+    request: Request,
     session: Annotated[Session, Depends(get_db_session)],
     offline_last: bool = False,
 ) -> APIEnvelope[DailyBriefingResponse] | JSONResponse:
-    service = DailyBriefingService(session)
+    service = DailyBriefingService(session, settings=request.app.state.settings)
     try:
         data = service.get_briefing(target_date=date, offline_last=offline_last)
     except BriefingError as error:
