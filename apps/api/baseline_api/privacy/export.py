@@ -50,7 +50,7 @@ from baseline_api.privacy.user import get_single_user
 from baseline_api.schemas.api import DataExportRequest, DataExportResponse
 from baseline_api.schemas.enums import DataExportFormat, DataExportScope, DataExportStatus
 
-EXPORT_TTL = timedelta(hours=1)
+DEFAULT_EXPORT_RETENTION_HOURS = 1
 EXPORT_MAGIC = b"BASELINE-EXPORT-AES256GCM-V1"
 AES_GCM_KEY_BYTES = 32
 AES_GCM_NONCE_BYTES = 12
@@ -75,8 +75,14 @@ class StoredExport:
 class LocalExportStore:
     """Filesystem-backed encrypted export store with expiring metadata."""
 
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        *,
+        retention_hours: int = DEFAULT_EXPORT_RETENTION_HOURS,
+    ) -> None:
         self._root = root or Path(tempfile.gettempdir()) / "baseline_exports"
+        self._ttl = timedelta(hours=retention_hours)
         self._root.mkdir(parents=True, exist_ok=True)
         self._exports: dict[UUID, StoredExport] = {}
 
@@ -99,7 +105,7 @@ class LocalExportStore:
             user_id=user_id,
             path=path,
             key=key,
-            expires_at=created_at + EXPORT_TTL,
+            expires_at=created_at + self._ttl,
             content_type="application/octet-stream",
             file_sha256=file_sha256,
         )
@@ -150,6 +156,23 @@ class LocalExportStore:
             if stored is not None:
                 self._remove_files(stored)
         return len(matching_job_ids)
+
+    def cleanup_expired(self, *, now: datetime | None = None) -> int:
+        current_time = now or datetime.now(UTC)
+        removed = 0
+        job_ids = set(self._exports)
+        for manifest_path in self._root.glob("*.export.json"):
+            job_id = _job_id_from_manifest_path(manifest_path)
+            if job_id is not None:
+                job_ids.add(job_id)
+        for job_id in job_ids:
+            stored = self._exports.get(job_id) or self._load_manifest(job_id)
+            if stored is None or current_time < stored.expires_at:
+                continue
+            self._exports.pop(job_id, None)
+            self._remove_files(stored)
+            removed += 1
+        return removed
 
     def _encrypted_path(self, job_id: UUID) -> Path:
         return self._root / f"{job_id}.export.enc"

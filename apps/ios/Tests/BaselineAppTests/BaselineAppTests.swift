@@ -45,6 +45,69 @@ final class BaselineAppTests: XCTestCase {
         XCTAssertEqual(configuration.apiAuthToken, "bundle-token")
     }
 
+    #if os(iOS)
+        @MainActor
+        func testOnboardingRecordsServerConsentAndStoresReturnedVersion() async throws {
+            let consentStore = InMemoryConsentStore()
+            let api = MockOnboardingAPIClient(serverConsentVersion: "server-consent-v2")
+            let model = BaselineAppModel(
+                authorizationClient: MockAuthorizationClient(granted: [.sleep, .workouts]),
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: consentStore
+            )
+            model.enabledCategories = [.sleep, .workouts]
+            model.privacyMode = .hybrid
+
+            await model.completeOnboarding()
+
+            XCTAssertTrue(model.onboardingComplete)
+            XCTAssertEqual(api.consentRequests.single?.privacyMode, .hybrid)
+            XCTAssertEqual(api.consentRequests.single?.healthCategoriesEnabled, ["activity", "sleep"])
+            XCTAssertEqual(consentStore.consent?.consentVersion, "server-consent-v2")
+        }
+
+        @MainActor
+        func testLocalOnlySyncDoesNotPostHealthSamples() async throws {
+            let consentStore = InMemoryConsentStore()
+            let api = MockOnboardingAPIClient()
+            let model = BaselineAppModel(
+                authorizationClient: MockAuthorizationClient(granted: [.sleep]),
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: consentStore
+            )
+            model.enabledCategories = [.sleep]
+            model.privacyMode = .localOnly
+
+            await model.completeOnboarding()
+            await model.syncNow()
+
+            XCTAssertTrue(api.consentRequests.isEmpty)
+            XCTAssertTrue(api.syncRequests.isEmpty)
+            XCTAssertTrue(model.syncMessage.contains("Local-only mode"))
+        }
+
+        @MainActor
+        func testOnboardingServerConsentFailureKeepsCloudModeRetryable() async throws {
+            let consentStore = InMemoryConsentStore()
+            let model = BaselineAppModel(
+                authorizationClient: MockAuthorizationClient(granted: [.sleep]),
+                apiClient: MockOnboardingAPIClient(consentError: TestError.failed),
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: consentStore
+            )
+            model.enabledCategories = [.sleep]
+            model.privacyMode = .cloudAssisted
+
+            await model.completeOnboarding()
+
+            XCTAssertFalse(model.onboardingComplete)
+            XCTAssertNil(consentStore.consent)
+            XCTAssertTrue(model.syncMessage.contains("Consent could not be recorded"))
+        }
+    #endif
+
     func testAPIBaseURLRejectsInvalidValue() {
         XCTAssertThrowsError(
             try BaselineAppConfiguration.current(
@@ -425,6 +488,47 @@ final class BaselineAppTests: XCTestCase {
         XCTAssertEqual(viewModel.briefing, cached)
         XCTAssertTrue(viewModel.isOfflineFallback)
         XCTAssertEqual(viewModel.statusMessage, "Analysis is still running. Showing latest saved briefing.")
+    }
+
+    @MainActor
+    func testBriefingPollingUsesBackendEstimateAndTwoSecondInterval() async {
+        let completed = sampleBriefing(recommendation: "Completed briefing.")
+        let api = MockBriefingAPIClient(
+            generateResult: DailyAnalysisResponse(
+                analysisJobID: UUID(),
+                status: "queued",
+                estimatedCompletionSeconds: 30
+            ),
+            jobResults: [
+                DailyAnalysisResponse(
+                    analysisJobID: UUID(),
+                    status: "running",
+                    estimatedCompletionSeconds: 30
+                ),
+                DailyAnalysisResponse(
+                    analysisJobID: UUID(),
+                    status: "completed",
+                    estimatedCompletionSeconds: 0
+                ),
+            ],
+            briefingResults: [.success(completed)],
+            traceResult: sampleTrace()
+        )
+        let sleepRecorder = SleepRecorder()
+        let viewModel = DailyBriefingViewModel(
+            apiClient: api,
+            briefingStore: InMemoryBriefingStore(),
+            privacyMode: { .hybrid },
+            sleep: { sleepRecorder.append($0) },
+            dateProvider: { "2026-07-04" }
+        )
+
+        await viewModel.generateBriefing()
+
+        XCTAssertEqual(api.jobRequestIDs.count, 2)
+        XCTAssertTrue(sleepRecorder.values.contains(2_000_000_000))
+        XCTAssertFalse(viewModel.isOfflineFallback)
+        XCTAssertEqual(viewModel.briefing?.recommendation.primary, completed.recommendation.primary)
     }
 
     @MainActor
@@ -916,6 +1020,97 @@ private final class InMemoryBriefingStore: BriefingPersisting, @unchecked Sendab
 
     func saveLatestBriefing(_ briefing: DailyBriefingResponse) throws {
         savedBriefing = briefing
+    }
+}
+
+private final class SleepRecorder: @unchecked Sendable {
+    private(set) var values: [UInt64] = []
+
+    func append(_ value: UInt64) {
+        values.append(value)
+    }
+}
+
+private final class MockAuthorizationClient: HealthAuthorizationClient, @unchecked Sendable {
+    private let granted: Set<HealthCategory>
+
+    init(granted: Set<HealthCategory>) {
+        self.granted = granted
+    }
+
+    func requestAuthorization(for categories: [HealthCategory]) async throws -> Set<HealthCategory> {
+        granted.intersection(categories)
+    }
+}
+
+private final class MockOnboardingAPIClient: HealthSyncAPIClient, @unchecked Sendable {
+    private let serverConsentVersion: String
+    private let consentError: Error?
+    private(set) var consentRequests: [ConsentRecordRequest] = []
+    private(set) var syncRequests: [HealthSyncRequest] = []
+
+    init(serverConsentVersion: String = "server-consent-v1", consentError: Error? = nil) {
+        self.serverConsentVersion = serverConsentVersion
+        self.consentError = consentError
+    }
+
+    func recordConsent(_ request: ConsentRecordRequest) async throws -> DataControlConsentResponse {
+        consentRequests.append(request)
+        if let consentError {
+            throw consentError
+        }
+        return DataControlConsentResponse(
+            schemaVersion: "v1",
+            id: UUID(),
+            userID: UUID(),
+            consentVersion: serverConsentVersion,
+            healthCategoriesEnabled: request.healthCategoriesEnabled,
+            cloudProcessingEnabled: request.cloudProcessingEnabled,
+            externalLLMEnabled: request.externalLLMEnabled,
+            rawNoteProcessingEnabled: request.rawNoteProcessingEnabled,
+            timestamp: "2026-07-04T08:00:00Z",
+            revokedAt: nil
+        )
+    }
+
+    func postHealthSync(_ request: HealthSyncRequest) async throws -> HealthSyncResponse {
+        syncRequests.append(request)
+        return HealthSyncResponse(
+            syncID: UUID(),
+            acceptedCount: request.samples.count,
+            duplicateCount: 0,
+            rejectedCount: 0,
+            warnings: [],
+            nextAnchor: "anchor"
+        )
+    }
+}
+
+private final class InMemoryAnchorStore: AnchorPersisting, @unchecked Sendable {
+    func loadAnchor(for category: HealthCategory) throws -> CategoryAnchor? {
+        nil
+    }
+
+    func saveAnchor(_ anchor: CategoryAnchor, for category: HealthCategory) throws {}
+
+    func loadPendingBatch() throws -> PendingSyncBatch? {
+        nil
+    }
+
+    func savePendingBatch(_ batch: PendingSyncBatch) throws {}
+
+    func clearPendingBatch() throws {}
+}
+
+private final class InMemoryConsentStore: ConsentPersisting, @unchecked Sendable {
+    private(set) var consent: ConsentRecord?
+
+    func loadConsent() throws -> ConsentRecord? {
+        consent
+    }
+
+    func saveConsent(_ consent: ConsentRecord) throws {
+        self.consent = consent
     }
 }
 

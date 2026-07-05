@@ -624,6 +624,21 @@ def test_export_creates_encrypted_expiring_file_with_requested_scope(
     assert not stored.path.exists()
 
 
+def test_export_store_cleans_up_expired_manifests_and_encrypted_files(tmp_path) -> None:
+    store = LocalExportStore(tmp_path, retention_hours=1)
+    stored = store.create(
+        b'{"sections": {}}',
+        user_id=uuid4(),
+        now=dt.datetime(2026, 7, 4, 8, 0, tzinfo=dt.UTC),
+    )
+
+    removed = store.cleanup_expired(now=dt.datetime(2026, 7, 4, 9, 1, tzinfo=dt.UTC))
+
+    assert removed == 1
+    assert not stored.path.exists()
+    assert not (tmp_path / f"{stored.job_id}.export.json").exists()
+
+
 def test_csv_export_decrypts_to_requested_scope(db_session: Session, tmp_path) -> None:
     user = _seed_user(db_session)
     _seed_checkin(db_session, user)
@@ -1010,6 +1025,127 @@ def test_record_consent_rejects_cloud_off_external_llm_enabled_state(
         )
     ).one()
     assert active.consent_version == "v1"
+
+
+def test_record_consent_rejects_privacy_mode_that_conflicts_with_flags(
+    db_session: Session,
+) -> None:
+    user = _seed_user(db_session, consent_version="v1")
+    client = _client(db_session)
+
+    response = client.post(
+        "/v1/data/consent",
+        json={
+            "consent_version": "v2",
+            "health_categories_enabled": ["all"],
+            "cloud_processing_enabled": False,
+            "external_llm_enabled": False,
+            "raw_note_processing_enabled": False,
+            "privacy_mode": "cloud_assisted",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "consent_inconsistent"
+    active = db_session.exec(
+        select(ConsentRecord).where(
+            ConsentRecord.user_id == user.id,
+            col(ConsentRecord.revoked_at).is_(None),
+        )
+    ).one()
+    assert active.consent_version == "v1"
+
+
+def test_record_consent_bootstraps_first_user_and_health_sync(db_session: Session) -> None:
+    client = _client(db_session)
+
+    consent = client.post(
+        "/v1/data/consent",
+        json={
+            "consent_version": "p1-04-v1",
+            "health_categories_enabled": ["sleep"],
+            "cloud_processing_enabled": True,
+            "external_llm_enabled": False,
+            "raw_note_processing_enabled": False,
+            "privacy_mode": "hybrid",
+        },
+    )
+
+    assert consent.status_code == 200
+    users = list(db_session.exec(select(User)).all())
+    assert len(users) == 1
+    assert users[0].active_consent_version == "p1-04-v1"
+    assert users[0].privacy_mode == PrivacyMode.hybrid
+    assert consent.json()["data"]["consent_version"] == "p1-04-v1"
+
+    sync = client.post(
+        "/v1/health/sync",
+        json={
+            "client_sync_id": "bootstrap-sync",
+            "device_id": "watch",
+            "timezone": "UTC",
+            "samples": [
+                {
+                    "source_sample_id": "sleep-bootstrap",
+                    "sample_type": "sleep_duration",
+                    "start_time": "2026-07-04T23:00:00Z",
+                    "end_time": "2026-07-05T06:30:00Z",
+                    "value": 7.5,
+                    "unit": "h",
+                }
+            ],
+            "consent_version": "p1-04-v1",
+        },
+    )
+
+    assert sync.status_code == 200
+    assert sync.json()["data"]["accepted_count"] == 1
+
+
+def test_health_sync_rejects_stale_bootstrapped_consent(db_session: Session) -> None:
+    client = _client(db_session)
+    client.post(
+        "/v1/data/consent",
+        json={
+            "consent_version": "v1",
+            "health_categories_enabled": ["sleep"],
+            "cloud_processing_enabled": True,
+            "external_llm_enabled": False,
+            "raw_note_processing_enabled": False,
+        },
+    )
+    client.post(
+        "/v1/data/consent",
+        json={
+            "consent_version": "v2",
+            "health_categories_enabled": ["sleep"],
+            "cloud_processing_enabled": True,
+            "external_llm_enabled": False,
+            "raw_note_processing_enabled": False,
+        },
+    )
+
+    response = client.post(
+        "/v1/health/sync",
+        json={
+            "client_sync_id": "stale-bootstrap-sync",
+            "device_id": "watch",
+            "timezone": "UTC",
+            "samples": [
+                {
+                    "source_sample_id": "sleep-stale",
+                    "sample_type": "sleep_duration",
+                    "start_time": "2026-07-04T23:00:00Z",
+                    "value": 7.5,
+                    "unit": "h",
+                }
+            ],
+            "consent_version": "v1",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "consent_invalid"
 
 
 def test_record_consent_rejects_unknown_health_category_without_persisting(

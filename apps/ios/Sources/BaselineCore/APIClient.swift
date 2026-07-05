@@ -35,6 +35,10 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
         try await sendEnvelope(method: "POST", url: Self.healthSyncURL(baseURL: baseURL), body: request)
     }
 
+    public func recordConsent(_ request: ConsentRecordRequest) async throws -> DataControlConsentResponse {
+        try await sendEnvelope(method: "POST", url: Self.consentURL(baseURL: baseURL), body: request)
+    }
+
     public func submitDailyCheckIn(_ request: DailyCheckInRequest) async throws -> DailyCheckInResponse {
         try await sendEnvelope(method: "POST", url: Self.dailyCheckInURL(baseURL: baseURL), body: request)
     }
@@ -275,6 +279,10 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
 
     public static func consentHistoryURL(baseURL: URL) -> URL {
         baseURL.appendingPathComponent("v1/data/consent/history")
+    }
+
+    public static func consentURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/data/consent")
     }
 
     public static func disableExternalLLMURL(baseURL: URL) -> URL {

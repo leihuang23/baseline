@@ -218,6 +218,10 @@ final class BaselineCoreTests: XCTestCase {
             "https://api.example.test/base/v1/data/consent/history"
         )
         XCTAssertEqual(
+            URLSessionHealthSyncAPIClient.consentURL(baseURL: baseURL).absoluteString,
+            "https://api.example.test/base/v1/data/consent"
+        )
+        XCTAssertEqual(
             URLSessionHealthSyncAPIClient.disableExternalLLMURL(baseURL: baseURL).absoluteString,
             "https://api.example.test/base/v1/data/consent/disable-external-llm"
         )
@@ -228,6 +232,25 @@ final class BaselineCoreTests: XCTestCase {
         XCTAssertEqual(
             URLSessionHealthSyncAPIClient.modelDisclosuresURL(baseURL: baseURL).absoluteString,
             "https://api.example.test/base/v1/data/model-disclosures"
+        )
+    }
+
+    func testConsentRecordRequestMapsHealthKitCategoriesToBackendConsentBuckets() throws {
+        let consent = ConsentRecord(
+            consentVersion: "server-v1",
+            enabledCategories: [.sleep, .workouts, .steps, .heartRateVariability, .vo2Max],
+            processingMode: .hybrid
+        )
+
+        let payload = try jsonDictionary(from: JSONEncoder().encode(ConsentRecordRequest(consent: consent)))
+
+        XCTAssertEqual(payload["consent_version"] as? String, "server-v1")
+        XCTAssertEqual(payload["privacy_mode"] as? String, "hybrid")
+        XCTAssertEqual(payload["cloud_processing_enabled"] as? Bool, true)
+        XCTAssertEqual(payload["external_llm_enabled"] as? Bool, false)
+        XCTAssertEqual(
+            payload["health_categories_enabled"] as? [String],
+            ["activity", "heart_rate", "sleep"]
         )
     }
 
@@ -722,6 +745,47 @@ final class BaselineCoreTests: XCTestCase {
         XCTAssertNil(try store.loadAnchor(for: .steps))
     }
 
+    func testLocalOnlySyncClearsPendingBatchWithoutReadingOrPosting() async throws {
+        let store = InMemoryAnchorStore()
+        try store.savePendingBatch(
+            PendingSyncBatch(
+                request: HealthSyncRequest(
+                    clientSyncID: "pending",
+                    deviceID: "phone",
+                    timezone: "UTC",
+                    samples: [sample("steps-1", category: .steps)],
+                    lastAnchor: nil,
+                    consentVersion: "consent-v1"
+                ),
+                anchorsAfterQuery: [.steps: Data("steps-next".utf8)]
+            )
+        )
+        let reader = MockHealthKitReader(reads: [
+            .steps: HealthKitReadResult(
+                category: .steps,
+                samples: [sample("steps-2", category: .steps)],
+                newAnchorData: Data("steps-next".utf8)
+            ),
+        ])
+        let api = MockSyncAPIClient(results: [])
+        let engine = HealthSyncEngine(
+            anchorStore: store,
+            healthKitReader: reader,
+            apiClient: api
+        )
+        let consent = ConsentRecord(enabledCategories: [.steps], processingMode: .localOnly)
+
+        do {
+            _ = try await engine.syncNow(consent: consent, deviceID: "phone")
+            XCTFail("Expected local-only sync to be disabled")
+        } catch HealthSyncEngineError.localOnlySyncDisabled {}
+
+        XCTAssertEqual(reader.readCount, 0)
+        XCTAssertTrue(api.requests.isEmpty)
+        XCTAssertNil(try store.loadPendingBatch())
+        XCTAssertNil(try store.loadAnchor(for: .steps))
+    }
+
     func testNoSecretsInIOSBundleResources() throws {
         let packageRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -853,6 +917,7 @@ private func jsonDictionary(from data: Data) throws -> [String: Any] {
 private final class MockSyncAPIClient: HealthSyncAPIClient, @unchecked Sendable {
     private var results: [Result<HealthSyncResponse, Error>]
     private(set) var requests: [HealthSyncRequest] = []
+    private(set) var consentRequests: [ConsentRecordRequest] = []
 
     init(results: [Result<HealthSyncResponse, Error>]) {
         self.results = results
@@ -862,6 +927,22 @@ private final class MockSyncAPIClient: HealthSyncAPIClient, @unchecked Sendable 
         requests.append(request)
         let result = results.removeFirst()
         return try result.get()
+    }
+
+    func recordConsent(_ request: ConsentRecordRequest) async throws -> DataControlConsentResponse {
+        consentRequests.append(request)
+        return DataControlConsentResponse(
+            schemaVersion: "v1",
+            id: UUID(),
+            userID: UUID(),
+            consentVersion: request.consentVersion,
+            healthCategoriesEnabled: request.healthCategoriesEnabled,
+            cloudProcessingEnabled: request.cloudProcessingEnabled,
+            externalLLMEnabled: request.externalLLMEnabled,
+            rawNoteProcessingEnabled: request.rawNoteProcessingEnabled,
+            timestamp: "2026-07-04T08:00:00Z",
+            revokedAt: nil
+        )
     }
 }
 

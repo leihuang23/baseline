@@ -12,7 +12,7 @@ from baseline_api.db.models.enums import AuditEventType, PrivacyMode
 from baseline_api.db.models.user import ConsentRecord, User
 from baseline_api.privacy.audit import emit_privacy_audit
 from baseline_api.privacy.errors import PrivacyError
-from baseline_api.privacy.user import get_single_user
+from baseline_api.privacy.user import get_single_user, list_single_user_candidates
 from baseline_api.schemas.api import (
     ConsentHistoryResponse,
     ConsentRecordRequest,
@@ -30,13 +30,14 @@ class ConsentService:
         self._session = session
 
     def record_consent(self, request: ConsentRecordRequest) -> ConsentRecordResponse:
-        user = get_single_user(self._session)
         now = datetime.now(UTC)
         _validate_consent_state(
             cloud_processing_enabled=request.cloud_processing_enabled,
             external_llm_enabled=request.external_llm_enabled,
             raw_note_processing_enabled=request.raw_note_processing_enabled,
         )
+        privacy_mode = _privacy_mode_from_request(request)
+        user = self._get_or_create_first_user(request)
         self._revoke_active_records(user, now)
         record = ConsentRecord(
             user_id=user.id,
@@ -49,7 +50,7 @@ class ConsentService:
         )
         self._session.add(record)
         user.active_consent_version = record.consent_version
-        user.privacy_mode = _privacy_mode(record)
+        user.privacy_mode = privacy_mode
         self._session.add(user)
         emit_privacy_audit(
             self._session,
@@ -65,6 +66,25 @@ class ConsentService:
         )
         self._session.commit()
         return _consent_response(record)
+
+    def _get_or_create_first_user(self, request: ConsentRecordRequest) -> User:
+        users = list_single_user_candidates(self._session)
+        if len(users) > 1:
+            raise PrivacyError(
+                code="ambiguous_user",
+                message="Consent recording requires an authenticated user context.",
+                status_code=409,
+            )
+        if users:
+            return users[0]
+
+        user = User(
+            privacy_mode=_privacy_mode_from_request(request),
+            active_consent_version=request.consent_version,
+        )
+        self._session.add(user)
+        self._session.flush()
+        return user
 
     def disable_external_llm(self, request: DisableExternalLLMRequest) -> ConsentRecordResponse:
         user = get_single_user(self._session)
@@ -206,6 +226,31 @@ def _privacy_mode(record: ConsentRecord) -> PrivacyMode:
     if not record.cloud_processing_enabled:
         return PrivacyMode.local_only
     if record.external_llm_enabled:
+        return PrivacyMode.cloud_assisted
+    return PrivacyMode.hybrid
+
+
+def _privacy_mode_from_request(request: ConsentRecordRequest) -> PrivacyMode:
+    derived = _derived_privacy_mode_from_flags(request)
+    if request.privacy_mode is not None:
+        requested = PrivacyMode(request.privacy_mode.value)
+        if requested != derived:
+            raise PrivacyError(
+                code="consent_inconsistent",
+                message=(
+                    "privacy_mode must match cloud_processing_enabled and "
+                    "external_llm_enabled."
+                ),
+                status_code=400,
+            )
+        return requested
+    return derived
+
+
+def _derived_privacy_mode_from_flags(request: ConsentRecordRequest) -> PrivacyMode:
+    if not request.cloud_processing_enabled:
+        return PrivacyMode.local_only
+    if request.external_llm_enabled:
         return PrivacyMode.cloud_assisted
     return PrivacyMode.hybrid
 

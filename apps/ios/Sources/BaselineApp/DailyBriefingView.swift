@@ -18,7 +18,10 @@ final class DailyBriefingViewModel: ObservableObject {
     private let privacyMode: () -> PrivacyMode
     private var syncBeforeGenerate: () async -> Void
     private let sleep: @Sendable (UInt64) async -> Void
-    private let maxFetchAttempts: Int
+    private let maxFetchAttempts: Int?
+    private let pollIntervalNanoseconds: UInt64
+    private let minimumPollingSeconds: Int
+    private let maximumPollingSeconds: Int
     private let dateProvider: () -> String
 
     init(
@@ -29,7 +32,10 @@ final class DailyBriefingViewModel: ObservableObject {
         sleep: @escaping @Sendable (UInt64) async -> Void = { nanoseconds in
             try? await Task.sleep(nanoseconds: nanoseconds)
         },
-        maxFetchAttempts: Int = 6,
+        maxFetchAttempts: Int? = nil,
+        pollIntervalNanoseconds: UInt64 = 2_000_000_000,
+        minimumPollingSeconds: Int = 60,
+        maximumPollingSeconds: Int = 180,
         dateProvider: @escaping () -> String = { DailyBriefingViewModel.todayString() }
     ) {
         self.apiClient = apiClient
@@ -37,7 +43,10 @@ final class DailyBriefingViewModel: ObservableObject {
         self.privacyMode = privacyMode
         self.syncBeforeGenerate = syncBeforeGenerate
         self.sleep = sleep
-        self.maxFetchAttempts = max(1, maxFetchAttempts)
+        self.maxFetchAttempts = maxFetchAttempts.map { max(1, $0) }
+        self.pollIntervalNanoseconds = max(1, pollIntervalNanoseconds)
+        self.minimumPollingSeconds = max(1, minimumPollingSeconds)
+        self.maximumPollingSeconds = max(self.minimumPollingSeconds, maximumPollingSeconds)
         self.dateProvider = dateProvider
         loadCachedBriefing()
     }
@@ -117,22 +126,24 @@ final class DailyBriefingViewModel: ObservableObject {
 
     private func waitForCompletedJob(_ job: DailyAnalysisResponse) async throws -> DailyAnalysisResponse {
         var current = job
-        for attempt in 1 ... maxFetchAttempts {
+        let attemptLimit = pollingAttemptLimit(for: job)
+        for attempt in 1 ... attemptLimit {
             if current.status == "completed" || current.status == "failed" {
                 return current
             }
-            if attempt == maxFetchAttempts {
+            if attempt == attemptLimit {
                 throw BriefingViewModelError.generationTimedOut
             }
-            statusMessage = "Waiting for analysis job..."
-            await sleep(250_000_000)
+            statusMessage = "Analysis still running..."
+            await sleep(pollIntervalNanoseconds)
             current = try await apiClient.fetchDailyAnalysisJob(id: job.analysisJobID)
         }
         throw BriefingViewModelError.generationTimedOut
     }
 
     private func fetchGeneratedBriefing(date: String) async throws {
-        for attempt in 1 ... maxFetchAttempts {
+        let attemptLimit = maxFetchAttempts ?? 3
+        for attempt in 1 ... attemptLimit {
             do {
                 var response = try await apiClient.fetchDailyBriefing(date: date, offlineLast: false)
                 let trace = await loadTrace(for: response)
@@ -145,13 +156,24 @@ final class DailyBriefingViewModel: ObservableObject {
                     : responseStatusMessage(for: response)
                 return
             } catch {
-                if attempt == maxFetchAttempts {
+                if attempt == attemptLimit {
                     throw error
                 }
                 statusMessage = "Waiting for briefing..."
-                await sleep(250_000_000)
+                await sleep(pollIntervalNanoseconds)
             }
         }
+    }
+
+    private func pollingAttemptLimit(for job: DailyAnalysisResponse) -> Int {
+        let estimatedDeadline = max(minimumPollingSeconds, job.estimatedCompletionSeconds * 2)
+        let cappedDeadline = min(maximumPollingSeconds, estimatedDeadline)
+        let intervalSeconds = max(1, Int(ceil(Double(pollIntervalNanoseconds) / 1_000_000_000)))
+        let estimatedAttempts = max(1, Int(ceil(Double(cappedDeadline) / Double(intervalSeconds))) + 1)
+        if let maxFetchAttempts {
+            return min(maxFetchAttempts, estimatedAttempts)
+        }
+        return estimatedAttempts
     }
 
     private func loadTrace(for response: DailyBriefingResponse) async -> BriefingTraceInspection? {
