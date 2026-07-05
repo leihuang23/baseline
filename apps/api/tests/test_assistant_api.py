@@ -9,11 +9,15 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from packages.knowledge.models import KnowledgeSourceDocument
+from packages.knowledge.pipeline import KnowledgeIngestionPipeline
+from packages.knowledge.store import SQLModelKnowledgeVectorStore
 from sqlmodel import Session
 
 from baseline_api.app import create_app
 from baseline_api.config import Settings
 from baseline_api.db.models import (
+    ConsentRecord,
     DerivedDailyFeature,
     MemorySummary,
     ReasoningTrace,
@@ -22,10 +26,12 @@ from baseline_api.db.models import (
     WorkoutSession,
 )
 from baseline_api.db.models.enums import (
+    KnowledgeSourceType,
     Modality,
     PeriodType,
     RecommendationType,
     SafetyStatus,
+    TrustLevel,
 )
 from baseline_api.db.session import get_db_session
 
@@ -57,6 +63,40 @@ def _seed_user(db_session: Session) -> User:
     db_session.add(user)
     db_session.flush()
     return user
+
+
+def _seed_external_knowledge_consent(db_session: Session, user: User) -> None:
+    db_session.add(
+        ConsentRecord(
+            user_id=user.id,
+            consent_version="v1",
+            health_categories_enabled=["all"],
+            cloud_processing_enabled=True,
+            external_llm_enabled=True,
+            raw_note_processing_enabled=False,
+            timestamp=dt.datetime(2026, 7, 1, tzinfo=dt.UTC),
+        )
+    )
+
+
+def _seed_external_reference(db_session: Session) -> None:
+    KnowledgeIngestionPipeline(SQLModelKnowledgeVectorStore(db_session)).ingest(
+        KnowledgeSourceDocument(
+            title="General Sleep Recovery Reference",
+            author_or_org="Baseline Test Curation Board",
+            source_type=KnowledgeSourceType.guideline,
+            url_or_identifier="https://example.org/general-sleep-recovery",
+            license_status="CC0-1.0 public domain dedication",
+            published_at=dt.date(2024, 1, 1),
+            version="v1",
+            trust_level=TrustLevel.authoritative,
+            content=(
+                "General research on sleep recovery and training readiness describes broad "
+                "non-personalized patterns for rest, recovery, and conservative training choices. "
+                "This external source does not describe a Baseline user."
+            ),
+        )
+    )
 
 
 def _value(value: Any, unit: str = "unit") -> dict[str, Any]:
@@ -384,8 +424,10 @@ def test_unsafe_memory_evidence_is_not_returned(db_session: Session) -> None:
     assert "anemia" not in data["personal_evidence"][0]["interpretation"].lower()
 
 
-def test_external_knowledge_seam_keeps_sources_separate(db_session: Session) -> None:
+def test_external_knowledge_opt_in_keeps_sources_separate(db_session: Session) -> None:
     user = _seed_user(db_session)
+    _seed_external_knowledge_consent(db_session, user)
+    _seed_external_reference(db_session)
     db_session.add(_feature_row(user.id, TARGET_DATE, sleep_debt=0.2))
     db_session.commit()
     client = _client(db_session)
@@ -398,8 +440,13 @@ def test_external_knowledge_seam_keeps_sources_separate(db_session: Session) -> 
     )
 
     assert data["personal_evidence"]
-    assert data["external_sources"] == []
-    assert any("External retrieval is not implemented" in item for item in data["uncertainty"])
+    assert data["external_sources"]
+    assert data["external_sources"][0]["title"] == "General Sleep Recovery Reference"
+    assert "General research (non-personalized)" in data["external_sources"][0]["cited_claim"]
+    assert all(
+        "General Sleep Recovery Reference" not in str(item) for item in data["personal_evidence"]
+    )
+    assert any("general research context" in item for item in data["uncertainty"])
 
 
 def test_plan_for_week_is_framed_as_candidate_not_prescription(db_session: Session) -> None:

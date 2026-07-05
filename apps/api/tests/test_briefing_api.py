@@ -6,13 +6,22 @@ import datetime as dt
 import json
 from collections.abc import Generator
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
+from packages.knowledge.models import KnowledgeSourceDocument
+from packages.knowledge.pipeline import KnowledgeIngestionPipeline
+from packages.knowledge.store import SQLModelKnowledgeVectorStore
 from sqlmodel import Session, col, select
 
 from baseline_api.app import create_app
-from baseline_api.briefing.service import _enforce_served_briefing_safety
+from baseline_api.briefing.service import (
+    RetrievalResult,
+    _combine_retrieval,
+    _completed_job_ordering,
+    _enforce_served_briefing_safety,
+    _external_citations_from_retrieval,
+)
 from baseline_api.config import Settings
 from baseline_api.db.models import (
     ConsentRecord,
@@ -28,19 +37,300 @@ from baseline_api.db.models import (
 )
 from baseline_api.db.models.enums import (
     GoalCategory,
+    KnowledgeSourceType,
     PeriodType,
     RunType,
     SensitiveNotePolicy,
     TimeHorizon,
+    TrustLevel,
 )
 from baseline_api.db.session import get_db_session
 from baseline_api.llm.orchestrator import OrchestratorResult
 from baseline_api.llm.schemas import LLMExplanationOutput
 from baseline_api.observability import metrics
+from baseline_api.retrieval import KnowledgeChunkHit, KnowledgeRetrievalResult
 from baseline_api.safety.engine import SafetyPolicyEngine
 from baseline_api.schemas.api import DailyBriefingResponse
+from baseline_api.schemas.recommendation import RecommendationContract
 
 TARGET_DATE = dt.date(2026, 7, 4)
+
+
+def _minimal_briefing() -> DailyBriefingResponse:
+    return DailyBriefingResponse.model_validate(
+        {
+            "date": TARGET_DATE.isoformat(),
+            "readiness_state": "moderate",
+            "confidence": "medium",
+            "data_freshness": {},
+            "evidence": [
+                {
+                    "metric": "deterministic_assessment",
+                    "value": "available",
+                    "interpretation": "The briefing is based on deterministic readiness rules.",
+                    "source": "reasoning_engine",
+                }
+            ],
+            "recommendation": {"primary": "Use a moderate training day."},
+            "recommendation_band": "moderate",
+            "uncertainty": ["Normal day-to-day variability still applies."],
+            "safety_notes": ["Baseline is wellness decision support, not medical advice."],
+            "trace_id": str(uuid4()),
+            "generated_at": dt.datetime.now(dt.UTC).isoformat(),
+        }
+    )
+
+
+def test_retrieved_external_hits_bind_when_llm_emits_no_claims() -> None:
+    hit = KnowledgeChunkHit(
+        chunk_id=uuid4(),
+        source_id=uuid4(),
+        source_version="v1",
+        chunk_index=0,
+        text=(
+            "General research on daily readiness, training recovery, and sleep describes broad "
+            "non-personalized patterns for conservative training choices."
+        ),
+        relevance_score=1.0,
+        title="General Training Recovery Reference",
+        source="Baseline Test Curation Board",
+        url_or_identifier="https://example.org/general-training-recovery",
+        trust_level="authoritative",
+    )
+    retrieval = RetrievalResult(
+        observations=[],
+        trace_items=[],
+        external_hits=[hit],
+    )
+
+    citations = _external_citations_from_retrieval([], retrieval)
+
+    assert [citation.title for citation in citations] == ["General Training Recovery Reference"]
+    assert "General research (non-personalized)" in citations[0].cited_claim
+
+
+def test_prompt_external_knowledge_binds_when_retrieval_hits_are_missing() -> None:
+    hit = KnowledgeChunkHit(
+        chunk_id=uuid4(),
+        source_id=uuid4(),
+        source_version="v1",
+        chunk_index=0,
+        text=(
+            "General research on daily readiness, training recovery, and sleep describes broad "
+            "non-personalized patterns for conservative training choices."
+        ),
+        relevance_score=1.0,
+        title="General Training Recovery Reference",
+        source="Baseline Test Curation Board",
+        url_or_identifier="https://example.org/general-training-recovery",
+        trust_level="authoritative",
+    )
+    retrieval = RetrievalResult(
+        observations=[],
+        trace_items=[],
+        external_knowledge=[hit.to_prompt_dict()],
+    )
+
+    citations = _external_citations_from_retrieval([], retrieval)
+
+    assert [citation.title for citation in citations] == ["General Training Recovery Reference"]
+    assert "General research (non-personalized)" in citations[0].cited_claim
+
+
+def test_unsupported_llm_external_claim_does_not_drop_retrieved_citation() -> None:
+    hit = KnowledgeChunkHit(
+        chunk_id=uuid4(),
+        source_id=uuid4(),
+        source_version="v1",
+        chunk_index=0,
+        text=(
+            "General research on daily readiness, training recovery, and sleep describes broad "
+            "non-personalized patterns for conservative training choices."
+        ),
+        relevance_score=1.0,
+        title="General Training Recovery Reference",
+        source="Baseline Test Curation Board",
+        url_or_identifier="https://example.org/general-training-recovery",
+        trust_level="authoritative",
+    )
+    retrieval = RetrievalResult(
+        observations=[],
+        trace_items=[],
+        external_hits=[hit],
+    )
+
+    citations = _external_citations_from_retrieval(
+        [
+            {
+                "title": "Unsupported",
+                "source": "llm",
+                "url": None,
+                "cited_claim": "General research (non-personalized): Creatine cures anemia.",
+            }
+        ],
+        retrieval,
+    )
+
+    assert [citation.title for citation in citations] == ["General Training Recovery Reference"]
+    assert "Creatine cures anemia" not in citations[0].cited_claim
+
+
+def test_combined_retrieval_binds_citations_from_external_hits() -> None:
+    hit = KnowledgeChunkHit(
+        chunk_id=uuid4(),
+        source_id=uuid4(),
+        source_version="v1",
+        chunk_index=0,
+        text=(
+            "General research on daily readiness, training recovery, and sleep describes broad "
+            "non-personalized patterns for conservative training choices."
+        ),
+        relevance_score=1.0,
+        title="General Training Recovery Reference",
+        source="Baseline Test Curation Board",
+        url_or_identifier="https://example.org/general-training-recovery",
+        trust_level="authoritative",
+    )
+
+    combined = _combine_retrieval(
+        RetrievalResult(observations=[], trace_items=[]),
+        KnowledgeRetrievalResult(
+            hits=[hit],
+            citations=[],
+            external_knowledge=[hit.to_prompt_dict()],
+            uncertainty=[],
+            citation_accuracy=0.0,
+        ),
+    )
+
+    assert combined.external_citations
+    assert combined.external_citations[0].title == "General Training Recovery Reference"
+    assert "General research (non-personalized)" in combined.external_citations[0].cited_claim
+    assert combined.citation_accuracy == 1.0
+
+
+def test_combined_retrieval_binds_citations_from_external_prompt_payload() -> None:
+    hit = KnowledgeChunkHit(
+        chunk_id=uuid4(),
+        source_id=uuid4(),
+        source_version="v1",
+        chunk_index=0,
+        text=(
+            "General research on daily readiness, training recovery, and sleep describes broad "
+            "non-personalized patterns for conservative training choices."
+        ),
+        relevance_score=1.0,
+        title="General Training Recovery Reference",
+        source="Baseline Test Curation Board",
+        url_or_identifier="https://example.org/general-training-recovery",
+        trust_level="authoritative",
+    )
+
+    combined = _combine_retrieval(
+        RetrievalResult(observations=[], trace_items=[]),
+        KnowledgeRetrievalResult(
+            hits=[],
+            citations=[],
+            external_knowledge=[hit.to_prompt_dict()],
+            uncertainty=[],
+            citation_accuracy=0.0,
+        ),
+    )
+
+    assert [citation.title for citation in combined.external_citations] == [
+        "General Training Recovery Reference"
+    ]
+    assert combined.external_hits
+    assert combined.citation_accuracy == 1.0
+
+
+def test_exact_date_briefing_lookup_prefers_external_knowledge_job() -> None:
+    ordering = [str(item) for item in _completed_job_ordering(offline_last=False)]
+
+    assert "daily_analysis_job.date DESC" in ordering[0]
+    assert "daily_analysis_job.include_external_knowledge DESC" in ordering[1]
+    assert "daily_analysis_job.completed_at DESC" in ordering[2]
+
+
+def test_final_safety_gate_evaluates_suppressed_llm_citation_side_fields() -> None:
+    briefing = _minimal_briefing()
+
+    enforced = _enforce_served_briefing_safety(
+        SafetyPolicyEngine.from_default_policy(),
+        briefing,
+        extra_generated_text="Unsafe citation says your diagnosis is overtrained.",
+    )
+
+    served_text = json.dumps(enforced.model_dump(mode="json")).lower()
+    assert enforced.safety_status.value == "rewritten"
+    assert enforced.external_citations == []
+    assert "overtrained" not in served_text
+    assert "diagnosis is" not in served_text
+
+
+def test_external_retrieval_uncertainty_preserves_citations_through_safety_passes() -> None:
+    hit = KnowledgeChunkHit(
+        chunk_id=uuid4(),
+        source_id=uuid4(),
+        source_version="v1",
+        chunk_index=0,
+        text=(
+            "General research on daily readiness, training recovery, and sleep describes broad "
+            "non-personalized patterns for conservative training choices."
+        ),
+        relevance_score=1.0,
+        title="General Training Recovery Reference",
+        source="Baseline Test Curation Board",
+        url_or_identifier="https://example.org/general-training-recovery",
+        trust_level="authoritative",
+    )
+    retrieval = RetrievalResult(
+        observations=[],
+        trace_items=[],
+        external_hits=[hit],
+        external_uncertainty=[
+            "External sources are general research context, not personalized advice."
+        ],
+    )
+    citations = _external_citations_from_retrieval([], retrieval)
+    base = _minimal_briefing()
+    engine = SafetyPolicyEngine.from_default_policy()
+    contract = RecommendationContract(
+        readiness_state=base.readiness_state,
+        recommendation_band=base.recommendation_band,
+        confidence=base.confidence,
+        personal_evidence=base.evidence,
+        memory_observations=[],
+        external_citations=citations,
+        risk_flags=[],
+        recommendation=base.recommendation,
+        uncertainty=[*base.uncertainty, *retrieval.external_uncertainty],
+        data_quality_notes=[],
+        safety_status=base.safety_status,
+        safety_note=base.safety_notes[0],
+        safety_result={"status": "pending"},
+        alternatives=[],
+        follow_up=None,
+    )
+    enforced_contract = engine.enforce_recommendation(contract)
+
+    enforced = _enforce_served_briefing_safety(
+        engine,
+        base.model_copy(
+            update={
+                "external_citations": enforced_contract.external_citations,
+                "recommendation": enforced_contract.recommendation,
+                "uncertainty": enforced_contract.uncertainty,
+                "safety_status": enforced_contract.safety_status,
+                "safety_notes": [enforced_contract.safety_note],
+            }
+        ),
+    )
+
+    assert [citation.title for citation in enforced.external_citations] == [
+        "General Training Recovery Reference"
+    ]
+    assert "general research context" in " ".join(enforced.uncertainty)
 
 
 class FakeLLMExplainer:
@@ -202,6 +492,26 @@ def _seed_fixture_day(db_session: Session) -> User:
     return user
 
 
+def _seed_external_reference(db_session: Session) -> None:
+    KnowledgeIngestionPipeline(SQLModelKnowledgeVectorStore(db_session)).ingest(
+        KnowledgeSourceDocument(
+            title="General Training Recovery Reference",
+            author_or_org="Baseline Test Curation Board",
+            source_type=KnowledgeSourceType.guideline,
+            url_or_identifier="https://example.org/general-training-recovery",
+            license_status="CC0-1.0 public domain dedication",
+            published_at=dt.date(2024, 1, 1),
+            version="v1",
+            trust_level=TrustLevel.authoritative,
+            content=(
+                "General research on daily readiness, training recovery, and sleep describes "
+                "broad non-personalized patterns for conservative training choices. This "
+                "external source does not describe a Baseline user."
+            ),
+        )
+    )
+
+
 def _feature_row(user_id: UUID, target_date: dt.date) -> DerivedDailyFeature:
     return DerivedDailyFeature(
         user_id=user_id,
@@ -257,13 +567,14 @@ def _generate(
     *,
     privacy_mode: str = "cloud_assisted",
     date: dt.date = TARGET_DATE,
+    include_external_knowledge: bool = False,
 ) -> dict[str, Any]:
     response = client.post(
         "/v1/analysis/daily",
         json={
             "date": date.isoformat(),
             "force_recompute": False,
-            "include_external_knowledge": False,
+            "include_external_knowledge": include_external_knowledge,
             "privacy_mode": privacy_mode,
         },
     )
@@ -494,7 +805,8 @@ def test_llm_failure_degrades_to_deterministic_briefing(db_session: Session) -> 
     briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
 
     assert "deterministic" in briefing["recommendation"]["primary"].lower()
-    trace = db_session.exec(select(ReasoningTrace)).one()
+    trace = db_session.get(ReasoningTrace, UUID(briefing["trace_id"]))
+    assert trace is not None
     generation = trace.trace_payload["briefing_generation"]
     assert generation["status"] == "degraded"
     assert generation["degrade_reason"] == "RuntimeError"
@@ -524,10 +836,38 @@ def test_external_knowledge_disabled_and_local_only_still_serves_briefing(
 
     assert briefing["external_citations"] == []
     assert "deterministic" in briefing["recommendation"]["primary"].lower()
-    trace = db_session.exec(select(ReasoningTrace)).one()
+    trace = db_session.get(ReasoningTrace, UUID(briefing["trace_id"]))
+    assert trace is not None
     generation = trace.trace_payload["briefing_generation"]
     assert generation["status"] == "degraded"
     assert generation["degrade_reason"] == "privacy_mode_local_only"
+
+
+def test_external_knowledge_opt_in_adds_bound_non_personal_citations(
+    db_session: Session,
+) -> None:
+    _seed_fixture_day(db_session)
+    client = _client(db_session, llm_explainer=FakeLLMExplainer(db_session))
+
+    _generate(client)
+    _seed_external_reference(db_session)
+    db_session.commit()
+    _generate(client, include_external_knowledge=True)
+    briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
+
+    assert briefing["evidence"]
+    assert briefing["external_citations"]
+    assert briefing["external_citations"][0]["title"] == "General Training Recovery Reference"
+    assert "General research (non-personalized)" in briefing["external_citations"][0]["cited_claim"]
+    assert all(
+        "General Training Recovery Reference" not in json.dumps(item)
+        for item in briefing["evidence"]
+    )
+    trace = db_session.get(ReasoningTrace, UUID(briefing["trace_id"]))
+    assert trace is not None
+    generation = trace.trace_payload["briefing_generation"]
+    assert generation["external_source_count"] == 1
+    assert generation["external_citation_accuracy"] >= 0.95
 
 
 def test_retrieval_degraded_mode_still_persists_deterministic_briefing(

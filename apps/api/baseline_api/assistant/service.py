@@ -22,6 +22,11 @@ from baseline_api.db.models import (
     WorkoutSession,
 )
 from baseline_api.db.models.enums import Modality
+from baseline_api.retrieval import (
+    KnowledgeRetrievalResult,
+    KnowledgeRetrievalService,
+    has_external_knowledge_consent,
+)
 from baseline_api.safety.engine import SafetyPolicyEngine
 from baseline_api.schemas.api import AssistantQueryRequest, AssistantQueryResponse
 from baseline_api.schemas.enums import ConfidenceLevel, DataScope, SafetyStatus
@@ -104,11 +109,18 @@ class AssistantQueryService:
             )
         else:
             plan = _plan_query(request.question)
+            external_knowledge = _external_knowledge_context(
+                self._session,
+                user.id,
+                request.question,
+                request,
+            )
             draft = self._draft_answer(
                 user_id=user.id,
                 target_date=target_date,
                 request=request,
                 plan=plan,
+                external_knowledge=external_knowledge,
             )
 
         safety = self._evaluate_visible_response(request.question, draft)
@@ -166,24 +178,28 @@ class AssistantQueryService:
         target_date: dt.date,
         request: AssistantQueryRequest,
         plan: QueryPlan,
+        external_knowledge: KnowledgeRetrievalResult,
     ) -> DraftAnswer:
         if plan.intent == "briefing_follow_up":
-            return self._answer_from_briefing(user_id, target_date, request)
+            return self._answer_from_briefing(user_id, target_date, request, external_knowledge)
         if plan.intent == "memory_pattern":
-            return self._answer_from_memory(user_id, target_date, request)
+            return self._answer_from_memory(user_id, target_date, request, external_knowledge)
         if plan.intent == "candidate_plan":
-            return self._candidate_week_plan(user_id, target_date, request)
+            return self._candidate_week_plan(user_id, target_date, request, external_knowledge)
         if plan.intent == "modality":
-            return self._answer_modality(user_id, target_date, request, plan)
+            return self._answer_modality(user_id, target_date, request, plan, external_knowledge)
         if plan.intent == "compare_periods":
-            return self._answer_compare_periods(user_id, target_date, request, plan)
-        return self._answer_recent_history(user_id, target_date, request, plan)
+            return self._answer_compare_periods(
+                user_id, target_date, request, plan, external_knowledge
+            )
+        return self._answer_recent_history(user_id, target_date, request, plan, external_knowledge)
 
     def _answer_from_briefing(
         self,
         user_id: UUID,
         target_date: dt.date,
         request: AssistantQueryRequest,
+        external_knowledge: KnowledgeRetrievalResult,
     ) -> DraftAnswer:
         if DataScope.briefing_trace not in request.allowed_data_scope:
             return _insufficient(
@@ -220,9 +236,9 @@ class AssistantQueryService:
         return DraftAnswer(
             answer=answer,
             personal_evidence=evidence,
-            external_sources=_external_sources(request),
+            external_sources=list(external_knowledge.citations),
             confidence=ConfidenceLevel.medium,
-            uncertainty=_external_uncertainty(request),
+            uncertainty=list(external_knowledge.uncertainty),
             reused_trace_id=recommendation.reasoning_trace_id,
             trace_payload={
                 "recommendation_id": str(recommendation.id),
@@ -243,6 +259,7 @@ class AssistantQueryService:
         user_id: UUID,
         target_date: dt.date,
         request: AssistantQueryRequest,
+        external_knowledge: KnowledgeRetrievalResult,
     ) -> DraftAnswer:
         if DataScope.memory not in request.allowed_data_scope:
             return _insufficient(
@@ -283,13 +300,13 @@ class AssistantQueryService:
         return DraftAnswer(
             answer="The learned pattern summaries currently say: " + " ".join(observations[:3]),
             personal_evidence=evidence,
-            external_sources=_external_sources(request),
+            external_sources=list(external_knowledge.citations),
             confidence=ConfidenceLevel.medium,
             uncertainty=[
                 "Memory summaries are compressed observations and should be checked against "
                 "raw trends."
             ]
-            + _external_uncertainty(request),
+            + list(external_knowledge.uncertainty),
             trace_payload={
                 "memory_summary_count": len(rows),
                 "intent": "memory_pattern",
@@ -311,6 +328,7 @@ class AssistantQueryService:
         user_id: UUID,
         target_date: dt.date,
         request: AssistantQueryRequest,
+        external_knowledge: KnowledgeRetrievalResult,
     ) -> DraftAnswer:
         feature = (
             self._latest_feature(user_id, target_date)
@@ -356,14 +374,14 @@ class AssistantQueryService:
         return DraftAnswer(
             answer=answer,
             personal_evidence=evidence,
-            external_sources=_external_sources(request),
+            external_sources=list(external_knowledge.citations),
             confidence=ConfidenceLevel.medium,
             uncertainty=[
                 "This is an option set for planning, not a prescription, medical treatment, "
                 "or coaching instruction.",
                 "Update the plan as the week's data changes.",
             ]
-            + _external_uncertainty(request),
+            + list(external_knowledge.uncertainty),
             reused_trace_id=recommendation.reasoning_trace_id if recommendation else None,
             trace_payload={
                 "intent": "candidate_plan",
@@ -382,6 +400,7 @@ class AssistantQueryService:
         target_date: dt.date,
         request: AssistantQueryRequest,
         plan: QueryPlan,
+        external_knowledge: KnowledgeRetrievalResult,
     ) -> DraftAnswer:
         if DataScope.recent_health not in request.allowed_data_scope:
             return _insufficient(
@@ -448,9 +467,9 @@ class AssistantQueryService:
         return DraftAnswer(
             answer=answer,
             personal_evidence=evidence,
-            external_sources=_external_sources(request),
+            external_sources=list(external_knowledge.citations),
             confidence=ConfidenceLevel.high,
-            uncertainty=_contract_uncertainty(_external_uncertainty(request)),
+            uncertainty=_contract_uncertainty(list(external_knowledge.uncertainty)),
             trace_payload={
                 "intent": "modality",
                 "table": "workout_session",
@@ -474,6 +493,7 @@ class AssistantQueryService:
         target_date: dt.date,
         request: AssistantQueryRequest,
         plan: QueryPlan,
+        external_knowledge: KnowledgeRetrievalResult,
     ) -> DraftAnswer:
         if DataScope.recent_health not in request.allowed_data_scope:
             return _insufficient(
@@ -534,14 +554,14 @@ class AssistantQueryService:
                 f"average {current_avg} versus previous-period average {previous_avg}."
             ),
             personal_evidence=evidence,
-            external_sources=_external_sources(request),
+            external_sources=list(external_knowledge.citations),
             confidence=_confidence_for_counts(len(current_numeric), len(previous_numeric)),
             uncertainty=_period_uncertainty(
                 plan.period_days,
                 len(current_numeric),
                 len(previous_numeric),
             )
-            + _external_uncertainty(request),
+            + list(external_knowledge.uncertainty),
             trace_payload={
                 "intent": "compare_periods",
                 "table": "derived_daily_feature",
@@ -563,6 +583,7 @@ class AssistantQueryService:
         target_date: dt.date,
         request: AssistantQueryRequest,
         plan: QueryPlan,
+        external_knowledge: KnowledgeRetrievalResult,
     ) -> DraftAnswer:
         if DataScope.recent_health not in request.allowed_data_scope:
             return _insufficient(
@@ -606,10 +627,10 @@ class AssistantQueryService:
                 f"{plan.period_days}-day window, with latest usable value {latest}."
             ),
             personal_evidence=evidence,
-            external_sources=_external_sources(request),
+            external_sources=list(external_knowledge.citations),
             confidence=_confidence_for_single_count(len(numeric_values)),
             uncertainty=_period_uncertainty(plan.period_days, len(numeric_values), None)
-            + _external_uncertainty(request),
+            + list(external_knowledge.uncertainty),
             trace_payload={
                 "intent": "recent_history",
                 "table": "derived_daily_feature",
@@ -937,16 +958,34 @@ def _insufficient(message: str, *, metric: str = "data_availability") -> DraftAn
     )
 
 
-def _external_sources(request: AssistantQueryRequest) -> list[ExternalCitation]:
-    return [] if request.include_external_knowledge else []
-
-
-def _external_uncertainty(request: AssistantQueryRequest) -> list[str]:
+def _external_knowledge_context(
+    session: Session,
+    user_id: UUID,
+    query: str,
+    request: AssistantQueryRequest,
+) -> KnowledgeRetrievalResult:
     if not request.include_external_knowledge:
-        return []
+        return KnowledgeRetrievalResult(
+            hits=[],
+            citations=[],
+            external_knowledge=[],
+            uncertainty=[],
+        )
     if DataScope.external_knowledge not in request.allowed_data_scope:
-        return ["External knowledge was requested but not allowed by data scope."]
-    return ["External retrieval is not implemented in this slice; no external claims were used."]
+        return KnowledgeRetrievalResult(
+            hits=[],
+            citations=[],
+            external_knowledge=[],
+            uncertainty=["External knowledge was requested but not allowed by data scope."],
+        )
+    if not has_external_knowledge_consent(session, user_id):
+        return KnowledgeRetrievalResult(
+            hits=[],
+            citations=[],
+            external_knowledge=[],
+            uncertainty=["External knowledge was requested but consent is not active."],
+        )
+    return KnowledgeRetrievalService(session).retrieve(query)
 
 
 def _contract_uncertainty(uncertainty: list[str]) -> list[str]:
