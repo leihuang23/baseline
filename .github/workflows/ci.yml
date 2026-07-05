@@ -4,8 +4,16 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   python:
+    name: Python API, eval, and docs
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -21,10 +29,20 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       APP_ENV: test
       DATABASE_URL: postgresql+psycopg://baseline@localhost:5432/baseline
       REDIS_URL: redis://localhost:6379/0
+      BASELINE_REQUIRE_TEST_DB: "1"
     steps:
       - uses: actions/checkout@v5
       - name: Install uv
@@ -37,13 +55,39 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: uv sync --all-groups
-      - name: Lint
-        run: make lint
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Lint check
+        run: uv run ruff check .
       - name: Typecheck
         run: make typecheck
-      - name: Test
-        run: make test
-      - name: Migrate eval database
+      - name: Migrate database
         run: make migrate
+      - name: Test
+        run: uv run pytest --require-db
       - name: Eval gate
         run: make eval
+      - name: Documentation consistency
+        run: make docs-check
+
+  dashboard:
+    name: Dashboard tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/dashboard/package.json
+      - name: Test dashboard
+        run: npm test --prefix apps/dashboard
+
+  ios:
+    name: iOS Swift package tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Test iOS package
+        run: swift test --package-path apps/ios
