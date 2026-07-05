@@ -113,11 +113,22 @@ class RetrievalResult:
     trace_items: list[dict[str, Any]]
     degraded: bool = False
     degrade_reason: str | None = None
+    personal_degraded: bool = False
+    external_degraded: bool = False
     external_hits: list[KnowledgeChunkHit] = field(default_factory=list)
     external_knowledge: list[dict[str, Any]] = field(default_factory=list)
     external_citations: list[ExternalCitation] = field(default_factory=list)
     external_uncertainty: list[str] = field(default_factory=list)
     citation_accuracy: float = 1.0
+
+
+@dataclass(frozen=True)
+class StageDegradation:
+    stage: str
+    reason: str
+
+    def to_trace(self) -> dict[str, str]:
+        return {"stage": self.stage, "reason": self.reason}
 
 
 class DailyBriefingService:
@@ -229,19 +240,32 @@ class DailyBriefingService:
 
         with use_trace_context(context):
             try:
-                feature = self._load_or_compute_features(
+                degraded_stages: list[StageDegradation] = []
+                feature, feature_degradation = self._load_or_compute_features_with_degraded_mode(
                     user_id=user_id,
                     target_date=request.date,
                     force_recompute=request.force_recompute,
                 )
+                if feature_degradation is not None:
+                    degraded_stages.append(feature_degradation)
                 checkin = self._load_checkin(user_id, request.date)
-                freshness = _data_freshness(self._session, feature, checkin)
+                freshness, freshness_degradation = self._data_freshness_with_degraded_mode(
+                    feature,
+                    checkin,
+                )
+                if freshness_degradation is not None:
+                    degraded_stages.append(freshness_degradation)
                 stage_trace = [
                     *job.stage_trace,
                     _stage_event(
                         "features",
                         trace_id=context.trace_id,
                         job_id=job_record_id,
+                        status="degraded" if feature_degradation else "success",
+                        degraded=feature_degradation is not None,
+                        degrade_reason=(
+                            feature_degradation.reason if feature_degradation else None
+                        ),
                         derived_daily_feature_id=str(feature.id),
                         feature_version=feature.feature_version,
                     ),
@@ -249,6 +273,11 @@ class DailyBriefingService:
                         "data_freshness",
                         trace_id=context.trace_id,
                         job_id=job_record_id,
+                        status="degraded" if freshness_degradation else "success",
+                        degraded=freshness_degradation is not None,
+                        degrade_reason=(
+                            freshness_degradation.reason if freshness_degradation else None
+                        ),
                         data_freshness=freshness.model_dump(mode="json"),
                     ),
                 ]
@@ -260,6 +289,13 @@ class DailyBriefingService:
                     privacy_mode=request.privacy_mode,
                 )
                 retrieval = _combine_retrieval(personal_retrieval, external_retrieval)
+                if retrieval.degraded:
+                    degraded_stages.append(
+                        StageDegradation(
+                            stage="retrieval",
+                            reason=retrieval.degrade_reason or "retrieval_degraded",
+                        )
+                    )
                 stage_trace.append(
                     _stage_event(
                         "retrieval",
@@ -309,6 +345,13 @@ class DailyBriefingService:
                     prompt_inputs=prompt_inputs,
                     privacy_mode=request.privacy_mode,
                 )
+                if explanation.degraded:
+                    degraded_stages.append(
+                        StageDegradation(
+                            stage="llm_explanation",
+                            reason=explanation.degrade_reason or "llm_degraded",
+                        )
+                    )
                 stage_trace.append(
                     _stage_event(
                         "llm_explanation",
@@ -381,6 +424,7 @@ class DailyBriefingService:
                     recommendation=recommendation,
                     retrieval=retrieval,
                     explanation=explanation,
+                    degraded_stages=degraded_stages,
                     stage_trace=stage_trace,
                 )
                 job.status = AnalysisJobStatus.completed.value
@@ -572,6 +616,62 @@ class DailyBriefingService:
             bundle.to_derived_daily_feature_fields(),
         )
 
+    def _load_or_compute_features_with_degraded_mode(
+        self,
+        *,
+        user_id: UUID,
+        target_date: dt.date,
+        force_recompute: bool,
+    ) -> tuple[DerivedDailyFeature, StageDegradation | None]:
+        try:
+            return (
+                self._load_or_compute_features(
+                    user_id=user_id,
+                    target_date=target_date,
+                    force_recompute=force_recompute,
+                ),
+                None,
+            )
+        except Exception as exc:
+            self._session.rollback()
+            reason = type(exc).__name__
+            existing = self._session.exec(
+                select(DerivedDailyFeature).where(
+                    DerivedDailyFeature.user_id == user_id,
+                    DerivedDailyFeature.date == target_date,
+                )
+            ).first()
+            if existing is not None:
+                return existing, StageDegradation(stage="features", reason=reason)
+            feature = _degraded_feature(user_id=user_id, target_date=target_date, reason=reason)
+            self._session.add(feature)
+            self._session.flush()
+            return feature, StageDegradation(stage="features", reason=reason)
+
+    def _data_freshness_with_degraded_mode(
+        self,
+        feature: DerivedDailyFeature,
+        checkin: DailyCheckIn | None,
+    ) -> tuple[DataFreshness, StageDegradation | None]:
+        try:
+            with self._session.begin_nested():
+                return _data_freshness(self._session, feature, checkin), None
+        except Exception as exc:
+            reason = type(exc).__name__
+            stale_sources = [
+                str(flag)
+                for flag in feature.data_quality.get("flags", [])
+                if str(flag).startswith(("missing_", "stale_"))
+            ]
+            return (
+                DataFreshness(
+                    latest_sample_at=None,
+                    latest_checkin_date=checkin.date if checkin is not None else None,
+                    stale_sources=[*stale_sources, "sync_unavailable"],
+                ),
+                StageDegradation(stage="sync", reason=reason),
+            )
+
     def _load_checkin(self, user_id: UUID, target_date: dt.date) -> DailyCheckIn | None:
         return self._session.exec(
             select(DailyCheckIn)
@@ -596,6 +696,7 @@ class DailyBriefingService:
                 trace_items=[],
                 degraded=True,
                 degrade_reason=type(exc).__name__,
+                personal_degraded=True,
             )
 
         observations = [
@@ -635,15 +736,33 @@ class DailyBriefingService:
                     "External knowledge was requested but disabled by local-only privacy mode."
                 ],
             )
-        if not has_external_knowledge_consent(self._session, user_id):
-            return KnowledgeRetrievalResult(
-                hits=[],
-                citations=[],
-                external_knowledge=[],
-                uncertainty=["External knowledge was requested but consent is not active."],
-            )
         query = "daily readiness training recovery sleep general research"
-        return KnowledgeRetrievalService(self._session).retrieve(query)
+        try:
+            nested = self._session.begin_nested()
+            try:
+                if not has_external_knowledge_consent(self._session, user_id):
+                    result = KnowledgeRetrievalResult(
+                        hits=[],
+                        citations=[],
+                        external_knowledge=[],
+                        uncertainty=["External knowledge was requested but consent is not active."],
+                    )
+                else:
+                    result = KnowledgeRetrievalService(self._session).retrieve(query)
+                if result.degraded:
+                    nested.rollback()
+                    return _external_retrieval_degraded_result(
+                        reason=result.degrade_reason,
+                        uncertainty=result.uncertainty,
+                    )
+                nested.commit()
+                return result
+            except Exception:
+                if nested.is_active:
+                    nested.rollback()
+                raise
+        except Exception as exc:
+            return _external_retrieval_degraded_result(reason=type(exc).__name__)
 
     async def _explain(
         self,
@@ -829,19 +948,22 @@ class DailyBriefingService:
         recommendation: Recommendation,
         retrieval: RetrievalResult,
         explanation: OrchestratorResult,
+        degraded_stages: list[StageDegradation],
         stage_trace: list[dict[str, Any]],
     ) -> None:
         trace = self._session.get(ReasoningTrace, trace_id)
         if trace is None:
             return
         payload = dict(trace.trace_payload)
+        generation_degraded = explanation.degraded or bool(degraded_stages)
         payload["briefing_generation"] = {
             "job_id": str(job_id),
             "recommendation_id": str(recommendation.id),
-            "status": "degraded" if explanation.degraded else "success",
+            "status": "degraded" if generation_degraded else "success",
             "degrade_reason": explanation.degrade_reason,
             "retrieval_degraded": retrieval.degraded,
             "retrieval_degrade_reason": retrieval.degrade_reason,
+            "degraded_stages": [stage.to_trace() for stage in degraded_stages],
             "external_source_count": len(retrieval.external_citations),
             "external_citation_accuracy": retrieval.citation_accuracy,
             "model_run_ids": [str(row.id) for row in explanation.model_runs if hasattr(row, "id")],
@@ -958,8 +1080,13 @@ def _combine_retrieval(
     personal: RetrievalResult,
     external: KnowledgeRetrievalResult,
 ) -> RetrievalResult:
-    degraded = personal.degraded or external.degraded
-    degrade_reason = personal.degrade_reason or external.degrade_reason
+    external_degraded = external.degraded or _has_external_retrieval_failure(external.uncertainty)
+    degraded = personal.degraded or external_degraded
+    degrade_reason = (
+        personal.degrade_reason
+        or external.degrade_reason
+        or ("external_retrieval_degraded" if external_degraded else None)
+    )
     external_hits = external.hits or _external_hits_from_prompt_knowledge(
         external.external_knowledge
     )
@@ -969,6 +1096,8 @@ def _combine_retrieval(
         trace_items=personal.trace_items,
         degraded=degraded,
         degrade_reason=degrade_reason,
+        personal_degraded=personal.personal_degraded or personal.degraded,
+        external_degraded=external_degraded,
         external_hits=external_hits,
         external_knowledge=external.external_knowledge,
         external_citations=external_citations,
@@ -977,6 +1106,34 @@ def _combine_retrieval(
             1.0 if external_citations and external_hits else external.citation_accuracy
         ),
     )
+
+
+def _external_retrieval_degraded_result(
+    *,
+    reason: str | None,
+    uncertainty: Sequence[str] = (),
+) -> KnowledgeRetrievalResult:
+    return KnowledgeRetrievalResult(
+        hits=[],
+        citations=[],
+        external_knowledge=[],
+        uncertainty=_external_retrieval_failure_uncertainty(uncertainty),
+        degraded=True,
+        degrade_reason=reason or "external_retrieval_degraded",
+    )
+
+
+def _external_retrieval_failure_uncertainty(values: Sequence[str]) -> list[str]:
+    normalized = [str(item) for item in values if str(item)]
+    if not _has_external_retrieval_failure(normalized):
+        normalized.append(
+            "External knowledge retrieval was unavailable; deterministic briefing was used."
+        )
+    return normalized
+
+
+def _has_external_retrieval_failure(values: Sequence[str]) -> bool:
+    return any("external knowledge retrieval" in str(item).casefold() for item in values)
 
 
 def _completed_job_ordering(*, offline_last: bool) -> tuple[Any, ...]:
@@ -1321,8 +1478,12 @@ def _uncertainty(
     values = [str(item) for item in assessment["uncertainty"]]
     values.extend(str(item) for item in explanation.uncertainty if str(item) not in values)
     values.extend(item for item in retrieval.external_uncertainty if item not in values)
-    if retrieval.degraded:
+    if retrieval.personal_degraded:
         values.append("Recent-history retrieval was unavailable, so continuity context is limited.")
+    if retrieval.external_degraded:
+        values.append(
+            "External knowledge retrieval was unavailable, so general research context is limited."
+        )
     return values or ["No material uncertainty beyond normal day-to-day variability."]
 
 
@@ -1412,6 +1573,47 @@ def _what_would_change_my_mind(uncertainty: Sequence[str]) -> list[str]:
     if any("stale" in item.casefold() or "missing" in item.casefold() for item in uncertainty):
         values.append("Resolving the missing or stale inputs named in the uncertainty section.")
     return values
+
+
+def _degraded_feature(
+    *,
+    user_id: UUID,
+    target_date: dt.date,
+    reason: str,
+) -> DerivedDailyFeature:
+    return DerivedDailyFeature(
+        user_id=user_id,
+        date=target_date,
+        feature_version="degraded-mode-v1",
+        sleep_features=_degraded_feature_section(reason),
+        hrv_features=_degraded_feature_section(reason),
+        rhr_features=_degraded_feature_section(reason),
+        training_load_features=_degraded_feature_section(reason),
+        recovery_features=_degraded_feature_section(reason),
+        goal_features=_degraded_feature_section(reason),
+        data_quality={
+            "flags": ["missing_feature_computation"],
+            "overall_completeness": 0.0,
+            "section_completeness": {},
+            "degraded_mode": "feature_computation_failed",
+            "degrade_reason": reason,
+        },
+        anomaly_flags=["feature_computation_failed"],
+        computed_at=dt.datetime.now(dt.UTC),
+        source_sample_ids=[],
+    )
+
+
+def _degraded_feature_section(reason: str) -> dict[str, Any]:
+    return {
+        "values": {},
+        "data_quality": {
+            "flags": ["missing_feature_computation"],
+            "completeness": 0.0,
+            "degraded_mode": "feature_computation_failed",
+            "degrade_reason": reason,
+        },
+    }
 
 
 def _data_freshness(

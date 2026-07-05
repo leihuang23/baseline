@@ -26,10 +26,44 @@ class Settings(BaseSettings):
     llm_default_provider: str = Field(default="deepseek", alias="LLM_DEFAULT_PROVIDER")
     llm_cheap_model: str = Field(default="deepseek-v4-pro", alias="LLM_CHEAP_MODEL")
     llm_strong_model: str = Field(default="deepseek-v4-pro", alias="LLM_STRONG_MODEL")
+    llm_fallback_model: str = Field(
+        default="baseline-local-deterministic-v1",
+        alias="LLM_FALLBACK_MODEL",
+    )
     deepseek_api_key: str | None = Field(default=None, alias="DEEPSEEK_API_KEY")
     deepseek_api_url: str = Field(
         default="https://api.deepseek.com/chat/completions",
         alias="DEEPSEEK_API_URL",
+    )
+    daily_briefing_cost_budget: float = Field(
+        default=1.0,
+        ge=0,
+        alias="DAILY_BRIEFING_COST_BUDGET",
+    )
+    model_provider_failure_alert_threshold: int = Field(
+        default=3,
+        ge=1,
+        alias="MODEL_PROVIDER_FAILURE_ALERT_THRESHOLD",
+    )
+    schema_validation_failure_alert_threshold: int = Field(
+        default=3,
+        ge=1,
+        alias="SCHEMA_VALIDATION_FAILURE_ALERT_THRESHOLD",
+    )
+    daily_briefing_failure_alert_threshold: int = Field(
+        default=1,
+        ge=1,
+        alias="DAILY_BRIEFING_FAILURE_ALERT_THRESHOLD",
+    )
+    sync_failure_alert_threshold: int = Field(
+        default=3,
+        ge=1,
+        alias="SYNC_FAILURE_ALERT_THRESHOLD",
+    )
+    deletion_failure_alert_threshold: int = Field(
+        default=1,
+        ge=1,
+        alias="DELETION_FAILURE_ALERT_THRESHOLD",
     )
 
 

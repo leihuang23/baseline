@@ -354,10 +354,12 @@
       "title": "eval ops dashboard"
     },
     {
+      "completed_at": "2026-07-05T04:12:03Z",
       "id": "P5-04",
+      "last_run_dir": ".task-runs/2026-07-05T040848Z-P5-04-final-repair-5",
       "phase": "P5",
       "prompt": "tasks/P5-04-cost-latency-fallback.md",
-      "status": "pending",
+      "status": "complete",
       "title": "cost latency fallback"
     },
     {
@@ -375,6 +377,6 @@
       "title": "portfolio docs"
     }
   ],
-  "updated_at": "2026-07-05T02:57:20Z",
+  "updated_at": "2026-07-05T04:12:03Z",
   "version": 1
 }

@@ -7,6 +7,7 @@ import hashlib
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, col, select
 
 from baseline_api.db.models import (
@@ -52,6 +53,20 @@ class DataDeletionService:
 
     def delete_all(self) -> DataDeleteResponse:
         user = get_single_user(self._session)
+        try:
+            return self._delete_all_for_user(user)
+        except PrivacyError:
+            raise
+        except Exception as exc:
+            self._record_deletion_failure(
+                event_type=AuditEventType.data_deleted,
+                user_id=user.id,
+                target="all",
+                exc=exc,
+            )
+            raise
+
+    def _delete_all_for_user(self, user: Any) -> DataDeleteResponse:
         counts: dict[str, int] = {}
 
         raw_ids = self._ids(RawHealthSample, user.id)
@@ -135,44 +150,83 @@ class DataDeletionService:
     def delete_note(self, checkin_id: UUID) -> DataDeleteResponse:
         user = get_single_user(self._session)
         checkin = self._checkin(user.id, checkin_id)
-        had_note = int(
-            checkin.free_text_note_reference is not None
-            or checkin.free_text_note_summary is not None
-        )
-        checkin.free_text_note_reference = None
-        checkin.free_text_note_summary = None
-        checkin.redaction_status = RedactionStatus.none
-        self._session.add(checkin)
-        derived_counts = self._delete_note_derived_artifacts(
-            user_id=user.id,
-            checkin_id=checkin_id,
-        )
-        emit_privacy_audit(
-            self._session,
-            event_type=AuditEventType.data_deleted,
-            user_id=user.id,
-            metadata={"target": "checkin_note", "checkin_id": str(checkin_id)},
-        )
-        self._session.commit()
-        return DataDeleteResponse(deleted={"checkin_notes": had_note, **derived_counts})
+        try:
+            had_note = int(
+                checkin.free_text_note_reference is not None
+                or checkin.free_text_note_summary is not None
+            )
+            checkin.free_text_note_reference = None
+            checkin.free_text_note_summary = None
+            checkin.redaction_status = RedactionStatus.none
+            self._session.add(checkin)
+            derived_counts = self._delete_note_derived_artifacts(
+                user_id=user.id,
+                checkin_id=checkin_id,
+            )
+            emit_privacy_audit(
+                self._session,
+                event_type=AuditEventType.data_deleted,
+                user_id=user.id,
+                metadata={"target": "checkin_note", "checkin_id": str(checkin_id)},
+            )
+            self._session.commit()
+            return DataDeleteResponse(deleted={"checkin_notes": had_note, **derived_counts})
+        except PrivacyError:
+            raise
+        except Exception as exc:
+            self._record_deletion_failure(
+                event_type=AuditEventType.data_deleted,
+                user_id=user.id,
+                target="checkin_note",
+                target_id=checkin_id,
+                exc=exc,
+            )
+            raise
 
     def delete_checkin(self, checkin_id: UUID) -> DataDeleteResponse:
         user = get_single_user(self._session)
         checkin = self._checkin(user.id, checkin_id)
-        derived_counts = self._delete_checkin_derived_artifacts(
-            user_id=user.id,
-            checkin_id=checkin.id,
-            checkin_date=checkin.date,
-        )
-        self._session.delete(checkin)
-        emit_privacy_audit(
-            self._session,
-            event_type=AuditEventType.data_deleted,
-            user_id=user.id,
-            metadata={"target": "checkin", "checkin_id": str(checkin_id)},
-        )
-        self._session.commit()
-        return DataDeleteResponse(deleted={"daily_check_ins": 1, **derived_counts})
+        try:
+            with self._session.begin_nested():
+                derived_counts = self._delete_checkin_derived_artifacts(
+                    user_id=user.id,
+                    checkin_id=checkin.id,
+                    checkin_date=checkin.date,
+                )
+                self._session.delete(checkin)
+        except PrivacyError:
+            raise
+        except Exception as exc:
+            self._record_deletion_failure(
+                event_type=AuditEventType.data_deleted,
+                user_id=user.id,
+                target="checkin",
+                target_id=checkin_id,
+                exc=exc,
+                rollback=False,
+            )
+            raise
+
+        try:
+            emit_privacy_audit(
+                self._session,
+                event_type=AuditEventType.data_deleted,
+                user_id=user.id,
+                metadata={"target": "checkin", "checkin_id": str(checkin_id)},
+            )
+            self._session.commit()
+            return DataDeleteResponse(deleted={"daily_check_ins": 1, **derived_counts})
+        except PrivacyError:
+            raise
+        except Exception as exc:
+            self._record_deletion_failure(
+                event_type=AuditEventType.data_deleted,
+                user_id=user.id,
+                target="checkin",
+                target_id=checkin_id,
+                exc=exc,
+            )
+            raise
 
     def delete_memory_summary(self, memory_summary_id: UUID) -> DataDeleteResponse:
         user = get_single_user(self._session)
@@ -183,15 +237,27 @@ class DataDeletionService:
                 message="Memory summary not found.",
                 status_code=404,
             )
-        self._session.delete(memory)
-        emit_privacy_audit(
-            self._session,
-            event_type=AuditEventType.memory_deleted,
-            user_id=user.id,
-            metadata={"target": "memory_summary", "memory_summary_id": str(memory_summary_id)},
-        )
-        self._session.commit()
-        return DataDeleteResponse(deleted={"memory_summaries": 1})
+        try:
+            self._session.delete(memory)
+            emit_privacy_audit(
+                self._session,
+                event_type=AuditEventType.memory_deleted,
+                user_id=user.id,
+                metadata={"target": "memory_summary", "memory_summary_id": str(memory_summary_id)},
+            )
+            self._session.commit()
+            return DataDeleteResponse(deleted={"memory_summaries": 1})
+        except PrivacyError:
+            raise
+        except Exception as exc:
+            self._record_deletion_failure(
+                event_type=AuditEventType.memory_deleted,
+                user_id=user.id,
+                target="memory_summary",
+                target_id=memory_summary_id,
+                exc=exc,
+            )
+            raise
 
     def _checkin(self, user_id: UUID, checkin_id: UUID) -> DailyCheckIn:
         checkin = self._session.get(DailyCheckIn, checkin_id)
@@ -346,6 +412,50 @@ class DataDeletionService:
             self._session.delete(row)
         self._session.flush()
         return len(rows)
+
+    def _record_deletion_failure(
+        self,
+        *,
+        event_type: AuditEventType,
+        user_id: UUID,
+        target: str,
+        exc: Exception,
+        target_id: UUID | None = None,
+        rollback: bool = True,
+    ) -> None:
+        if rollback or not self._session.is_active:
+            self._session.rollback()
+        metadata: dict[str, Any] = {
+            "target": target,
+            "status": "failed",
+            "error_code": type(exc).__name__,
+        }
+        if target_id is not None:
+            metadata[_target_id_key(target)] = str(target_id)
+        try:
+            emit_privacy_audit(
+                self._session,
+                event_type=event_type,
+                user_id=user_id,
+                metadata=metadata,
+            )
+        except IntegrityError:
+            self._session.rollback()
+            emit_privacy_audit(
+                self._session,
+                event_type=event_type,
+                user_id=None,
+                metadata=metadata,
+            )
+        self._session.commit()
+
+
+def _target_id_key(target: str) -> str:
+    if target in {"checkin", "checkin_note"}:
+        return "checkin_id"
+    if target == "memory_summary":
+        return "memory_summary_id"
+    return f"{target}_id"
 
 
 def _unique_ids(values: list[UUID | None]) -> list[UUID]:
