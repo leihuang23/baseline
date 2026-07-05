@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +20,7 @@ from baseline_api.features.training_load import (
     VO2SampleInput,
     WorkoutSessionInput,
     compute_training_load_features,
+    compute_vo2_features,
 )
 
 
@@ -64,6 +66,7 @@ def assemble_daily_features(
     rhr_samples: list[CardioSampleInput],
     workouts: list[WorkoutSessionInput] | None = None,
     vo2_samples: list[VO2SampleInput] | None = None,
+    daily_check_in: Mapping[str, Any] | None = None,
     personal_sleep_need_hours: float = 8.0,
     computed_at: dt.datetime | None = None,
 ) -> DailyFeatureBundle:
@@ -80,17 +83,13 @@ def assemble_daily_features(
         target_date,
         workouts or [],
     )
-    goal_features = compute_goal_features(
-        target_date,
-        vo2_samples or [],
-    )
-
+    vo2_features = compute_vo2_features(target_date, vo2_samples or [])
     feature_sections = {
         "sleep": sleep_features,
         "hrv": hrv_features,
         "rhr": rhr_features,
         "training_load": training_load_features,
-        "vo2": goal_features["values"]["vo2_trend"],
+        "vo2": vo2_features,
     }
     completeness_by_section = {
         section: float(features["data_quality"]["completeness"])
@@ -113,6 +112,18 @@ def assemble_daily_features(
         target_date,
         section_completeness=completeness_by_section,
         flags=flags,
+    )
+    goal_features = compute_goal_features(
+        target_date,
+        vo2_samples or [],
+        sleep_features=sleep_features,
+        hrv_features=hrv_features,
+        rhr_features=rhr_features,
+        training_load_features=training_load_features,
+        recovery_features=recovery_features,
+        workouts=workouts or [],
+        daily_check_in=daily_check_in,
+        vo2_features=vo2_features,
     )
 
     data_quality = {

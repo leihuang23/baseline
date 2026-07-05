@@ -41,7 +41,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -49,23 +49,36 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 1.0,
-          "flags": [],
+          "flags": [
+            "missing_goal_indicator_inputs"
+          ],
+          "indicator_completeness": 0.8333,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 0,
             "vo2_samples": 3
-          }
+          },
+          "missing_data": [
+            "strength_or_kettlebell_workouts"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
@@ -75,22 +88,83 @@
         ],
         "status": "computed",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "concerns": [],
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "hrv_features.values.deviation_pct",
+                  "rhr_features.values.deviation_pct",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [],
+                "state": "supported",
+                "status": "computed",
+                "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+              },
+              "long_term_wellness": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "training_load_features.values.load_balance",
+                  "recovery_features.values.level",
+                  "goal_features.values.vo2_trend.values.trend_direction"
+                ],
+                "missing_data": [],
+                "signals": [
+                  "load_balance:high_spike",
+                  "level:high",
+                  "vo2:improving"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "high",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is high."
+              },
+              "sleep": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours"
+                ],
+                "missing_data": [],
+                "sleep_debt_hours": 0.0,
+                "status": "computed",
+                "status_label": "protected",
+                "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+              },
+              "strength": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "strength_or_kettlebell_workouts"
+                ],
+                "status": "unavailable",
+                "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+              },
+              "vo2_max": {
+                "confidence": "medium",
+                "direction": "improving",
+                "evidence_refs": [
+                  "goal_features.values.vo2_trend.values.trend_direction",
+                  "goal_features.values.vo2_trend.values.recent_value"
+                ],
+                "missing_data": [],
+                "status": "computed",
+                "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+                "value": 46.0
+              }
             }
           },
           "vo2_trend": {
@@ -514,7 +588,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -522,23 +596,36 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 1.0,
-        "flags": [],
+        "flags": [
+          "missing_goal_indicator_inputs"
+        ],
+        "indicator_completeness": 0.8333,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 0,
           "vo2_samples": 3
-        }
+        },
+        "missing_data": [
+          "strength_or_kettlebell_workouts"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [
@@ -548,22 +635,83 @@
       ],
       "status": "computed",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "concerns": [],
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "hrv_features.values.deviation_pct",
+                "rhr_features.values.deviation_pct",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [],
+              "state": "supported",
+              "status": "computed",
+              "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+            },
+            "long_term_wellness": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "training_load_features.values.load_balance",
+                "recovery_features.values.level",
+                "goal_features.values.vo2_trend.values.trend_direction"
+              ],
+              "missing_data": [],
+              "signals": [
+                "load_balance:high_spike",
+                "level:high",
+                "vo2:improving"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "high",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is high."
+            },
+            "sleep": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours"
+              ],
+              "missing_data": [],
+              "sleep_debt_hours": 0.0,
+              "status": "computed",
+              "status_label": "protected",
+              "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+            },
+            "strength": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "strength_or_kettlebell_workouts"
+              ],
+              "status": "unavailable",
+              "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+            },
+            "vo2_max": {
+              "confidence": "medium",
+              "direction": "improving",
+              "evidence_refs": [
+                "goal_features.values.vo2_trend.values.trend_direction",
+                "goal_features.values.vo2_trend.values.recent_value"
+              ],
+              "missing_data": [],
+              "status": "computed",
+              "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+              "value": 46.0
+            }
           }
         },
         "vo2_trend": {
@@ -1034,7 +1182,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -1042,23 +1190,39 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 1.0,
-          "flags": [],
+          "flags": [
+            "missing_goal_indicator_inputs"
+          ],
+          "indicator_completeness": 0.6667,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 0,
             "vo2_samples": 3
-          }
+          },
+          "missing_data": [
+            "strength_or_kettlebell_workouts",
+            "sleep_duration_or_sleep_need",
+            "sleep_debt",
+            "sleep_debt_hours"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
@@ -1068,22 +1232,85 @@
         ],
         "status": "computed",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "concerns": [
+                  "elevated_rhr"
+                ],
+                "confidence": "low",
+                "evidence_refs": [
+                  "hrv_features.values.deviation_pct",
+                  "rhr_features.values.deviation_pct",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [
+                  "sleep_debt"
+                ],
+                "state": "strained",
+                "status": "computed",
+                "summary": "Cognitive-readiness proxy is strained from available recovery and check-in signals."
+              },
+              "long_term_wellness": {
+                "confidence": "low",
+                "evidence_refs": [
+                  "training_load_features.values.load_balance",
+                  "recovery_features.values.level",
+                  "goal_features.values.vo2_trend.values.trend_direction"
+                ],
+                "missing_data": [
+                  "sleep_debt_hours"
+                ],
+                "signals": [
+                  "load_balance:high_spike",
+                  "level:medium",
+                  "vo2:improving"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "medium",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is medium."
+              },
+              "sleep": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "sleep_duration_or_sleep_need"
+                ],
+                "status": "unavailable",
+                "summary": "Sleep indicator is unavailable because sleep debt could not be computed."
+              },
+              "strength": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "strength_or_kettlebell_workouts"
+                ],
+                "status": "unavailable",
+                "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+              },
+              "vo2_max": {
+                "confidence": "medium",
+                "direction": "improving",
+                "evidence_refs": [
+                  "goal_features.values.vo2_trend.values.trend_direction",
+                  "goal_features.values.vo2_trend.values.recent_value"
+                ],
+                "missing_data": [],
+                "status": "computed",
+                "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+                "value": 46.0
+              }
             }
           },
           "vo2_trend": {
@@ -1502,7 +1729,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -1510,23 +1737,39 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 1.0,
-        "flags": [],
+        "flags": [
+          "missing_goal_indicator_inputs"
+        ],
+        "indicator_completeness": 0.6667,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 0,
           "vo2_samples": 3
-        }
+        },
+        "missing_data": [
+          "strength_or_kettlebell_workouts",
+          "sleep_duration_or_sleep_need",
+          "sleep_debt",
+          "sleep_debt_hours"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [
@@ -1536,22 +1779,85 @@
       ],
       "status": "computed",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "concerns": [
+                "elevated_rhr"
+              ],
+              "confidence": "low",
+              "evidence_refs": [
+                "hrv_features.values.deviation_pct",
+                "rhr_features.values.deviation_pct",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [
+                "sleep_debt"
+              ],
+              "state": "strained",
+              "status": "computed",
+              "summary": "Cognitive-readiness proxy is strained from available recovery and check-in signals."
+            },
+            "long_term_wellness": {
+              "confidence": "low",
+              "evidence_refs": [
+                "training_load_features.values.load_balance",
+                "recovery_features.values.level",
+                "goal_features.values.vo2_trend.values.trend_direction"
+              ],
+              "missing_data": [
+                "sleep_debt_hours"
+              ],
+              "signals": [
+                "load_balance:high_spike",
+                "level:medium",
+                "vo2:improving"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "medium",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is medium."
+            },
+            "sleep": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "sleep_duration_or_sleep_need"
+              ],
+              "status": "unavailable",
+              "summary": "Sleep indicator is unavailable because sleep debt could not be computed."
+            },
+            "strength": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "strength_or_kettlebell_workouts"
+              ],
+              "status": "unavailable",
+              "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+            },
+            "vo2_max": {
+              "confidence": "medium",
+              "direction": "improving",
+              "evidence_refs": [
+                "goal_features.values.vo2_trend.values.trend_direction",
+                "goal_features.values.vo2_trend.values.recent_value"
+              ],
+              "missing_data": [],
+              "status": "computed",
+              "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+              "value": 46.0
+            }
           }
         },
         "vo2_trend": {
@@ -2010,7 +2316,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -2018,48 +2324,133 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 1.0,
-          "flags": [],
+          "flags": [
+            "missing_goal_indicator_inputs"
+          ],
+          "indicator_completeness": 1.0,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 3,
             "vo2_samples": 3
-          }
+          },
+          "missing_data": [
+            "strength_baseline_window"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
           "vo2-6",
           "vo2-13",
-          "vo2-20"
+          "vo2-20",
+          "w-15",
+          "w-17",
+          "w-19"
         ],
         "status": "computed",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "concerns": [],
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "hrv_features.values.deviation_pct",
+                  "rhr_features.values.deviation_pct",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [],
+                "state": "supported",
+                "status": "computed",
+                "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+              },
+              "long_term_wellness": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "training_load_features.values.load_balance",
+                  "recovery_features.values.level",
+                  "goal_features.values.vo2_trend.values.trend_direction"
+                ],
+                "missing_data": [],
+                "signals": [
+                  "load_balance:high_spike",
+                  "level:high",
+                  "vo2:improving"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "high",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is high."
+              },
+              "sleep": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours"
+                ],
+                "missing_data": [],
+                "sleep_debt_hours": 0.0,
+                "status": "computed",
+                "status_label": "protected",
+                "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+              },
+              "strength": {
+                "baseline_minutes": 0.0,
+                "baseline_sessions": 0,
+                "confidence": "low",
+                "evidence_refs": [
+                  "goal_features.values.goal_indicators.strength"
+                ],
+                "missing_data": [
+                  "strength_baseline_window"
+                ],
+                "recent_active_energy_kcal": 750.0,
+                "recent_minutes": 135.0,
+                "recent_sessions": 3,
+                "status": "computed",
+                "summary": "Strength proxy is based on consistency, duration, and active energy; it does not measure lifted load.",
+                "trend": "building"
+              },
+              "vo2_max": {
+                "confidence": "medium",
+                "direction": "improving",
+                "evidence_refs": [
+                  "goal_features.values.vo2_trend.values.trend_direction",
+                  "goal_features.values.vo2_trend.values.recent_value"
+                ],
+                "missing_data": [],
+                "status": "computed",
+                "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+                "value": 46.0
+              }
             }
           },
           "vo2_trend": {
@@ -2470,7 +2861,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -2478,48 +2869,133 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 1.0,
-        "flags": [],
+        "flags": [
+          "missing_goal_indicator_inputs"
+        ],
+        "indicator_completeness": 1.0,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 3,
           "vo2_samples": 3
-        }
+        },
+        "missing_data": [
+          "strength_baseline_window"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [
         "vo2-6",
         "vo2-13",
-        "vo2-20"
+        "vo2-20",
+        "w-15",
+        "w-17",
+        "w-19"
       ],
       "status": "computed",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "concerns": [],
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "hrv_features.values.deviation_pct",
+                "rhr_features.values.deviation_pct",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [],
+              "state": "supported",
+              "status": "computed",
+              "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+            },
+            "long_term_wellness": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "training_load_features.values.load_balance",
+                "recovery_features.values.level",
+                "goal_features.values.vo2_trend.values.trend_direction"
+              ],
+              "missing_data": [],
+              "signals": [
+                "load_balance:high_spike",
+                "level:high",
+                "vo2:improving"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "high",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is high."
+            },
+            "sleep": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours"
+              ],
+              "missing_data": [],
+              "sleep_debt_hours": 0.0,
+              "status": "computed",
+              "status_label": "protected",
+              "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+            },
+            "strength": {
+              "baseline_minutes": 0.0,
+              "baseline_sessions": 0,
+              "confidence": "low",
+              "evidence_refs": [
+                "goal_features.values.goal_indicators.strength"
+              ],
+              "missing_data": [
+                "strength_baseline_window"
+              ],
+              "recent_active_energy_kcal": 750.0,
+              "recent_minutes": 135.0,
+              "recent_sessions": 3,
+              "status": "computed",
+              "summary": "Strength proxy is based on consistency, duration, and active energy; it does not measure lifted load.",
+              "trend": "building"
+            },
+            "vo2_max": {
+              "confidence": "medium",
+              "direction": "improving",
+              "evidence_refs": [
+                "goal_features.values.vo2_trend.values.trend_direction",
+                "goal_features.values.vo2_trend.values.recent_value"
+              ],
+              "missing_data": [],
+              "status": "computed",
+              "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+              "value": 46.0
+            }
           }
         },
         "vo2_trend": {
@@ -2980,7 +3456,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -2988,23 +3464,37 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 1.0,
-          "flags": [],
+          "flags": [
+            "missing_goal_indicator_inputs"
+          ],
+          "indicator_completeness": 0.8333,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 0,
             "vo2_samples": 3
-          }
+          },
+          "missing_data": [
+            "strength_or_kettlebell_workouts",
+            "hrv_deviation"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
@@ -3014,22 +3504,84 @@
         ],
         "status": "computed",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "concerns": [],
+                "confidence": "low",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "rhr_features.values.deviation_pct",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [
+                  "hrv_deviation"
+                ],
+                "state": "supported",
+                "status": "computed",
+                "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+              },
+              "long_term_wellness": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "training_load_features.values.load_balance",
+                  "recovery_features.values.level",
+                  "goal_features.values.vo2_trend.values.trend_direction"
+                ],
+                "missing_data": [],
+                "signals": [
+                  "load_balance:high_spike",
+                  "level:medium",
+                  "vo2:improving"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "medium",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is medium."
+              },
+              "sleep": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours"
+                ],
+                "missing_data": [],
+                "sleep_debt_hours": 0.0,
+                "status": "computed",
+                "status_label": "protected",
+                "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+              },
+              "strength": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "strength_or_kettlebell_workouts"
+                ],
+                "status": "unavailable",
+                "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+              },
+              "vo2_max": {
+                "confidence": "medium",
+                "direction": "improving",
+                "evidence_refs": [
+                  "goal_features.values.vo2_trend.values.trend_direction",
+                  "goal_features.values.vo2_trend.values.recent_value"
+                ],
+                "missing_data": [],
+                "status": "computed",
+                "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+                "value": 46.0
+              }
             }
           },
           "vo2_trend": {
@@ -3423,7 +3975,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -3431,23 +3983,37 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 1.0,
-        "flags": [],
+        "flags": [
+          "missing_goal_indicator_inputs"
+        ],
+        "indicator_completeness": 0.8333,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 0,
           "vo2_samples": 3
-        }
+        },
+        "missing_data": [
+          "strength_or_kettlebell_workouts",
+          "hrv_deviation"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [
@@ -3457,22 +4023,84 @@
       ],
       "status": "computed",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "concerns": [],
+              "confidence": "low",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "rhr_features.values.deviation_pct",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [
+                "hrv_deviation"
+              ],
+              "state": "supported",
+              "status": "computed",
+              "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+            },
+            "long_term_wellness": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "training_load_features.values.load_balance",
+                "recovery_features.values.level",
+                "goal_features.values.vo2_trend.values.trend_direction"
+              ],
+              "missing_data": [],
+              "signals": [
+                "load_balance:high_spike",
+                "level:medium",
+                "vo2:improving"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "medium",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is medium."
+            },
+            "sleep": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours"
+              ],
+              "missing_data": [],
+              "sleep_debt_hours": 0.0,
+              "status": "computed",
+              "status_label": "protected",
+              "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+            },
+            "strength": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "strength_or_kettlebell_workouts"
+              ],
+              "status": "unavailable",
+              "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+            },
+            "vo2_max": {
+              "confidence": "medium",
+              "direction": "improving",
+              "evidence_refs": [
+                "goal_features.values.vo2_trend.values.trend_direction",
+                "goal_features.values.vo2_trend.values.recent_value"
+              ],
+              "missing_data": [],
+              "status": "computed",
+              "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+              "value": 46.0
+            }
           }
         },
         "vo2_trend": {
@@ -3925,7 +4553,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -3933,23 +4561,37 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 1.0,
-          "flags": [],
+          "flags": [
+            "missing_goal_indicator_inputs"
+          ],
+          "indicator_completeness": 0.8333,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 0,
             "vo2_samples": 3
-          }
+          },
+          "missing_data": [
+            "strength_or_kettlebell_workouts",
+            "rhr_deviation"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
@@ -3959,22 +4601,84 @@
         ],
         "status": "computed",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "concerns": [],
+                "confidence": "low",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "hrv_features.values.deviation_pct",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [
+                  "rhr_deviation"
+                ],
+                "state": "supported",
+                "status": "computed",
+                "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+              },
+              "long_term_wellness": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "training_load_features.values.load_balance",
+                  "recovery_features.values.level",
+                  "goal_features.values.vo2_trend.values.trend_direction"
+                ],
+                "missing_data": [],
+                "signals": [
+                  "load_balance:high_spike",
+                  "level:medium",
+                  "vo2:improving"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "medium",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is medium."
+              },
+              "sleep": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours"
+                ],
+                "missing_data": [],
+                "sleep_debt_hours": 0.0,
+                "status": "computed",
+                "status_label": "protected",
+                "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+              },
+              "strength": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "strength_or_kettlebell_workouts"
+                ],
+                "status": "unavailable",
+                "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+              },
+              "vo2_max": {
+                "confidence": "medium",
+                "direction": "improving",
+                "evidence_refs": [
+                  "goal_features.values.vo2_trend.values.trend_direction",
+                  "goal_features.values.vo2_trend.values.recent_value"
+                ],
+                "missing_data": [],
+                "status": "computed",
+                "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+                "value": 46.0
+              }
             }
           },
           "vo2_trend": {
@@ -4368,7 +5072,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -4376,23 +5080,37 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 1.0,
-        "flags": [],
+        "flags": [
+          "missing_goal_indicator_inputs"
+        ],
+        "indicator_completeness": 0.8333,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 0,
           "vo2_samples": 3
-        }
+        },
+        "missing_data": [
+          "strength_or_kettlebell_workouts",
+          "rhr_deviation"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [
@@ -4402,22 +5120,84 @@
       ],
       "status": "computed",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "concerns": [],
+              "confidence": "low",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "hrv_features.values.deviation_pct",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [
+                "rhr_deviation"
+              ],
+              "state": "supported",
+              "status": "computed",
+              "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+            },
+            "long_term_wellness": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "training_load_features.values.load_balance",
+                "recovery_features.values.level",
+                "goal_features.values.vo2_trend.values.trend_direction"
+              ],
+              "missing_data": [],
+              "signals": [
+                "load_balance:high_spike",
+                "level:medium",
+                "vo2:improving"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "medium",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is medium."
+            },
+            "sleep": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours"
+              ],
+              "missing_data": [],
+              "sleep_debt_hours": 0.0,
+              "status": "computed",
+              "status_label": "protected",
+              "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+            },
+            "strength": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "strength_or_kettlebell_workouts"
+              ],
+              "status": "unavailable",
+              "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+            },
+            "vo2_max": {
+              "confidence": "medium",
+              "direction": "improving",
+              "evidence_refs": [
+                "goal_features.values.vo2_trend.values.trend_direction",
+                "goal_features.values.vo2_trend.values.recent_value"
+              ],
+              "missing_data": [],
+              "status": "computed",
+              "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+              "value": 46.0
+            }
           }
         },
         "vo2_trend": {
@@ -4870,7 +5650,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -4878,23 +5658,39 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 1.0,
-          "flags": [],
+          "flags": [
+            "missing_goal_indicator_inputs"
+          ],
+          "indicator_completeness": 0.6667,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 0,
             "vo2_samples": 3
-          }
+          },
+          "missing_data": [
+            "strength_or_kettlebell_workouts",
+            "sleep_duration_or_sleep_need",
+            "sleep_debt",
+            "sleep_debt_hours"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
@@ -4904,22 +5700,83 @@
         ],
         "status": "computed",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "concerns": [],
+                "confidence": "low",
+                "evidence_refs": [
+                  "hrv_features.values.deviation_pct",
+                  "rhr_features.values.deviation_pct",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [
+                  "sleep_debt"
+                ],
+                "state": "supported",
+                "status": "computed",
+                "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+              },
+              "long_term_wellness": {
+                "confidence": "low",
+                "evidence_refs": [
+                  "training_load_features.values.load_balance",
+                  "recovery_features.values.level",
+                  "goal_features.values.vo2_trend.values.trend_direction"
+                ],
+                "missing_data": [
+                  "sleep_debt_hours"
+                ],
+                "signals": [
+                  "load_balance:high_spike",
+                  "level:medium",
+                  "vo2:improving"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "medium",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is medium."
+              },
+              "sleep": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "sleep_duration_or_sleep_need"
+                ],
+                "status": "unavailable",
+                "summary": "Sleep indicator is unavailable because sleep debt could not be computed."
+              },
+              "strength": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "strength_or_kettlebell_workouts"
+                ],
+                "status": "unavailable",
+                "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+              },
+              "vo2_max": {
+                "confidence": "medium",
+                "direction": "improving",
+                "evidence_refs": [
+                  "goal_features.values.vo2_trend.values.trend_direction",
+                  "goal_features.values.vo2_trend.values.recent_value"
+                ],
+                "missing_data": [],
+                "status": "computed",
+                "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+                "value": 46.0
+              }
             }
           },
           "vo2_trend": {
@@ -5319,7 +6176,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -5327,23 +6184,39 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 1.0,
-        "flags": [],
+        "flags": [
+          "missing_goal_indicator_inputs"
+        ],
+        "indicator_completeness": 0.6667,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 0,
           "vo2_samples": 3
-        }
+        },
+        "missing_data": [
+          "strength_or_kettlebell_workouts",
+          "sleep_duration_or_sleep_need",
+          "sleep_debt",
+          "sleep_debt_hours"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [
@@ -5353,22 +6226,83 @@
       ],
       "status": "computed",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "concerns": [],
+              "confidence": "low",
+              "evidence_refs": [
+                "hrv_features.values.deviation_pct",
+                "rhr_features.values.deviation_pct",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [
+                "sleep_debt"
+              ],
+              "state": "supported",
+              "status": "computed",
+              "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+            },
+            "long_term_wellness": {
+              "confidence": "low",
+              "evidence_refs": [
+                "training_load_features.values.load_balance",
+                "recovery_features.values.level",
+                "goal_features.values.vo2_trend.values.trend_direction"
+              ],
+              "missing_data": [
+                "sleep_debt_hours"
+              ],
+              "signals": [
+                "load_balance:high_spike",
+                "level:medium",
+                "vo2:improving"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "medium",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is medium."
+            },
+            "sleep": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "sleep_duration_or_sleep_need"
+              ],
+              "status": "unavailable",
+              "summary": "Sleep indicator is unavailable because sleep debt could not be computed."
+            },
+            "strength": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "strength_or_kettlebell_workouts"
+              ],
+              "status": "unavailable",
+              "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+            },
+            "vo2_max": {
+              "confidence": "medium",
+              "direction": "improving",
+              "evidence_refs": [
+                "goal_features.values.vo2_trend.values.trend_direction",
+                "goal_features.values.vo2_trend.values.recent_value"
+              ],
+              "missing_data": [],
+              "status": "computed",
+              "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+              "value": 46.0
+            }
           }
         },
         "vo2_trend": {
@@ -5822,7 +6756,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -5830,23 +6764,37 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 1.0,
-          "flags": [],
+          "flags": [
+            "missing_goal_indicator_inputs"
+          ],
+          "indicator_completeness": 0.8333,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 0,
             "vo2_samples": 3
-          }
+          },
+          "missing_data": [
+            "strength_or_kettlebell_workouts",
+            "load_balance"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
@@ -5856,22 +6804,83 @@
         ],
         "status": "computed",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "concerns": [],
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "hrv_features.values.deviation_pct",
+                  "rhr_features.values.deviation_pct",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [],
+                "state": "supported",
+                "status": "computed",
+                "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+              },
+              "long_term_wellness": {
+                "confidence": "low",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "recovery_features.values.level",
+                  "goal_features.values.vo2_trend.values.trend_direction"
+                ],
+                "missing_data": [
+                  "load_balance"
+                ],
+                "signals": [
+                  "level:high",
+                  "vo2:improving"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "high",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is high."
+              },
+              "sleep": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours"
+                ],
+                "missing_data": [],
+                "sleep_debt_hours": 0.0,
+                "status": "computed",
+                "status_label": "protected",
+                "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+              },
+              "strength": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "strength_or_kettlebell_workouts"
+                ],
+                "status": "unavailable",
+                "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+              },
+              "vo2_max": {
+                "confidence": "medium",
+                "direction": "improving",
+                "evidence_refs": [
+                  "goal_features.values.vo2_trend.values.trend_direction",
+                  "goal_features.values.vo2_trend.values.recent_value"
+                ],
+                "missing_data": [],
+                "status": "computed",
+                "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+                "value": 46.0
+              }
             }
           },
           "vo2_trend": {
@@ -6253,7 +7262,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -6261,23 +7270,37 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 1.0,
-        "flags": [],
+        "flags": [
+          "missing_goal_indicator_inputs"
+        ],
+        "indicator_completeness": 0.8333,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 0,
           "vo2_samples": 3
-        }
+        },
+        "missing_data": [
+          "strength_or_kettlebell_workouts",
+          "load_balance"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [
@@ -6287,22 +7310,83 @@
       ],
       "status": "computed",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "concerns": [],
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "hrv_features.values.deviation_pct",
+                "rhr_features.values.deviation_pct",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [],
+              "state": "supported",
+              "status": "computed",
+              "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+            },
+            "long_term_wellness": {
+              "confidence": "low",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "recovery_features.values.level",
+                "goal_features.values.vo2_trend.values.trend_direction"
+              ],
+              "missing_data": [
+                "load_balance"
+              ],
+              "signals": [
+                "level:high",
+                "vo2:improving"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "high",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is high."
+            },
+            "sleep": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours"
+              ],
+              "missing_data": [],
+              "sleep_debt_hours": 0.0,
+              "status": "computed",
+              "status_label": "protected",
+              "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+            },
+            "strength": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "strength_or_kettlebell_workouts"
+              ],
+              "status": "unavailable",
+              "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+            },
+            "vo2_max": {
+              "confidence": "medium",
+              "direction": "improving",
+              "evidence_refs": [
+                "goal_features.values.vo2_trend.values.trend_direction",
+                "goal_features.values.vo2_trend.values.recent_value"
+              ],
+              "missing_data": [],
+              "status": "computed",
+              "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+              "value": 46.0
+            }
           }
         },
         "vo2_trend": {
@@ -6734,7 +7818,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -6742,46 +7826,118 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 0.5,
           "flags": [
-            "missing_vo2_max"
+            "missing_vo2_max",
+            "missing_goal_indicator_inputs"
           ],
+          "indicator_completeness": 0.6667,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 0,
             "vo2_samples": 0
-          }
+          },
+          "missing_data": [
+            "vo2_max_samples",
+            "strength_or_kettlebell_workouts",
+            "vo2_trend"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [],
         "status": "insufficient_data",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "concerns": [],
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "hrv_features.values.deviation_pct",
+                  "rhr_features.values.deviation_pct",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [],
+                "state": "supported",
+                "status": "computed",
+                "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+              },
+              "long_term_wellness": {
+                "confidence": "low",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "training_load_features.values.load_balance",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [
+                  "vo2_trend"
+                ],
+                "signals": [
+                  "load_balance:high_spike",
+                  "level:high"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "high",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is high."
+              },
+              "sleep": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours"
+                ],
+                "missing_data": [],
+                "sleep_debt_hours": 0.0,
+                "status": "computed",
+                "status_label": "protected",
+                "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+              },
+              "strength": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "strength_or_kettlebell_workouts"
+                ],
+                "status": "unavailable",
+                "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+              },
+              "vo2_max": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "vo2_max_samples"
+                ],
+                "status": "unavailable",
+                "summary": "VO2 max trend is unavailable because there are not enough recent VO2 samples."
+              }
             }
           },
           "vo2_trend": {
@@ -7183,7 +8339,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -7191,46 +8347,118 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 0.5,
         "flags": [
-          "missing_vo2_max"
+          "missing_vo2_max",
+          "missing_goal_indicator_inputs"
         ],
+        "indicator_completeness": 0.6667,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 0,
           "vo2_samples": 0
-        }
+        },
+        "missing_data": [
+          "vo2_max_samples",
+          "strength_or_kettlebell_workouts",
+          "vo2_trend"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [],
       "status": "insufficient_data",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "concerns": [],
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "hrv_features.values.deviation_pct",
+                "rhr_features.values.deviation_pct",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [],
+              "state": "supported",
+              "status": "computed",
+              "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+            },
+            "long_term_wellness": {
+              "confidence": "low",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "training_load_features.values.load_balance",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [
+                "vo2_trend"
+              ],
+              "signals": [
+                "load_balance:high_spike",
+                "level:high"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "high",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is high."
+            },
+            "sleep": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours"
+              ],
+              "missing_data": [],
+              "sleep_debt_hours": 0.0,
+              "status": "computed",
+              "status_label": "protected",
+              "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+            },
+            "strength": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "strength_or_kettlebell_workouts"
+              ],
+              "status": "unavailable",
+              "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+            },
+            "vo2_max": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "vo2_max_samples"
+              ],
+              "status": "unavailable",
+              "summary": "VO2 max trend is unavailable because there are not enough recent VO2 samples."
+            }
           }
         },
         "vo2_trend": {
@@ -7675,7 +8903,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -7683,23 +8911,36 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 1.0,
-          "flags": [],
+          "flags": [
+            "missing_goal_indicator_inputs"
+          ],
+          "indicator_completeness": 0.8333,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 0,
             "vo2_samples": 3
-          }
+          },
+          "missing_data": [
+            "strength_or_kettlebell_workouts"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
@@ -7709,22 +8950,83 @@
         ],
         "status": "computed",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "concerns": [],
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "hrv_features.values.deviation_pct",
+                  "rhr_features.values.deviation_pct",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [],
+                "state": "supported",
+                "status": "computed",
+                "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+              },
+              "long_term_wellness": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours",
+                  "training_load_features.values.load_balance",
+                  "recovery_features.values.level",
+                  "goal_features.values.vo2_trend.values.trend_direction"
+                ],
+                "missing_data": [],
+                "signals": [
+                  "load_balance:high_spike",
+                  "level:high",
+                  "vo2:improving"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "high",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is high."
+              },
+              "sleep": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "sleep_features.values.sleep_debt_hours"
+                ],
+                "missing_data": [],
+                "sleep_debt_hours": 0.0,
+                "status": "computed",
+                "status_label": "protected",
+                "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+              },
+              "strength": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "strength_or_kettlebell_workouts"
+                ],
+                "status": "unavailable",
+                "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+              },
+              "vo2_max": {
+                "confidence": "medium",
+                "direction": "improving",
+                "evidence_refs": [
+                  "goal_features.values.vo2_trend.values.trend_direction",
+                  "goal_features.values.vo2_trend.values.recent_value"
+                ],
+                "missing_data": [],
+                "status": "computed",
+                "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+                "value": 46.0
+              }
             }
           },
           "vo2_trend": {
@@ -8129,7 +9431,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -8137,23 +9439,36 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 1.0,
-        "flags": [],
+        "flags": [
+          "missing_goal_indicator_inputs"
+        ],
+        "indicator_completeness": 0.8333,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 0,
           "vo2_samples": 3
-        }
+        },
+        "missing_data": [
+          "strength_or_kettlebell_workouts"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [
@@ -8163,22 +9478,83 @@
       ],
       "status": "computed",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "concerns": [],
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "hrv_features.values.deviation_pct",
+                "rhr_features.values.deviation_pct",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [],
+              "state": "supported",
+              "status": "computed",
+              "summary": "Cognitive-readiness proxy is supported from available recovery and check-in signals."
+            },
+            "long_term_wellness": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours",
+                "training_load_features.values.load_balance",
+                "recovery_features.values.level",
+                "goal_features.values.vo2_trend.values.trend_direction"
+              ],
+              "missing_data": [],
+              "signals": [
+                "load_balance:high_spike",
+                "level:high",
+                "vo2:improving"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "high",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is high."
+            },
+            "sleep": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "sleep_features.values.sleep_debt_hours"
+              ],
+              "missing_data": [],
+              "sleep_debt_hours": 0.0,
+              "status": "computed",
+              "status_label": "protected",
+              "summary": "Sleep indicator status is protected with 0.0 hours of sleep debt."
+            },
+            "strength": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "strength_or_kettlebell_workouts"
+              ],
+              "status": "unavailable",
+              "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+            },
+            "vo2_max": {
+              "confidence": "medium",
+              "direction": "improving",
+              "evidence_refs": [
+                "goal_features.values.vo2_trend.values.trend_direction",
+                "goal_features.values.vo2_trend.values.recent_value"
+              ],
+              "missing_data": [],
+              "status": "computed",
+              "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+              "value": 46.0
+            }
           }
         },
         "vo2_trend": {
@@ -8641,7 +10017,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -8649,23 +10025,41 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 1.0,
-          "flags": [],
+          "flags": [
+            "missing_goal_indicator_inputs"
+          ],
+          "indicator_completeness": 0.5,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 0,
             "vo2_samples": 3
-          }
+          },
+          "missing_data": [
+            "strength_or_kettlebell_workouts",
+            "sleep_duration_or_sleep_need",
+            "sleep_debt",
+            "hrv_deviation",
+            "rhr_deviation",
+            "sleep_debt_hours"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
@@ -8675,22 +10069,79 @@
         ],
         "status": "computed",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "sleep_debt",
+                  "hrv_deviation",
+                  "rhr_deviation"
+                ],
+                "status": "unavailable",
+                "summary": "Cognitive-readiness proxy needs at least two sleep, recovery, HRV/RHR, or check-in inputs."
+              },
+              "long_term_wellness": {
+                "confidence": "low",
+                "evidence_refs": [
+                  "training_load_features.values.load_balance",
+                  "recovery_features.values.level",
+                  "goal_features.values.vo2_trend.values.trend_direction"
+                ],
+                "missing_data": [
+                  "sleep_debt_hours"
+                ],
+                "signals": [
+                  "load_balance:high_spike",
+                  "level:low",
+                  "vo2:improving"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "low",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is low."
+              },
+              "sleep": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "sleep_duration_or_sleep_need"
+                ],
+                "status": "unavailable",
+                "summary": "Sleep indicator is unavailable because sleep debt could not be computed."
+              },
+              "strength": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "strength_or_kettlebell_workouts"
+                ],
+                "status": "unavailable",
+                "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+              },
+              "vo2_max": {
+                "confidence": "medium",
+                "direction": "improving",
+                "evidence_refs": [
+                  "goal_features.values.vo2_trend.values.trend_direction",
+                  "goal_features.values.vo2_trend.values.recent_value"
+                ],
+                "missing_data": [],
+                "status": "computed",
+                "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+                "value": 46.0
+              }
             }
           },
           "vo2_trend": {
@@ -9071,7 +10522,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -9079,23 +10530,41 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 1.0,
-        "flags": [],
+        "flags": [
+          "missing_goal_indicator_inputs"
+        ],
+        "indicator_completeness": 0.5,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 0,
           "vo2_samples": 3
-        }
+        },
+        "missing_data": [
+          "strength_or_kettlebell_workouts",
+          "sleep_duration_or_sleep_need",
+          "sleep_debt",
+          "hrv_deviation",
+          "rhr_deviation",
+          "sleep_debt_hours"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [
@@ -9105,22 +10574,79 @@
       ],
       "status": "computed",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "sleep_debt",
+                "hrv_deviation",
+                "rhr_deviation"
+              ],
+              "status": "unavailable",
+              "summary": "Cognitive-readiness proxy needs at least two sleep, recovery, HRV/RHR, or check-in inputs."
+            },
+            "long_term_wellness": {
+              "confidence": "low",
+              "evidence_refs": [
+                "training_load_features.values.load_balance",
+                "recovery_features.values.level",
+                "goal_features.values.vo2_trend.values.trend_direction"
+              ],
+              "missing_data": [
+                "sleep_debt_hours"
+              ],
+              "signals": [
+                "load_balance:high_spike",
+                "level:low",
+                "vo2:improving"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "low",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is low."
+            },
+            "sleep": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "sleep_duration_or_sleep_need"
+              ],
+              "status": "unavailable",
+              "summary": "Sleep indicator is unavailable because sleep debt could not be computed."
+            },
+            "strength": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "strength_or_kettlebell_workouts"
+              ],
+              "status": "unavailable",
+              "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+            },
+            "vo2_max": {
+              "confidence": "medium",
+              "direction": "improving",
+              "evidence_refs": [
+                "goal_features.values.vo2_trend.values.trend_direction",
+                "goal_features.values.vo2_trend.values.recent_value"
+              ],
+              "missing_data": [],
+              "status": "computed",
+              "summary": "VO2 max trend is improving; latest estimate is 46.0 mL/kg/min.",
+              "value": 46.0
+            }
           }
         },
         "vo2_trend": {
@@ -9578,7 +11104,7 @@
       "goal_features": {
         "calculation_metadata": {
           "deterministic": true,
-          "formula_name": "goal_indicator_hooks",
+          "formula_name": "goal_indicators",
           "formula_version": "p2-03-v1",
           "parameters": {
             "active_goal_categories": [
@@ -9586,23 +11112,40 @@
               "strength",
               "recovery",
               "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
+              "cognitive_performance",
               "long_term_wellness"
-            ]
+            ],
+            "indicator_categories": [
+              "vo2_max",
+              "strength",
+              "recovery",
+              "sleep",
+              "cognitive_performance",
+              "long_term_wellness"
+            ],
+            "strength_baseline_window_days": 14,
+            "strength_recent_window_days": 14
           },
           "target_date": "2026-01-20"
         },
         "data_quality": {
           "completeness": 1.0,
-          "flags": [],
+          "flags": [
+            "missing_goal_indicator_inputs"
+          ],
+          "indicator_completeness": 0.6667,
           "input_counts": {
-            "active_goal_categories": 5,
+            "active_goal_categories": 6,
+            "strength_workouts": 0,
             "vo2_samples": 3
-          }
+          },
+          "missing_data": [
+            "strength_or_kettlebell_workouts",
+            "sleep_duration_or_sleep_need",
+            "sleep_debt",
+            "hrv_deviation",
+            "sleep_debt_hours"
+          ]
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
@@ -9612,22 +11155,85 @@
         ],
         "status": "computed",
         "values": {
-          "goal_hooks": {
+          "goal_indicators": {
             "status": "computed",
             "unit": "structured",
             "value": {
-              "active_categories": [
-                "vo2_max",
-                "strength",
-                "recovery",
-                "sleep",
-                "cognitive_performance"
-              ],
-              "extension_points": [
-                "strength_progression",
-                "cognitive_load_proxy",
-                "long_term_wellness"
-              ]
+              "cognitive_performance": {
+                "concerns": [
+                  "elevated_rhr"
+                ],
+                "confidence": "low",
+                "evidence_refs": [
+                  "rhr_features.values.deviation_pct",
+                  "recovery_features.values.level"
+                ],
+                "missing_data": [
+                  "sleep_debt",
+                  "hrv_deviation"
+                ],
+                "state": "strained",
+                "status": "computed",
+                "summary": "Cognitive-readiness proxy is strained from available recovery and check-in signals."
+              },
+              "long_term_wellness": {
+                "confidence": "low",
+                "evidence_refs": [
+                  "training_load_features.values.load_balance",
+                  "recovery_features.values.level",
+                  "goal_features.values.vo2_trend.values.trend_direction"
+                ],
+                "missing_data": [
+                  "sleep_debt_hours"
+                ],
+                "signals": [
+                  "load_balance:high_spike",
+                  "level:low",
+                  "vo2:improving"
+                ],
+                "status": "computed",
+                "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+              },
+              "recovery": {
+                "confidence": "medium",
+                "evidence_refs": [
+                  "recovery_features.values.level"
+                ],
+                "level": "low",
+                "missing_data": [],
+                "status": "computed",
+                "summary": "Recovery confidence is low."
+              },
+              "sleep": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "sleep_duration_or_sleep_need"
+                ],
+                "status": "unavailable",
+                "summary": "Sleep indicator is unavailable because sleep debt could not be computed."
+              },
+              "strength": {
+                "confidence": "low",
+                "evidence_refs": [],
+                "missing_data": [
+                  "strength_or_kettlebell_workouts"
+                ],
+                "status": "unavailable",
+                "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+              },
+              "vo2_max": {
+                "confidence": "medium",
+                "direction": "improving",
+                "evidence_refs": [
+                  "goal_features.values.vo2_trend.values.trend_direction",
+                  "goal_features.values.vo2_trend.values.recent_value"
+                ],
+                "missing_data": [],
+                "status": "computed",
+                "summary": "VO2 max trend is improving; latest estimate is 46.5 mL/kg/min.",
+                "value": 46.5
+              }
             }
           },
           "vo2_trend": {
@@ -10025,7 +11631,7 @@
     "goal": {
       "calculation_metadata": {
         "deterministic": true,
-        "formula_name": "goal_indicator_hooks",
+        "formula_name": "goal_indicators",
         "formula_version": "p2-03-v1",
         "parameters": {
           "active_goal_categories": [
@@ -10033,23 +11639,40 @@
             "strength",
             "recovery",
             "sleep",
-            "cognitive_performance"
-          ],
-          "extension_points": [
-            "strength_progression",
-            "cognitive_load_proxy",
+            "cognitive_performance",
             "long_term_wellness"
-          ]
+          ],
+          "indicator_categories": [
+            "vo2_max",
+            "strength",
+            "recovery",
+            "sleep",
+            "cognitive_performance",
+            "long_term_wellness"
+          ],
+          "strength_baseline_window_days": 14,
+          "strength_recent_window_days": 14
         },
         "target_date": "2026-01-20"
       },
       "data_quality": {
         "completeness": 1.0,
-        "flags": [],
+        "flags": [
+          "missing_goal_indicator_inputs"
+        ],
+        "indicator_completeness": 0.6667,
         "input_counts": {
-          "active_goal_categories": 5,
+          "active_goal_categories": 6,
+          "strength_workouts": 0,
           "vo2_samples": 3
-        }
+        },
+        "missing_data": [
+          "strength_or_kettlebell_workouts",
+          "sleep_duration_or_sleep_need",
+          "sleep_debt",
+          "hrv_deviation",
+          "sleep_debt_hours"
+        ]
       },
       "feature_version": "p2-03-v1",
       "source_sample_ids": [
@@ -10059,22 +11682,85 @@
       ],
       "status": "computed",
       "values": {
-        "goal_hooks": {
+        "goal_indicators": {
           "status": "computed",
           "unit": "structured",
           "value": {
-            "active_categories": [
-              "vo2_max",
-              "strength",
-              "recovery",
-              "sleep",
-              "cognitive_performance"
-            ],
-            "extension_points": [
-              "strength_progression",
-              "cognitive_load_proxy",
-              "long_term_wellness"
-            ]
+            "cognitive_performance": {
+              "concerns": [
+                "elevated_rhr"
+              ],
+              "confidence": "low",
+              "evidence_refs": [
+                "rhr_features.values.deviation_pct",
+                "recovery_features.values.level"
+              ],
+              "missing_data": [
+                "sleep_debt",
+                "hrv_deviation"
+              ],
+              "state": "strained",
+              "status": "computed",
+              "summary": "Cognitive-readiness proxy is strained from available recovery and check-in signals."
+            },
+            "long_term_wellness": {
+              "confidence": "low",
+              "evidence_refs": [
+                "training_load_features.values.load_balance",
+                "recovery_features.values.level",
+                "goal_features.values.vo2_trend.values.trend_direction"
+              ],
+              "missing_data": [
+                "sleep_debt_hours"
+              ],
+              "signals": [
+                "load_balance:high_spike",
+                "level:low",
+                "vo2:improving"
+              ],
+              "status": "computed",
+              "summary": "Long-term wellness proxy reflects lifestyle consistency signals only; it is not diagnostic."
+            },
+            "recovery": {
+              "confidence": "medium",
+              "evidence_refs": [
+                "recovery_features.values.level"
+              ],
+              "level": "low",
+              "missing_data": [],
+              "status": "computed",
+              "summary": "Recovery confidence is low."
+            },
+            "sleep": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "sleep_duration_or_sleep_need"
+              ],
+              "status": "unavailable",
+              "summary": "Sleep indicator is unavailable because sleep debt could not be computed."
+            },
+            "strength": {
+              "confidence": "low",
+              "evidence_refs": [],
+              "missing_data": [
+                "strength_or_kettlebell_workouts"
+              ],
+              "status": "unavailable",
+              "summary": "Strength consistency proxy is unavailable because no strength or kettlebell workouts were found."
+            },
+            "vo2_max": {
+              "confidence": "medium",
+              "direction": "improving",
+              "evidence_refs": [
+                "goal_features.values.vo2_trend.values.trend_direction",
+                "goal_features.values.vo2_trend.values.recent_value"
+              ],
+              "missing_data": [],
+              "status": "computed",
+              "summary": "VO2 max trend is improving; latest estimate is 46.5 mL/kg/min.",
+              "value": 46.5
+            }
           }
         },
         "vo2_trend": {

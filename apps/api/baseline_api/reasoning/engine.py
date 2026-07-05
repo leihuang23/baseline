@@ -143,7 +143,12 @@ def assess_readiness(reasoning_input: ReasoningInput) -> ReadinessAssessmentOutp
         "No material uncertainty beyond normal day-to-day variability."
     ]
     follow_ups = state.follow_up_questions
-    goal_tradeoffs = _goal_tradeoffs(reasoning_input.active_goals, state, recommendation_band)
+    goal_tradeoffs = _goal_tradeoffs(
+        reasoning_input.active_goals,
+        features,
+        state,
+        recommendation_band,
+    )
     candidate_options = _candidate_options(recommendation_band, state, confidence)
 
     trace_payload = {
@@ -598,32 +603,93 @@ def _confidence_level(state: _SignalState, completeness: float | None) -> Confid
 
 def _goal_tradeoffs(
     active_goals: Sequence[Any],
+    features: Mapping[str, Any],
     state: _SignalState,
     recommendation_band: RecommendationBand,
 ) -> list[JsonDict]:
     tradeoffs: list[JsonDict] = []
+    indicators = _goal_indicators(features)
     for goal in active_goals:
         category = _goal_value(goal, "category")
         if category is None:
             continue
         priority = _goal_value(goal, "priority")
+        indicator = indicators.get(category)
+        if not isinstance(indicator, Mapping) or indicator.get("status") != "computed":
+            missing = []
+            if isinstance(indicator, Mapping):
+                missing = [str(item) for item in indicator.get("missing_data", [])]
+            tradeoffs.append(
+                {
+                    "goal": category,
+                    "priority": priority,
+                    "tradeoff": _missing_goal_indicator_text(category, missing),
+                    "indicator_status": "unavailable",
+                    "evidence_refs": [],
+                    "missing_data": missing or [f"{category}_indicator"],
+                }
+            )
+            continue
+
+        evidence_refs = [
+            str(ref) for ref in indicator.get("evidence_refs", []) if isinstance(ref, str)
+        ]
+        summary = str(indicator.get("summary", "Goal indicator is available."))
         easy_or_lower = BAND_RANK[recommendation_band] <= BAND_RANK[RecommendationBand.easy]
         if category in {"vo2_max", "strength"} and easy_or_lower:
-            tradeoff = "Adaptation work is de-emphasized today to protect recovery and reduce risk."
+            tradeoff = (
+                f"{summary} Adaptation work is de-emphasized today to protect recovery "
+                "and reduce risk."
+            )
         elif category in {"recovery", "sleep"} and state.risk_flags:
-            tradeoff = "Recovery protection is prioritized because risk flags are active."
+            tradeoff = (
+                f"{summary} Recovery protection is prioritized because risk flags are active."
+            )
         elif category == "cognitive_performance" and "high_sleep_debt" in state.risk_flags:
-            tradeoff = "Lower intensity protects cognitive performance after sleep debt."
+            tradeoff = f"{summary} Lower intensity protects cognitive performance after sleep debt."
         else:
-            tradeoff = "Current recommendation remains compatible with this goal."
+            tradeoff = f"{summary} Current recommendation remains compatible with this goal."
         tradeoffs.append(
             {
                 "goal": category,
                 "priority": priority,
                 "tradeoff": tradeoff,
+                "indicator_status": "computed",
+                "evidence_refs": evidence_refs,
+                "missing_data": [
+                    str(item) for item in indicator.get("missing_data", []) if isinstance(item, str)
+                ],
             }
         )
     return tradeoffs
+
+
+def _goal_indicators(features: Mapping[str, Any]) -> Mapping[str, Any]:
+    goal_features = features.get("goal_features")
+    if not isinstance(goal_features, Mapping):
+        return {}
+    values = goal_features.get("values")
+    if not isinstance(values, Mapping):
+        return {}
+    entry = values.get("goal_indicators")
+    if not isinstance(entry, Mapping):
+        return {}
+    indicators = entry.get("value")
+    if not isinstance(indicators, Mapping):
+        return {}
+    return indicators
+
+
+def _missing_goal_indicator_text(category: str, missing: list[str]) -> str:
+    if missing:
+        return (
+            f"No concrete {category} tradeoff is emitted because required data is missing: "
+            f"{', '.join(missing)}."
+        )
+    return (
+        f"No concrete {category} tradeoff is emitted because its goal indicator is "
+        "missing or unavailable."
+    )
 
 
 def _candidate_options(

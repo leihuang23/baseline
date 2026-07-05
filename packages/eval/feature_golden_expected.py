@@ -33,7 +33,7 @@ HIGH_HRV_GOLDEN_BUNDLE: dict = {
     "goal_features": {
         "calculation_metadata": {
             "deterministic": True,
-            "formula_name": "goal_indicator_hooks",
+            "formula_name": "goal_indicators",
             "formula_version": "p2-03-v1",
             "parameters": {
                 "active_goal_categories": [
@@ -42,19 +42,31 @@ HIGH_HRV_GOLDEN_BUNDLE: dict = {
                     "recovery",
                     "sleep",
                     "cognitive_performance",
-                ],
-                "extension_points": [
-                    "strength_progression",
-                    "cognitive_load_proxy",
                     "long_term_wellness",
                 ],
+                "indicator_categories": [
+                    "vo2_max",
+                    "strength",
+                    "recovery",
+                    "sleep",
+                    "cognitive_performance",
+                    "long_term_wellness",
+                ],
+                "strength_baseline_window_days": 14,
+                "strength_recent_window_days": 14,
             },
             "target_date": "2026-01-25",
         },
         "data_quality": {
             "completeness": 1.0,
             "flags": [],
-            "input_counts": {"active_goal_categories": 5, "vo2_samples": 21},
+            "indicator_completeness": 1.0,
+            "input_counts": {
+                "active_goal_categories": 6,
+                "strength_workouts": 3,
+                "vo2_samples": 21,
+            },
+            "missing_data": [],
         },
         "feature_version": "p2-03-v1",
         "source_sample_ids": [
@@ -79,25 +91,119 @@ HIGH_HRV_GOLDEN_BUNDLE: dict = {
             "95cde204-8cb8-5a25-973a-5b1b2c78755b",
             "7c9f00ee-dfbe-5595-bb10-5d3122c7489c",
             "b16d5e6e-42b5-5da5-a723-3a7198cb6830",
+            "88a79fdc-5d52-500b-829e-829ad5992748",
+            "352e942b-b111-568f-807a-007dd3115979",
+            "82988728-ffb0-5951-9ea2-2a54fc29c37b",
         ],
         "status": "computed",
         "values": {
-            "goal_hooks": {
+            "goal_indicators": {
                 "status": "computed",
                 "unit": "structured",
                 "value": {
-                    "active_categories": [
-                        "vo2_max",
-                        "strength",
-                        "recovery",
-                        "sleep",
-                        "cognitive_performance",
-                    ],
-                    "extension_points": [
-                        "strength_progression",
-                        "cognitive_load_proxy",
-                        "long_term_wellness",
-                    ],
+                    "cognitive_performance": {
+                        "concerns": [],
+                        "confidence": "medium",
+                        "evidence_refs": [
+                            "sleep_features.values.sleep_debt_hours",
+                            "hrv_features.values.deviation_pct",
+                            "rhr_features.values.deviation_pct",
+                            "recovery_features.values.level",
+                        ],
+                        "missing_data": [],
+                        "state": "supported",
+                        "status": "computed",
+                        "summary": "Cognitive-readiness "
+                        "proxy "
+                        "is "
+                        "supported "
+                        "from "
+                        "available "
+                        "recovery "
+                        "and "
+                        "check-in "
+                        "signals.",
+                    },
+                    "long_term_wellness": {
+                        "confidence": "medium",
+                        "evidence_refs": [
+                            "sleep_features.values.sleep_debt_hours",
+                            "training_load_features.values.load_balance",
+                            "recovery_features.values.level",
+                            "goal_features.values.vo2_trend.values.trend_direction",
+                        ],
+                        "missing_data": [],
+                        "signals": ["load_balance:balanced", "level:high", "vo2:improving"],
+                        "status": "computed",
+                        "summary": "Long-term "
+                        "wellness "
+                        "proxy "
+                        "reflects "
+                        "lifestyle "
+                        "consistency "
+                        "signals "
+                        "only; "
+                        "it "
+                        "is "
+                        "not "
+                        "diagnostic.",
+                    },
+                    "recovery": {
+                        "confidence": "medium",
+                        "evidence_refs": ["recovery_features.values.level"],
+                        "level": "high",
+                        "missing_data": [],
+                        "status": "computed",
+                        "summary": "Recovery confidence is high.",
+                    },
+                    "sleep": {
+                        "confidence": "medium",
+                        "evidence_refs": ["sleep_features.values.sleep_debt_hours"],
+                        "missing_data": [],
+                        "sleep_debt_hours": 0.31,
+                        "status": "computed",
+                        "status_label": "protected",
+                        "summary": "Sleep indicator "
+                        "status is "
+                        "protected with "
+                        "0.31 hours of "
+                        "sleep debt.",
+                    },
+                    "strength": {
+                        "baseline_active_energy_kcal": 385.5,
+                        "baseline_minutes": 48.3,
+                        "baseline_sessions": 1,
+                        "confidence": "medium",
+                        "evidence_refs": ["goal_features.values.goal_indicators.strength"],
+                        "missing_data": [],
+                        "recent_active_energy_kcal": 612.9,
+                        "recent_minutes": 87.7,
+                        "recent_sessions": 2,
+                        "status": "computed",
+                        "summary": "Strength "
+                        "proxy is "
+                        "based on "
+                        "consistency, "
+                        "duration, and "
+                        "active "
+                        "energy; it "
+                        "does not "
+                        "measure "
+                        "lifted load.",
+                        "trend": "building",
+                    },
+                    "vo2_max": {
+                        "confidence": "medium",
+                        "direction": "improving",
+                        "evidence_refs": [
+                            "goal_features.values.vo2_trend.values.trend_direction",
+                            "goal_features.values.vo2_trend.values.recent_value",
+                        ],
+                        "missing_data": [],
+                        "status": "computed",
+                        "summary": "VO2 max trend is improving; latest estimate is 47.3 mL/kg/min.",
+                        "value": 47.3,
+                    },
                 },
             },
             "vo2_trend": {
@@ -434,10 +540,15 @@ HIGH_HRV_GOLDEN_BUNDLE: dict = {
                 "chronic_window_days": 28,
                 "density_window_days": 6,
                 "load_unit_formula": "max(active_energy, "
-                "duration, hr, distance "
-                "signals) * "
-                "modality_factor * "
-                "intensity_zone_factor * "
+                "duration, "
+                "hr, "
+                "distance "
+                "signals) "
+                "* "
+                "modality_factor "
+                "* "
+                "intensity_zone_factor "
+                "* "
                 "rpe_factor",
                 "min_load_days": 2,
             },

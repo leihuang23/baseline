@@ -75,6 +75,7 @@ async def daily_analysis(
         workouts = _load_workouts(session, user_uuid, target_date)
         vo2_samples = _load_vo2_samples(session, user_uuid, target_date)
 
+        check_in_mapping = _check_in_mapping(checkin)
         bundle = assemble_daily_features(
             target_date,
             sleep_sessions=sleep_sessions,
@@ -82,6 +83,7 @@ async def daily_analysis(
             rhr_samples=rhr_samples,
             workouts=workouts,
             vo2_samples=vo2_samples,
+            daily_check_in=check_in_mapping,
             personal_sleep_need_hours=8.0,
             computed_at=dt.datetime.now(dt.UTC),
         )
@@ -261,6 +263,21 @@ async def on_startup(ctx: dict[str, Any]) -> None:
     engine = create_engine(str(settings.database_url))
     ctx["engine"] = engine
     ctx["session_maker"] = sessionmaker(bind=engine, class_=Session)
+
+
+def _check_in_mapping(checkin: DailyCheckIn | None) -> dict[str, Any] | None:
+    if checkin is None:
+        return None
+    mapping: dict[str, Any] = {}
+    if checkin.energy_score is not None:
+        mapping["energy_score"] = checkin.energy_score
+    if checkin.stress_score is not None:
+        mapping["stress_score"] = checkin.stress_score
+    if checkin.mood_score is not None:
+        mapping["mood_score"] = checkin.mood_score
+    if checkin.soreness_score is not None:
+        mapping["soreness_score"] = checkin.soreness_score
+    return mapping
 
 
 async def on_shutdown(ctx: dict[str, Any]) -> None:
