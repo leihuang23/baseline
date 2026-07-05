@@ -1,5 +1,5 @@
 {
-  "active_cluster": "P5-knowledge-ops",
+  "active_cluster": "P6-demo-portfolio",
   "clusters": [
     {
       "cluster_review_required": true,
@@ -372,13 +372,15 @@
       "title": "demo mode leak tests"
     },
     {
+      "completed_at": "2026-07-05T06:13:16Z",
       "id": "P6-02",
+      "last_run_dir": ".task-runs/manual-P6-02-finish",
       "phase": "P6",
       "prompt": "tasks/P6-02-portfolio-docs.md",
-      "status": "pending",
+      "status": "complete",
       "title": "portfolio docs"
     }
   ],
-  "updated_at": "2026-07-05T05:26:18Z",
+  "updated_at": "2026-07-05T06:13:16Z",
   "version": 1
 }

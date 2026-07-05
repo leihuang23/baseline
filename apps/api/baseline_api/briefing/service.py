@@ -200,6 +200,19 @@ class DailyBriefingService:
             estimated_completion_seconds=0 if job.status in {"completed", "failed"} else 5,
         )
 
+    def mark_daily_job_failed(
+        self,
+        job_id: UUID,
+        *,
+        error_code: str,
+        error_message: str | None,
+    ) -> None:
+        self._mark_job_failed(
+            job_id,
+            error_code=error_code,
+            error_message=error_message,
+        )
+
     async def run_daily_job(self, job_id: UUID) -> DailyAnalysisResponse:
         job = self._session.get(DailyAnalysisJob, job_id)
         if job is None:

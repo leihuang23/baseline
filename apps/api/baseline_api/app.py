@@ -1,11 +1,13 @@
-from typing import cast
+from typing import Any, cast
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from baseline_api.api.assistant import router as assistant_router
+from baseline_api.api.auth import api_key_auth_middleware, is_public_api_path
 from baseline_api.api.checkins import router as checkins_router
 from baseline_api.api.data import router as data_router
 from baseline_api.api.goals import router as goals_router
@@ -24,6 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title=resolved_settings.app_name)
     app.state.settings = resolved_settings
     app.add_exception_handler(RequestValidationError, _validation_exception_handler)
+    app.middleware("http")(api_key_auth_middleware)
     app.middleware("http")(trace_id_middleware)
     app.include_router(health_router)
     app.include_router(v1_health_router)
@@ -34,7 +37,58 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(data_router)
     app.include_router(goals_router)
     app.include_router(metrics_router)
+    _install_openapi_auth_contract(app)
     return app
+
+
+def _install_openapi_auth_contract(app: FastAPI) -> None:
+    def custom_openapi() -> dict[str, Any]:
+        if app.openapi_schema:
+            return app.openapi_schema
+
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            routes=app.routes,
+            description=app.description,
+            summary=app.summary,
+        )
+        components = schema.setdefault("components", {})
+        security_schemes = components.setdefault("securitySchemes", {})
+        security_schemes["BaselineBearerAuth"] = {
+            "type": "http",
+            "scheme": "bearer",
+            "description": "Baseline API token from BASELINE_API_AUTH_TOKEN.",
+        }
+        security_schemes["BaselineApiKeyAuth"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-Baseline-API-Key",
+            "description": "Baseline API token from BASELINE_API_AUTH_TOKEN.",
+        }
+
+        security: list[dict[str, list[str]]] = [
+            {"BaselineBearerAuth": []},
+            {"BaselineApiKeyAuth": []},
+        ]
+        for path, operations in schema.get("paths", {}).items():
+            if is_public_api_path(path):
+                continue
+            for method, operation in operations.items():
+                if method not in {"get", "put", "post", "delete", "patch", "options", "head"}:
+                    continue
+                operation.setdefault("security", security)
+                operation.setdefault("responses", {}).setdefault(
+                    "401",
+                    {
+                        "description": "Authentication required.",
+                    },
+                )
+
+        app.openapi_schema = schema
+        return app.openapi_schema
+
+    app.openapi = custom_openapi  # type: ignore[method-assign]
 
 
 async def _validation_exception_handler(

@@ -8,6 +8,7 @@ from collections.abc import Generator, Sequence
 from typing import Any, cast
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from packages.knowledge.models import KnowledgeSourceDocument
 from packages.knowledge.pipeline import KnowledgeIngestionPipeline
@@ -57,7 +58,7 @@ from baseline_api.retrieval import (
     KnowledgeRetrievalService,
 )
 from baseline_api.safety.engine import SafetyPolicyEngine
-from baseline_api.schemas.api import DailyBriefingResponse
+from baseline_api.schemas.api import DailyAnalysisRequest, DailyBriefingResponse
 from baseline_api.schemas.recommendation import RecommendationContract
 
 TARGET_DATE = dt.date(2026, 7, 4)
@@ -475,6 +476,29 @@ class FailingLLMExplainer:
         raise RuntimeError("provider down")
 
 
+class FakeDailyBriefingQueue:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.enqueued: list[UUID] = []
+        self.error = error
+
+    async def enqueue_daily_briefing(self, *, job_id: UUID) -> str | None:
+        if self.error is not None:
+            raise self.error
+        self.enqueued.append(job_id)
+        return f"job:{job_id}"
+
+
+class _FakeSessionContext:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def __enter__(self) -> Session:
+        return self._session
+
+    def __exit__(self, *args: object) -> bool:
+        return False
+
+
 def _settings() -> Settings:
     return Settings(
         APP_ENV="test",
@@ -488,6 +512,7 @@ def _client(
     *,
     llm_explainer: object | None = None,
     run_inline: bool = True,
+    briefing_queue: FakeDailyBriefingQueue | None = None,
 ) -> TestClient:
     app = create_app(_settings())
 
@@ -496,6 +521,8 @@ def _client(
 
     app.dependency_overrides[get_db_session] = override_session
     app.state.briefing_run_inline = run_inline
+    if briefing_queue is not None:
+        app.state.daily_briefing_queue = briefing_queue
     if llm_explainer is not None:
         app.state.briefing_llm_explainer = llm_explainer
     return TestClient(app)
@@ -841,25 +868,140 @@ def test_served_safety_preserves_memory_on_disclaimer_only_rewrite() -> None:
 
 def test_daily_analysis_post_returns_queued_job_by_default(
     db_session: Session,
-    monkeypatch: Any,
 ) -> None:
     _seed_fixture_day(db_session)
-
-    async def noop_background_job(*_: Any) -> None:
-        return None
-
-    monkeypatch.setattr(
-        "baseline_api.api.v1.contracts._run_daily_analysis_job",
-        noop_background_job,
-    )
-    client = _client(db_session, run_inline=False)
+    queue = FakeDailyBriefingQueue()
+    client = _client(db_session, run_inline=False, briefing_queue=queue)
 
     job = _generate(client)
 
     assert job["status"] == "queued"
+    assert queue.enqueued == [UUID(job["analysis_job_id"])]
     persisted_job = db_session.get(DailyAnalysisJob, UUID(job["analysis_job_id"]))
     assert persisted_job is not None
     assert persisted_job.status == "queued"
+
+
+def test_daily_analysis_enqueue_failure_marks_job_failed(db_session: Session) -> None:
+    _seed_fixture_day(db_session)
+    queue = FakeDailyBriefingQueue(error=RuntimeError("redis down"))
+    client = _client(db_session, run_inline=False, briefing_queue=queue)
+
+    response = client.post(
+        "/v1/analysis/daily",
+        json={
+            "date": TARGET_DATE.isoformat(),
+            "force_recompute": False,
+            "include_external_knowledge": False,
+            "privacy_mode": "cloud_assisted",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "analysis_enqueue_failed"
+    persisted_job = db_session.exec(select(DailyAnalysisJob)).one()
+    assert persisted_job.status == "failed"
+    assert persisted_job.error_code == "analysis_enqueue_failed"
+
+
+@pytest.mark.asyncio
+async def test_daily_briefing_worker_runs_persisted_job(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from baseline_api.briefing import worker as briefing_worker
+
+    _seed_fixture_day(db_session)
+    job = DailyBriefingService(db_session).create_daily_job(
+        DailyAnalysisRequest(
+            date=TARGET_DATE,
+            force_recompute=False,
+            include_external_knowledge=False,
+            privacy_mode="cloud_assisted",
+        )
+    )
+
+    def fake_orchestrator(*, session: Session, router: object) -> FakeLLMExplainer:
+        return FakeLLMExplainer(session)
+
+    monkeypatch.setattr(briefing_worker, "get_settings", _settings)
+    monkeypatch.setattr(briefing_worker, "build_default_router", lambda settings: object())
+    monkeypatch.setattr(briefing_worker, "LLMOrchestrator", fake_orchestrator)
+
+    result = await briefing_worker.daily_briefing(
+        {"session_maker": lambda: _FakeSessionContext(db_session)},
+        str(job.id),
+    )
+
+    assert result["analysis_job_id"] == str(job.id)
+    assert result["status"] == "completed"
+    persisted_job = db_session.get(DailyAnalysisJob, job.id)
+    assert persisted_job is not None
+    assert persisted_job.status == "completed"
+
+
+def test_worker_settings_registers_daily_briefing_without_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import importlib
+
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://baseline@localhost:5433/baseline",
+    )
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+
+    import baseline_api.worker as worker_settings
+    from baseline_api.config import get_settings
+
+    get_settings.cache_clear()
+    worker_settings = importlib.reload(worker_settings)
+
+    daily_briefing_function = next(
+        function
+        for function in worker_settings.WorkerSettings.functions
+        if getattr(function, "name", None) == "daily_briefing"
+    )
+
+    assert daily_briefing_function.max_tries == 1
+
+
+def test_worker_startup_marks_stale_running_daily_briefing_jobs_failed(
+    db_session: Session,
+) -> None:
+    import baseline_api.worker as worker_settings
+
+    _seed_fixture_day(db_session)
+    service = DailyBriefingService(db_session)
+    request = DailyAnalysisRequest(
+        date=TARGET_DATE,
+        force_recompute=False,
+        include_external_knowledge=False,
+        privacy_mode="cloud_assisted",
+    )
+    stale_job = service.create_daily_job(request)
+    fresh_job = service.create_daily_job(request)
+    now = dt.datetime(2026, 7, 5, 12, 0, tzinfo=dt.UTC)
+    stale_job.status = "running"
+    stale_job.started_at = now - dt.timedelta(hours=2)
+    fresh_job.status = "running"
+    fresh_job.started_at = now - dt.timedelta(minutes=5)
+    db_session.add(stale_job)
+    db_session.add(fresh_job)
+    db_session.commit()
+
+    recovered = worker_settings.mark_stale_running_daily_briefing_jobs_failed(
+        {"session_maker": lambda: _FakeSessionContext(db_session)},
+        now=now,
+    )
+
+    db_session.refresh(stale_job)
+    db_session.refresh(fresh_job)
+    assert recovered == 1
+    assert stale_job.status == "failed"
+    assert stale_job.error_code == "analysis_worker_restarted"
+    assert fresh_job.status == "running"
 
 
 def test_llm_failure_degrades_to_deterministic_briefing(db_session: Session) -> None:

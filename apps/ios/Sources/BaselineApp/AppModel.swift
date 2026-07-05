@@ -21,14 +21,23 @@ final class BaselineAppModel: ObservableObject {
     private let consentStore: any ConsentPersisting
     private let healthKitClient: HealthKitClient
     private let apiBaseURL: URL
+    private let apiAuthToken: String?
     private var syncEngine: HealthSyncEngine?
 
     var currentAPIBaseURL: URL {
         apiBaseURL
     }
 
-    init(apiBaseURL: URL = BaselineAppConfiguration.resolvedCurrentAPIBaseURL()) {
+    var currentAPIAuthToken: String? {
+        apiAuthToken
+    }
+
+    init(
+        apiBaseURL: URL = BaselineAppConfiguration.resolvedCurrentAPIBaseURL(),
+        apiAuthToken: String? = BaselineAppConfiguration.resolvedCurrentAPIAuthToken()
+    ) {
         self.apiBaseURL = apiBaseURL
+        self.apiAuthToken = apiAuthToken
         healthKitClient = HealthKitClient()
         permissionCoordinator = PermissionCoordinator(healthAuthorizationClient: healthKitClient)
         let supportDirectory = FileManager.default.urls(
@@ -150,7 +159,10 @@ final class BaselineAppModel: ObservableObject {
     }
 
     private func buildSyncEngine(for categories: Set<HealthCategory>) throws -> HealthSyncEngine {
-        let apiClient = URLSessionHealthSyncAPIClient(baseURL: apiBaseURL)
+        let apiClient = URLSessionHealthSyncAPIClient(
+            baseURL: apiBaseURL,
+            apiAuthToken: apiAuthToken
+        )
         healthKitClient.enabledCategories = categories
         return HealthSyncEngine(
             anchorStore: anchorStore,
@@ -158,5 +170,6 @@ final class BaselineAppModel: ObservableObject {
             apiClient: apiClient
         )
     }
+
 }
 #endif

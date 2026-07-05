@@ -18,11 +18,13 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let apiAuthToken: String?
     private static let exportMagic = Data("BASELINE-EXPORT-AES256GCM-V1".utf8)
 
-    public init(baseURL: URL, session: URLSession = .shared) {
+    public init(baseURL: URL, session: URLSession = .shared, apiAuthToken: String? = nil) {
         self.baseURL = baseURL
         self.session = session
+        self.apiAuthToken = apiAuthToken
         encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         decoder = JSONDecoder()
@@ -59,6 +61,7 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
     public func deleteDailyCheckIn(id: UUID) async throws {
         var urlRequest = URLRequest(url: Self.dailyCheckInURL(baseURL: baseURL, id: id))
         urlRequest.httpMethod = "DELETE"
+        applyAuthHeader(to: &urlRequest)
         let (_, response) = try await session.data(for: urlRequest)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw BaselineAPIError.invalidResponse
@@ -123,6 +126,7 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
     public func downloadDataExport(from downloadURL: String) async throws -> Data {
         var urlRequest = URLRequest(url: Self.dataExportDownloadURL(baseURL: baseURL, downloadURL: downloadURL))
         urlRequest.httpMethod = "GET"
+        applyAuthHeader(to: &urlRequest)
         urlRequest.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: urlRequest)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -292,6 +296,7 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
     ) async throws -> Response {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
+        applyAuthHeader(to: &urlRequest)
         if let body {
             urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
             urlRequest.httpBody = try encoder.encode(body)
@@ -310,4 +315,21 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
         }
         return response
     }
+
+    private func applyAuthHeader(to request: inout URLRequest) {
+        guard let apiAuthToken, !apiAuthToken.isEmpty, isSameOrigin(request.url) else {
+            return
+        }
+        request.setValue("Bearer \(apiAuthToken)", forHTTPHeaderField: "Authorization")
+    }
+
+    private func isSameOrigin(_ url: URL?) -> Bool {
+        guard let url else {
+            return false
+        }
+        return url.scheme == baseURL.scheme
+            && url.host == baseURL.host
+            && url.port == baseURL.port
+    }
+
 }

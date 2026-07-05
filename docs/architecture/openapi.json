@@ -2809,6 +2809,19 @@
         "title": "ValidationError",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "BaselineApiKeyAuth": {
+        "description": "Baseline API token from BASELINE_API_AUTH_TOKEN.",
+        "in": "header",
+        "name": "X-Baseline-API-Key",
+        "type": "apiKey"
+      },
+      "BaselineBearerAuth": {
+        "description": "Baseline API token from BASELINE_API_AUTH_TOKEN.",
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
   },
   "info": {
@@ -2863,6 +2876,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2874,6 +2890,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Generate Daily Analysis",
         "tags": [
           "contracts"
@@ -2906,6 +2930,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2917,6 +2944,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Get Daily Analysis Job",
         "tags": [
           "contracts"
@@ -2949,6 +2984,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2960,6 +2998,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Get Analysis Trace",
         "tags": [
           "contracts"
@@ -2990,6 +3036,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3001,6 +3050,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Ask Assistant",
         "tags": [
           "assistant"
@@ -3043,6 +3100,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3054,6 +3114,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Get Daily Briefing",
         "tags": [
           "contracts"
@@ -3084,6 +3152,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3095,6 +3166,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Submit Daily Checkin",
         "tags": [
           "checkins"
@@ -3127,6 +3206,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3138,6 +3220,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Get Daily Checkin",
         "tags": [
           "checkins"
@@ -3163,6 +3253,9 @@
           "204": {
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3174,6 +3267,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Delete Daily Checkin",
         "tags": [
           "checkins"
@@ -3214,6 +3315,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3225,6 +3329,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Update Daily Checkin",
         "tags": [
           "checkins"
@@ -3244,8 +3356,19 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required."
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Delete All Data",
         "tags": [
           "data-controls"
@@ -3278,6 +3401,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3289,6 +3415,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Delete Checkin",
         "tags": [
           "data-controls"
@@ -3321,6 +3455,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3332,6 +3469,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Delete Checkin Note",
         "tags": [
           "data-controls"
@@ -3362,6 +3507,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3373,6 +3521,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Record Consent",
         "tags": [
           "data-controls"
@@ -3403,6 +3559,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3414,6 +3573,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Disable External Llm",
         "tags": [
           "data-controls"
@@ -3433,8 +3600,19 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required."
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Consent History",
         "tags": [
           "data-controls"
@@ -3465,6 +3643,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3476,6 +3657,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Revoke Consent",
         "tags": [
           "data-controls"
@@ -3506,6 +3695,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3517,6 +3709,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Export Data",
         "tags": [
           "data-controls"
@@ -3550,6 +3750,9 @@
             },
             "description": "Encrypted export file."
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3561,6 +3764,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Download Export",
         "tags": [
           "data-controls"
@@ -3593,6 +3804,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3604,6 +3818,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Delete Memory Summary",
         "tags": [
           "data-controls"
@@ -3623,8 +3845,19 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required."
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Model Disclosures",
         "tags": [
           "data-controls"
@@ -3644,8 +3877,19 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required."
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "List Goals",
         "tags": [
           "goals"
@@ -3674,6 +3918,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3685,6 +3932,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Create Goal",
         "tags": [
           "goals"
@@ -3710,6 +3965,9 @@
           "204": {
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3721,6 +3979,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Delete Goal",
         "tags": [
           "goals"
@@ -3751,6 +4017,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3762,6 +4031,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Get Goal",
         "tags": [
           "goals"
@@ -3802,6 +4079,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3813,6 +4093,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Update Goal",
         "tags": [
           "goals"
@@ -3845,6 +4133,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3856,6 +4147,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Pause Goal",
         "tags": [
           "goals"
@@ -3888,6 +4187,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3899,6 +4201,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Resume Goal",
         "tags": [
           "goals"
@@ -3954,6 +4264,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "403": {
             "content": {
               "application/json": {
@@ -3995,6 +4308,14 @@
             "description": "Raw samples were persisted, but normalization could not be queued."
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Sync Health",
         "tags": [
           "health"
@@ -4034,6 +4355,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4045,6 +4369,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Get Operational Alerts",
         "tags": [
           "observability"
@@ -4087,6 +4419,9 @@
             },
             "description": "Successful Response"
           },
+          "401": {
+            "description": "Authentication required."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -4108,6 +4443,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ],
         "summary": "Submit Recommendation Feedback",
         "tags": [
           "contracts"

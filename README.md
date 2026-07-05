@@ -97,9 +97,13 @@ fabricating missing data.
 cp .env.example .env
 docker compose -f infra/docker-compose.yml up -d
 uv run uvicorn baseline_api.main:app --reload
+python -m arq baseline_api.worker.WorkerSettings
 ```
 
 Then open `http://127.0.0.1:8000/health`. It should return HTTP 200.
+Set `BASELINE_API_AUTH_TOKEN` for any non-local deployment and pass the same
+token to the iOS client through `BASELINE_API_AUTH_TOKEN` or the
+`BaselineAPIAuthToken` Info.plist key.
 
 Useful checks:
 
@@ -145,4 +149,5 @@ and expected artifacts.
 - [Privacy notes](docs/privacy/README.md)
 - [Safety boundary](docs/safety/README.md)
 - [Failure modes](docs/safety/failure-modes.md)
+- [Deployment readiness](docs/runbooks/deployment-readiness.md)
 - [Docs consistency checklist](docs/docs-consistency-checklist.md)

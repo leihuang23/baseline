@@ -373,6 +373,32 @@ def test_data_export_route_is_published() -> None:
     }
 
 
+def test_openapi_documents_auth_for_protected_routes_only() -> None:
+    schema = create_app(_settings()).openapi()
+
+    assert schema["components"]["securitySchemes"] == {
+        "BaselineApiKeyAuth": {
+            "description": "Baseline API token from BASELINE_API_AUTH_TOKEN.",
+            "in": "header",
+            "name": "X-Baseline-API-Key",
+            "type": "apiKey",
+        },
+        "BaselineBearerAuth": {
+            "description": "Baseline API token from BASELINE_API_AUTH_TOKEN.",
+            "scheme": "bearer",
+            "type": "http",
+        },
+    }
+    assert schema["paths"]["/v1/analysis/daily"]["post"]["security"] == [
+        {"BaselineBearerAuth": []},
+        {"BaselineApiKeyAuth": []},
+    ]
+    assert "401" in schema["paths"]["/v1/analysis/daily"]["post"]["responses"]
+    assert "security" not in schema["paths"]["/health"]["get"]
+    assert "401" not in schema["paths"]["/health"]["get"]["responses"]
+    assert "security" not in schema["paths"]["/v1/health/ping"]["get"]
+
+
 def test_openapi_snapshot_is_current() -> None:
     snapshot_path = Path("docs/architecture/openapi.json")
     expected = json.loads(snapshot_path.read_text(encoding="utf-8"))

@@ -9,13 +9,16 @@ final class BaselineAppTests: XCTestCase {
         let configuration = try BaselineAppConfiguration.current(
             environment: [
                 BaselineAppConfiguration.environmentKey: "https://api.example.test",
+                BaselineAppConfiguration.apiAuthTokenEnvironmentKey: "env-token",
             ],
             infoDictionary: [
                 BaselineAppConfiguration.infoPlistKey: "https://bundle.example.test",
+                BaselineAppConfiguration.apiAuthTokenInfoPlistKey: "bundle-token",
             ]
         )
 
         XCTAssertEqual(configuration.apiBaseURL.absoluteString, "https://api.example.test")
+        XCTAssertEqual(configuration.apiAuthToken, "env-token")
     }
 
     func testAPIBaseURLFallsBackToInfoPlist() throws {
@@ -27,6 +30,19 @@ final class BaselineAppTests: XCTestCase {
         )
 
         XCTAssertEqual(configuration.apiBaseURL.absoluteString, "https://bundle.example.test")
+        XCTAssertEqual(configuration.apiAuthToken, nil)
+    }
+
+    func testAPIAuthTokenFallsBackToInfoPlist() throws {
+        let configuration = try BaselineAppConfiguration.current(
+            environment: [:],
+            infoDictionary: [
+                BaselineAppConfiguration.infoPlistKey: "https://bundle.example.test",
+                BaselineAppConfiguration.apiAuthTokenInfoPlistKey: "bundle-token",
+            ]
+        )
+
+        XCTAssertEqual(configuration.apiAuthToken, "bundle-token")
     }
 
     func testAPIBaseURLRejectsInvalidValue() {

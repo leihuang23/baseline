@@ -177,4 +177,5 @@ private func encodeAnchor(_ anchor: HKQueryAnchor?) throws -> Data? {
         requiringSecureCoding: true
     )
 }
+
 #endif
