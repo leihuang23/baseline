@@ -1,0 +1,57 @@
+name: Bug report
+description: Track a defect found during manual review or testing.
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is broken, surprising, or unsafe?
+      placeholder: Describe the observed behavior and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Give the shortest reliable path to reproduce the issue.
+      placeholder: |
+        1. Run ...
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Paste logs, screenshots, failing tests, or CI links. Redact health data and secrets.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - API/backend
+        - iOS
+        - Dashboard
+        - Eval/fixtures
+        - Docs
+        - CI/dev tooling
+        - Privacy/safety
+        - Unknown
+    validations:
+      required: true
+  - type: checkboxes
+    id: guardrails
+    attributes:
+      label: Guardrails
+      options:
+        - label: No raw personal health data, notes, secrets, or full prompt payloads are included.
+          required: true
+        - label: The fix should stay inside the wellness decision-support boundary.
+          required: true
+        - label: Add or update a regression test when the behavior is testable.
+          required: true
