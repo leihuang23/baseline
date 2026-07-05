@@ -133,6 +133,67 @@ public struct ConsentRecord: Codable, Equatable, Sendable {
     }
 }
 
+public struct ConsentRecordRequest: Codable, Equatable, Sendable {
+    public var schemaVersion = "v1"
+    public var consentVersion: String
+    public var healthCategoriesEnabled: [String]
+    public var cloudProcessingEnabled: Bool
+    public var externalLLMEnabled: Bool
+    public var rawNoteProcessingEnabled: Bool
+    public var privacyMode: BriefingPrivacyMode?
+
+    public init(
+        consentVersion: String,
+        healthCategoriesEnabled: [String],
+        cloudProcessingEnabled: Bool,
+        externalLLMEnabled: Bool,
+        rawNoteProcessingEnabled: Bool = false,
+        privacyMode: BriefingPrivacyMode? = nil
+    ) {
+        self.consentVersion = consentVersion
+        self.healthCategoriesEnabled = healthCategoriesEnabled
+        self.cloudProcessingEnabled = cloudProcessingEnabled
+        self.externalLLMEnabled = externalLLMEnabled
+        self.rawNoteProcessingEnabled = rawNoteProcessingEnabled
+        self.privacyMode = privacyMode
+    }
+
+    public init(consent: ConsentRecord) {
+        self.init(
+            consentVersion: consent.consentVersion,
+            healthCategoriesEnabled: Self.backendConsentCategories(for: consent.enabledCategories),
+            cloudProcessingEnabled: consent.processingMode != .localOnly,
+            externalLLMEnabled: consent.processingMode == .cloudAssisted,
+            rawNoteProcessingEnabled: false,
+            privacyMode: BriefingPrivacyMode(consent.processingMode)
+        )
+    }
+
+    private static func backendConsentCategories(for categories: [HealthCategory]) -> [String] {
+        let mapped = categories.flatMap { category -> [String] in
+            switch category {
+            case .sleep:
+                ["sleep"]
+            case .workouts, .steps, .vo2Max:
+                ["activity"]
+            case .heartRateVariability, .restingHeartRate:
+                ["heart_rate"]
+            }
+        }
+        return Array(Set(mapped)).sorted()
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case consentVersion = "consent_version"
+        case healthCategoriesEnabled = "health_categories_enabled"
+        case cloudProcessingEnabled = "cloud_processing_enabled"
+        case externalLLMEnabled = "external_llm_enabled"
+        case rawNoteProcessingEnabled = "raw_note_processing_enabled"
+        case privacyMode = "privacy_mode"
+    }
+}
+
 public enum HealthKitSleepAnalysisMetadata {
     public static func asleepMetadata(forRawValue rawValue: Int) -> [String: String]? {
         guard let stage = stageName(forRawValue: rawValue) else {
@@ -750,10 +811,30 @@ public struct GoalTradeoff: Codable, Equatable, Identifiable, Sendable {
     public var id: String { "\(goal)-\(tradeoff)" }
     public var goal: String
     public var tradeoff: String
+    public var indicatorStatus: String?
+    public var evidenceRefs: [String]
+    public var missingData: [String]
 
-    public init(goal: String, tradeoff: String) {
+    public init(
+        goal: String,
+        tradeoff: String,
+        indicatorStatus: String? = nil,
+        evidenceRefs: [String] = [],
+        missingData: [String] = []
+    ) {
         self.goal = goal
         self.tradeoff = tradeoff
+        self.indicatorStatus = indicatorStatus
+        self.evidenceRefs = evidenceRefs
+        self.missingData = missingData
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case goal
+        case tradeoff
+        case indicatorStatus = "indicator_status"
+        case evidenceRefs = "evidence_refs"
+        case missingData = "missing_data"
     }
 }
 

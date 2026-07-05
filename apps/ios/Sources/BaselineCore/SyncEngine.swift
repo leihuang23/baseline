@@ -46,6 +46,7 @@ public struct SyncOutcome: Equatable, Sendable {
 }
 
 public enum HealthSyncEngineError: Error, Equatable, Sendable {
+    case localOnlySyncDisabled
     case noReadableCategories([HealthCategory])
 }
 
@@ -57,6 +58,7 @@ public protocol HealthKitReading: Sendable {
 }
 
 public protocol HealthSyncAPIClient: Sendable {
+    func recordConsent(_ request: ConsentRecordRequest) async throws -> DataControlConsentResponse
     func postHealthSync(_ request: HealthSyncRequest) async throws -> HealthSyncResponse
 }
 
@@ -160,6 +162,10 @@ public final class HealthSyncEngine: Sendable {
     }
 
     public func syncNow(consent: ConsentRecord, deviceID: String) async throws -> SyncOutcome {
+        guard consent.processingMode != .localOnly else {
+            try anchorStore.clearPendingBatch()
+            throw HealthSyncEngineError.localOnlySyncDisabled
+        }
         if let pending = try anchorStore.loadPendingBatch() {
             return try await finishPendingBatch(pending)
         }

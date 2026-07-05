@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from fastapi.responses import Response
 from sqlmodel import Session
 
 from baseline_api.db.session import get_db_session
+from baseline_api.observability.logging import log_event
 from baseline_api.privacy import (
     ConsentService,
     DataDeletionService,
@@ -34,12 +36,34 @@ from baseline_api.schemas.common import APIEnvelope, APIError
 router = APIRouter(prefix="/v1/data", tags=["data-controls"])
 
 
-def get_export_store(request: Request) -> LocalExportStore:
+async def get_export_store(request: Request) -> LocalExportStore:
     store = getattr(request.app.state, "export_store", None)
     if store is None:
-        store = LocalExportStore()
+        settings = request.app.state.settings
+        store = LocalExportStore(
+            settings.export_storage_dir,
+            retention_hours=settings.export_retention_hours,
+        )
         request.app.state.export_store = store
     return cast(LocalExportStore, store)
+
+
+async def _cleanup_expired_exports(store: LocalExportStore) -> None:
+    try:
+        removed = await asyncio.to_thread(store.cleanup_expired)
+    except Exception as exc:
+        log_event(
+            "data_export_cleanup",
+            status="failed",
+            level="warning",
+            error_class=type(exc).__name__,
+        )
+        return
+    log_event(
+        "data_export_cleanup",
+        status="success",
+        metadata={"removed_count": removed},
+    )
 
 
 @router.post("/export", response_model=APIEnvelope[DataExportResponse])

@@ -22,6 +22,7 @@ from baseline_api.db.repositories.ingestion import (
 )
 from baseline_api.observability import metrics
 from baseline_api.observability.logging import log_event
+from baseline_api.privacy.user import resolve_single_user
 from baseline_api.schemas.api import (
     DataQualitySummary,
     HealthSamplePayload,
@@ -205,20 +206,19 @@ class HealthSyncService:
         return HealthSyncResult(response=response, pending_normalization=pending_normalization)
 
     def _get_single_user(self) -> User:
-        users = list(self._session.exec(select(User).order_by(col(User.created_at)).limit(2)).all())
-        if not users:
-            raise IngestionError(
+        return resolve_single_user(
+            self._session,
+            empty_error_factory=lambda: IngestionError(
                 code="user_not_initialized",
                 message="No Baseline user is available for health sync.",
                 status_code=409,
-            )
-        if len(users) > 1:
-            raise IngestionError(
+            ),
+            ambiguous_error_factory=lambda: IngestionError(
                 code="ambiguous_user",
                 message="Health sync requires an authenticated user context.",
                 status_code=409,
-            )
-        return users[0]
+            ),
+        )
 
     def _assert_consent(self, user: User, request: HealthSyncRequest) -> None:
         if user.active_consent_version != request.consent_version:

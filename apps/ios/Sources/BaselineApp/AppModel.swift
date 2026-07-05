@@ -20,9 +20,11 @@ final class BaselineAppModel: ObservableObject {
     private let anchorStore: any AnchorPersisting
     private let consentStore: any ConsentPersisting
     private let healthKitClient: HealthKitClient
+    private let apiClient: any HealthSyncAPIClient
     private let apiBaseURL: URL
     private let apiAuthToken: String?
     private var syncEngine: HealthSyncEngine?
+    private var acceptedConsent: ConsentRecord?
 
     var currentAPIBaseURL: URL {
         apiBaseURL
@@ -34,23 +36,43 @@ final class BaselineAppModel: ObservableObject {
 
     init(
         apiBaseURL: URL = BaselineAppConfiguration.resolvedCurrentAPIBaseURL(),
-        apiAuthToken: String? = BaselineAppConfiguration.resolvedCurrentAPIAuthToken()
+        apiAuthToken: String? = BaselineAppConfiguration.resolvedCurrentAPIAuthToken(),
+        authorizationClient: (any HealthAuthorizationClient)? = nil,
+        apiClient: (any HealthSyncAPIClient)? = nil,
+        anchorStore: (any AnchorPersisting)? = nil,
+        consentStore: (any ConsentPersisting)? = nil
     ) {
         self.apiBaseURL = apiBaseURL
         self.apiAuthToken = apiAuthToken
+        self.apiClient = apiClient ?? URLSessionHealthSyncAPIClient(
+            baseURL: apiBaseURL,
+            apiAuthToken: apiAuthToken
+        )
         healthKitClient = HealthKitClient()
-        permissionCoordinator = PermissionCoordinator(healthAuthorizationClient: healthKitClient)
-        let supportDirectory = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0].appendingPathComponent("Baseline", isDirectory: true)
-        anchorStore = try! FileAnchorStore(rootURL: supportDirectory)
-        consentStore = try! FileConsentStore(rootURL: supportDirectory)
+        permissionCoordinator = PermissionCoordinator(
+            healthAuthorizationClient: authorizationClient ?? healthKitClient
+        )
+        let resolvedAnchorStore: any AnchorPersisting
+        let resolvedConsentStore: any ConsentPersisting
+        if let anchorStore, let consentStore {
+            resolvedAnchorStore = anchorStore
+            resolvedConsentStore = consentStore
+        } else {
+            let supportDirectory = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            )[0].appendingPathComponent("Baseline", isDirectory: true)
+            resolvedAnchorStore = try! FileAnchorStore(rootURL: supportDirectory)
+            resolvedConsentStore = try! FileConsentStore(rootURL: supportDirectory)
+        }
+        self.anchorStore = resolvedAnchorStore
+        self.consentStore = resolvedConsentStore
         if let restored = try? LaunchStateRestorer.restore(
-            consentStore: consentStore,
-            anchorStore: anchorStore
+            consentStore: resolvedConsentStore,
+            anchorStore: resolvedAnchorStore
         ) {
             privacyMode = restored.consent.processingMode
+            acceptedConsent = restored.consent
             grantedCategories = Set(restored.consent.enabledCategories)
             deniedCategories = Set(restored.consent.deniedCategories)
             enabledCategories = grantedCategories.union(deniedCategories)
@@ -81,6 +103,7 @@ final class BaselineAppModel: ObservableObject {
     func enterDemoMode() {
         isDemoMode = true
         onboardingComplete = true
+        acceptedConsent = nil
         grantedCategories = []
         deniedCategories = []
         demoSamples = DemoHealthData.samples
@@ -95,23 +118,23 @@ final class BaselineAppModel: ObservableObject {
             )
             grantedCategories = Set(result.granted)
             deniedCategories = Set(result.denied)
-            try? consentStore.saveConsent(result.consentRecord(processingMode: privacyMode))
-            onboardingComplete = true
-            syncMessage = result.isDegraded
+            let localConsent = result.consentRecord(processingMode: privacyMode)
+            let successMessage = result.isDegraded
                 ? "Some HealthKit categories are unavailable; Baseline will sync the rest."
                 : "HealthKit permissions are ready."
+            await persistOnboardingConsent(localConsent, successMessage: successMessage)
         } catch {
             grantedCategories = []
             deniedCategories = enabledCategories
-            try? consentStore.saveConsent(
-                ConsentRecord(
-                    enabledCategories: [],
-                    deniedCategories: Array(enabledCategories).sorted { $0.rawValue < $1.rawValue },
-                    processingMode: privacyMode
-                )
+            let localConsent = ConsentRecord(
+                enabledCategories: [],
+                deniedCategories: Array(enabledCategories).sorted { $0.rawValue < $1.rawValue },
+                processingMode: privacyMode
             )
-            onboardingComplete = true
-            syncMessage = "HealthKit authorization failed; you can continue in degraded mode."
+            await persistOnboardingConsent(
+                localConsent,
+                successMessage: "HealthKit authorization failed; you can continue in degraded mode."
+            )
         }
     }
 
@@ -121,7 +144,13 @@ final class BaselineAppModel: ObservableObject {
             syncMessage = "Demo data refreshed."
             return
         }
-        let categories = grantedCategories.intersection(enabledCategories)
+        let consent = currentAcceptedConsent()
+        guard consent.processingMode != .localOnly else {
+            try? anchorStore.clearPendingBatch()
+            syncMessage = "Local-only mode keeps HealthKit data on device."
+            return
+        }
+        let categories = Set(consent.enabledCategories).intersection(enabledCategories)
         guard !categories.isEmpty else {
             syncMessage = "No HealthKit categories are enabled for sync."
             return
@@ -132,7 +161,7 @@ final class BaselineAppModel: ObservableObject {
         do {
             let engine = try buildSyncEngine(for: categories)
             let outcome = try await engine.syncNow(
-                consent: consentRecord,
+                consent: consent,
                 deviceID: UIDevice.current.identifierForVendor?.uuidString ?? "ios-device"
             )
             syncEngine = engine
@@ -143,6 +172,9 @@ final class BaselineAppModel: ObservableObject {
                 let skipped = outcome.skippedCategories.map(\.title).joined(separator: ", ")
                 syncMessage = "Synced \(outcome.sentSampleCount) sample(s). Skipped: \(skipped)."
             }
+        } catch HealthSyncEngineError.localOnlySyncDisabled {
+            try? anchorStore.clearPendingBatch()
+            syncMessage = "Local-only mode keeps HealthKit data on device."
         } catch HealthSyncEngineError.noReadableCategories {
             syncMessage = "Sync could not read selected HealthKit categories. Check permissions and try again."
         } catch {
@@ -159,16 +191,50 @@ final class BaselineAppModel: ObservableObject {
     }
 
     private func buildSyncEngine(for categories: Set<HealthCategory>) throws -> HealthSyncEngine {
-        let apiClient = URLSessionHealthSyncAPIClient(
-            baseURL: apiBaseURL,
-            apiAuthToken: apiAuthToken
-        )
         healthKitClient.enabledCategories = categories
         return HealthSyncEngine(
             anchorStore: anchorStore,
             healthKitReader: healthKitClient,
             apiClient: apiClient
         )
+    }
+
+    private func recordServerConsentIfNeeded(_ consent: ConsentRecord) async throws -> ConsentRecord {
+        guard consent.processingMode != .localOnly else {
+            return consent
+        }
+        let response = try await apiClient.recordConsent(ConsentRecordRequest(consent: consent))
+        return ConsentRecord(
+            consentVersion: response.consentVersion,
+            grantedAt: consent.grantedAt,
+            enabledCategories: consent.enabledCategories,
+            deniedCategories: consent.deniedCategories,
+            processingMode: consent.processingMode
+        )
+    }
+
+    private func persistOnboardingConsent(
+        _ consent: ConsentRecord,
+        successMessage: String
+    ) async {
+        do {
+            let persistedConsent = try await recordServerConsentIfNeeded(consent)
+            try? consentStore.saveConsent(persistedConsent)
+            acceptedConsent = persistedConsent
+            onboardingComplete = true
+            syncMessage = successMessage
+        } catch {
+            onboardingComplete = false
+            syncMessage = "Consent could not be recorded; check connection and retry."
+        }
+    }
+
+    private func currentAcceptedConsent() -> ConsentRecord {
+        if let stored = try? consentStore.loadConsent() {
+            acceptedConsent = stored
+            return stored
+        }
+        return acceptedConsent ?? consentRecord
     }
 
 }
