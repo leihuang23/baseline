@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
@@ -19,9 +19,10 @@ router = APIRouter(prefix="/v1/assistant", tags=["assistant"])
 @router.post("/query", response_model=APIEnvelope[AssistantQueryResponse])
 def ask_assistant(
     request: AssistantQueryRequest,
+    app_request: Request,
     session: Annotated[Session, Depends(get_db_session)],
 ) -> APIEnvelope[AssistantQueryResponse] | JSONResponse:
-    service = AssistantQueryService(session)
+    service = AssistantQueryService(session, settings=app_request.app.state.settings)
     try:
         data = service.answer(request)
     except AssistantQueryError as error:

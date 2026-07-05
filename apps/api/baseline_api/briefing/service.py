@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import time
 from collections.abc import Mapping, Sequence
@@ -11,6 +12,7 @@ from uuid import UUID, uuid4
 
 from sqlmodel import Session, col, select
 
+from baseline_api.config import Settings
 from baseline_api.db.models.assessment import (
     DailyAnalysisJob,
     ReadinessAssessment,
@@ -58,6 +60,7 @@ from baseline_api.retrieval import (
     KnowledgeRetrievalResult,
     KnowledgeRetrievalService,
     bind_external_claims,
+    create_embedder,
     has_external_knowledge_consent,
 )
 from baseline_api.safety.engine import SafetyPolicyEngine
@@ -139,10 +142,12 @@ class DailyBriefingService:
         session: Session,
         *,
         llm_explainer: LLMExplainer | None = None,
+        settings: Settings | None = None,
         safety_engine: SafetyPolicyEngine | None = None,
     ) -> None:
         self._session = session
         self._llm_explainer = llm_explainer
+        self._settings = settings
         self._safety_engine = safety_engine or SafetyPolicyEngine.from_default_policy()
         self._assessments = ReadinessAssessmentRepository(session)
         self._recommendations = RecommendationRepository(session)
@@ -296,23 +301,42 @@ class DailyBriefingService:
                 ]
                 active_goals = self._active_goals()
                 personal_retrieval = self._retrieve_recent_history(user_id, request.date)
-                external_retrieval = self._retrieve_external_knowledge(
-                    user_id=user_id,
-                    include_external_knowledge=request.include_external_knowledge,
-                    privacy_mode=request.privacy_mode,
-                )
-                retrieval = _combine_retrieval(personal_retrieval, external_retrieval)
-                if retrieval.degraded:
+                if personal_retrieval.degraded:
                     degraded_stages.append(
                         StageDegradation(
                             stage="retrieval",
-                            reason=retrieval.degrade_reason or "retrieval_degraded",
+                            reason=personal_retrieval.degrade_reason or "retrieval_degraded",
                         )
                     )
+                assessment = ReasoningService(self._session).assess_and_persist(
+                    user_id=user_id,
+                    derived_features=feature,
+                    active_goals=active_goals,
+                    recent_memory=personal_retrieval.trace_items,
+                    daily_check_in=_checkin_mapping(checkin),
+                    include_external_knowledge=request.include_external_knowledge,
+                )
+                assessment_data = _assessment_mapping(assessment)
+                external_retrieval = await self._retrieve_external_knowledge(
+                    user_id=user_id,
+                    include_external_knowledge=request.include_external_knowledge,
+                    privacy_mode=request.privacy_mode,
+                    active_goals=active_goals,
+                )
+                retrieval = _combine_retrieval(personal_retrieval, external_retrieval)
+                if external_retrieval.degraded:
+                    degraded_stages.append(
+                        StageDegradation(
+                            stage="retrieval",
+                            reason=external_retrieval.degrade_reason or "retrieval_degraded",
+                        )
+                    )
+                briefing_trace_id = str(assessment_data["reasoning_trace_id"])
+                stage_trace = _retarget_stage_trace(stage_trace, trace_id=briefing_trace_id)
                 stage_trace.append(
                     _stage_event(
                         "retrieval",
-                        trace_id=context.trace_id,
+                        trace_id=briefing_trace_id,
                         job_id=job_record_id,
                         status="degraded" if retrieval.degraded else "success",
                         degraded=retrieval.degraded,
@@ -322,17 +346,6 @@ class DailyBriefingService:
                         citation_accuracy=retrieval.citation_accuracy,
                     )
                 )
-                assessment = ReasoningService(self._session).assess_and_persist(
-                    user_id=user_id,
-                    derived_features=feature,
-                    active_goals=active_goals,
-                    recent_memory=retrieval.trace_items,
-                    daily_check_in=_checkin_mapping(checkin),
-                    include_external_knowledge=request.include_external_knowledge,
-                )
-                assessment_data = _assessment_mapping(assessment)
-                briefing_trace_id = str(assessment_data["reasoning_trace_id"])
-                stage_trace = _retarget_stage_trace(stage_trace, trace_id=briefing_trace_id)
                 stage_trace.append(
                     _stage_event(
                         "reasoning",
@@ -602,6 +615,7 @@ class DailyBriefingService:
             if existing is not None:
                 return existing
 
+        checkin = self._load_checkin(user_id, target_date)
         bundle = assemble_daily_features(
             target_date,
             sleep_sessions=_load_sleep_sessions(self._session, user_id, target_date),
@@ -619,6 +633,7 @@ class DailyBriefingService:
             ),
             workouts=_load_workouts(self._session, user_id, target_date),
             vo2_samples=_load_vo2_samples(self._session, user_id, target_date),
+            daily_check_in=_checkin_mapping(checkin),
             personal_sleep_need_hours=8.0,
             computed_at=dt.datetime.now(dt.UTC),
         )
@@ -726,12 +741,13 @@ class DailyBriefingService:
             trace_items=summaries,
         )
 
-    def _retrieve_external_knowledge(
+    async def _retrieve_external_knowledge(
         self,
         *,
         user_id: UUID,
         include_external_knowledge: bool,
         privacy_mode: PrivacyMode,
+        active_goals: Sequence[Mapping[str, Any]],
     ) -> KnowledgeRetrievalResult:
         if not include_external_knowledge:
             return KnowledgeRetrievalResult(
@@ -749,20 +765,47 @@ class DailyBriefingService:
                     "External knowledge was requested but disabled by local-only privacy mode."
                 ],
             )
-        query = "daily readiness training recovery sleep general research"
+        if not has_external_knowledge_consent(self._session, user_id):
+            return KnowledgeRetrievalResult(
+                hits=[],
+                citations=[],
+                external_knowledge=[],
+                uncertainty=["External knowledge was requested but consent is not active."],
+            )
+        query = _external_knowledge_query(
+            active_goals=active_goals,
+            requested_scope="daily briefing training recovery sleep general research",
+        )
+        try:
+            embedder = create_embedder(self._settings)
+        except Exception as exc:
+            return _external_retrieval_degraded_result(reason=type(exc).__name__)
+        try:
+            query_embedding = await asyncio.to_thread(embedder.embed, query)
+        except Exception as exc:
+            try:
+                nested = self._session.begin_nested()
+                try:
+                    result = KnowledgeRetrievalService(
+                        self._session
+                    ).retrieve_lexical_degraded(
+                        query,
+                        reason=type(exc).__name__,
+                    )
+                finally:
+                    nested.rollback()
+                return result
+            except Exception:
+                return _external_retrieval_degraded_result(reason=type(exc).__name__)
         try:
             nested = self._session.begin_nested()
             try:
-                if not has_external_knowledge_consent(self._session, user_id):
-                    result = KnowledgeRetrievalResult(
-                        hits=[],
-                        citations=[],
-                        external_knowledge=[],
-                        uncertainty=["External knowledge was requested but consent is not active."],
-                    )
-                else:
-                    result = KnowledgeRetrievalService(self._session).retrieve(query)
-                if result.degraded:
+                result = KnowledgeRetrievalService(
+                    self._session, embedder=embedder
+                ).retrieve(query, query_embedding=query_embedding)
+                if result.degraded and not (
+                    result.hits or result.citations or result.external_knowledge
+                ):
                     nested.rollback()
                     return _external_retrieval_degraded_result(
                         reason=result.degrade_reason,
@@ -1121,6 +1164,45 @@ def _combine_retrieval(
     )
 
 
+def _external_knowledge_query(
+    *,
+    active_goals: Sequence[Mapping[str, Any]],
+    requested_scope: str,
+) -> str:
+    # Keep the external retrieval query non-personalized. Goal categories are mapped
+    # to general research topics; no readiness state, recommendation band, risk flags,
+    # or assessment uncertainty is sent outside the trusted boundary.
+    tokens = [
+        requested_scope,
+        "general research",
+        "non personalized",
+        *_goal_query_terms(active_goals),
+    ]
+    return " ".join(token for token in tokens if token).strip()
+
+
+def _goal_query_terms(active_goals: Sequence[Mapping[str, Any]]) -> list[str]:
+    terms: list[str] = []
+    for goal in active_goals:
+        category = goal.get("category")
+        if not category:
+            continue
+        terms.append(str(category))
+        if category == "vo2_max":
+            terms.extend(["cardiorespiratory fitness", "aerobic training"])
+        elif category == "strength":
+            terms.extend(["strength training", "resistance training", "progression"])
+        elif category == "sleep":
+            terms.extend(["sleep debt", "sleep consistency"])
+        elif category == "recovery":
+            terms.extend(["recovery", "training load"])
+        elif category == "cognitive_performance":
+            terms.extend(["sleep", "stress", "attention", "cognitive readiness"])
+        elif category == "long_term_wellness":
+            terms.extend(["physical activity", "wellness boundaries", "lifestyle consistency"])
+    return terms
+
+
 def _external_retrieval_degraded_result(
     *,
     reason: str | None,
@@ -1324,7 +1406,15 @@ def _served_briefing_text(briefing: DailyBriefingResponse) -> str:
     for option in briefing.candidate_options:
         parts.extend([option.label, option.recommendation_band.value, option.rationale])
     for tradeoff in briefing.goal_tradeoffs:
-        parts.extend([tradeoff.goal, tradeoff.tradeoff])
+        parts.extend(
+            [
+                tradeoff.goal,
+                tradeoff.tradeoff,
+                tradeoff.indicator_status or "",
+                *tradeoff.evidence_refs,
+                *tradeoff.missing_data,
+            ]
+        )
     for note in briefing.data_quality_notes:
         parts.extend([note.metric or "", note.note, note.severity.value])
     for alternative in briefing.alternatives:
@@ -1586,6 +1676,11 @@ def _goal_tradeoffs(items: Sequence[Mapping[str, Any]]) -> list[GoalTradeoff]:
             tradeoff=str(
                 item.get("tradeoff") or item.get("rationale") or "Adjust intensity today."
             ),
+            indicator_status=(
+                str(item["indicator_status"]) if item.get("indicator_status") is not None else None
+            ),
+            evidence_refs=[str(ref) for ref in item.get("evidence_refs", [])],
+            missing_data=[str(value) for value in item.get("missing_data", [])],
         )
         for item in items
     ]

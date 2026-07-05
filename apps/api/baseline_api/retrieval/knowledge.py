@@ -13,13 +13,41 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-from packages.knowledge.embeddings import EmbeddingProvider, HashEmbeddingProvider
+from packages.knowledge.embeddings import (
+    EmbeddingProvider,
+    HashEmbeddingProvider,
+    HTTPEmbeddingProvider,
+)
 from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, col, select
 
+from baseline_api.config import Settings, get_settings
 from baseline_api.db.models.knowledge import KnowledgeChunk, KnowledgeSource
 from baseline_api.db.models.user import ConsentRecord
 from baseline_api.schemas.recommendation import ExternalCitation
+
+
+def create_embedder(settings: Settings | None = None) -> EmbeddingProvider:
+    """Return the configured embedding provider for external knowledge retrieval."""
+
+    resolved_settings = settings or get_settings()
+    if resolved_settings.knowledge_embedding_provider == "http":
+        if not (
+            resolved_settings.knowledge_embedding_api_url
+            and resolved_settings.knowledge_embedding_api_key
+            and resolved_settings.knowledge_embedding_model
+        ):
+            raise ValueError(
+                "KNOWLEDGE_EMBEDDING_API_URL, KNOWLEDGE_EMBEDDING_API_KEY, and "
+                "KNOWLEDGE_EMBEDDING_MODEL are required when "
+                "KNOWLEDGE_EMBEDDING_PROVIDER=http."
+            )
+        return HTTPEmbeddingProvider(
+            api_url=resolved_settings.knowledge_embedding_api_url,
+            api_key=resolved_settings.knowledge_embedding_api_key,
+            model=resolved_settings.knowledge_embedding_model,
+        )
+    return HashEmbeddingProvider()
 
 DEFAULT_LIMIT = 3
 DEFAULT_MIN_RELEVANCE = 0.08
@@ -132,13 +160,23 @@ class KnowledgeRetrievalService:
         self._embedder = embedder or HashEmbeddingProvider()
         self._min_relevance = min_relevance
 
-    def retrieve(self, query: str, *, limit: int = DEFAULT_LIMIT) -> KnowledgeRetrievalResult:
+    def retrieve(
+        self,
+        query: str,
+        *,
+        limit: int = DEFAULT_LIMIT,
+        query_embedding: Sequence[float] | None = None,
+    ) -> KnowledgeRetrievalResult:
         normalized_query = " ".join(query.split())
         if not normalized_query:
             return _empty_result("External retrieval skipped because the query was empty.")
         try:
-            query_embedding = self._embedder.embed(normalized_query)
-            hits = self._rank_hits(normalized_query, query_embedding, limit=limit)
+            resolved_embedding = (
+                query_embedding
+                if query_embedding is not None
+                else self._embedder.embed(normalized_query)
+            )
+            hits = self._rank_hits(normalized_query, resolved_embedding, limit=limit)
         except SQLAlchemyError as exc:
             return KnowledgeRetrievalResult(
                 hits=[],
@@ -156,7 +194,7 @@ class KnowledgeRetrievalService:
             except Exception:
                 hits = []
             if hits:
-                return _result_from_hits(
+                result = _result_from_hits(
                     hits,
                     uncertainty=[
                         (
@@ -165,6 +203,15 @@ class KnowledgeRetrievalService:
                         ),
                         ("External sources are general research context, not personalized advice."),
                     ],
+                )
+                return KnowledgeRetrievalResult(
+                    hits=result.hits,
+                    citations=result.citations,
+                    external_knowledge=result.external_knowledge,
+                    uncertainty=result.uncertainty,
+                    degraded=True,
+                    degrade_reason=type(exc).__name__,
+                    citation_accuracy=result.citation_accuracy,
                 )
             return KnowledgeRetrievalResult(
                 hits=[],
@@ -186,6 +233,51 @@ class KnowledgeRetrievalService:
             uncertainty=[
                 ("External sources are general research context, not personalized advice.")
             ],
+        )
+
+    def retrieve_lexical_degraded(
+        self,
+        query: str,
+        *,
+        reason: str,
+        limit: int = DEFAULT_LIMIT,
+    ) -> KnowledgeRetrievalResult:
+        normalized_query = " ".join(query.split())
+        if not normalized_query:
+            return _empty_result("External retrieval skipped because the query was empty.")
+        try:
+            hits = self._rank_lexical_hits(normalized_query, limit=limit)
+        except Exception:
+            hits = []
+        if hits:
+            result = _result_from_hits(
+                hits,
+                uncertainty=[
+                    (
+                        "External vector retrieval was unavailable; lexical corpus "
+                        "retrieval was used."
+                    ),
+                    ("External sources are general research context, not personalized advice."),
+                ],
+            )
+            return KnowledgeRetrievalResult(
+                hits=result.hits,
+                citations=result.citations,
+                external_knowledge=result.external_knowledge,
+                uncertainty=result.uncertainty,
+                degraded=True,
+                degrade_reason=reason,
+                citation_accuracy=result.citation_accuracy,
+            )
+        return KnowledgeRetrievalResult(
+            hits=[],
+            citations=[],
+            external_knowledge=[],
+            uncertainty=[
+                "External knowledge retrieval was unavailable; no external claims were used."
+            ],
+            degraded=True,
+            degrade_reason=reason,
         )
 
     def _rank_hits(

@@ -25,6 +25,7 @@ from baseline_api.briefing.service import (
     _completed_job_ordering,
     _enforce_served_briefing_safety,
     _external_citations_from_retrieval,
+    _external_knowledge_query,
 )
 from baseline_api.config import Settings
 from baseline_api.db.models import (
@@ -59,6 +60,7 @@ from baseline_api.retrieval import (
 )
 from baseline_api.safety.engine import SafetyPolicyEngine
 from baseline_api.schemas.api import DailyAnalysisRequest, DailyBriefingResponse
+from baseline_api.schemas.enums import PrivacyMode
 from baseline_api.schemas.recommendation import RecommendationContract
 
 TARGET_DATE = dt.date(2026, 7, 4)
@@ -695,6 +697,9 @@ def test_fixture_day_produces_complete_persisted_briefing(db_session: Session) -
     assert briefing["recommendation_band"]
     assert briefing["candidate_options"]
     assert briefing["goal_tradeoffs"]
+    assert "indicator_status" in briefing["goal_tradeoffs"][0]
+    assert "evidence_refs" in briefing["goal_tradeoffs"][0]
+    assert "missing_data" in briefing["goal_tradeoffs"][0]
     assert briefing["uncertainty"]
     assert briefing["data_quality_notes"]
     assert briefing["what_would_change_my_mind"]
@@ -1168,6 +1173,100 @@ def test_external_knowledge_opt_in_adds_bound_non_personal_citations(
     generation = trace.trace_payload["briefing_generation"]
     assert generation["external_source_count"] == 1
     assert generation["external_citation_accuracy"] >= 0.95
+
+
+def test_external_embedding_failure_preserves_degraded_lexical_citations(
+    db_session: Session,
+    monkeypatch: Any,
+) -> None:
+    class FailingEmbedder:
+        def embed(self, text: str) -> list[float]:
+            _ = text
+            raise TimeoutError("embedding timeout")
+
+    _seed_fixture_day(db_session)
+    _seed_external_reference(db_session)
+    db_session.commit()
+    monkeypatch.setattr(
+        "baseline_api.briefing.service.create_embedder",
+        lambda settings=None: FailingEmbedder(),
+    )
+    client = _client(db_session, llm_explainer=FakeLLMExplainer(db_session))
+
+    _generate(client, include_external_knowledge=True)
+    briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
+
+    assert briefing["external_citations"]
+    assert any("lexical corpus retrieval was used" in item for item in briefing["uncertainty"])
+    trace = db_session.exec(select(ReasoningTrace)).one()
+    generation = trace.trace_payload["briefing_generation"]
+    assert generation["retrieval_degraded"] is True
+    assert generation["external_source_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_external_knowledge_without_consent_does_not_create_embedder(
+    db_session: Session,
+    monkeypatch: Any,
+) -> None:
+    user = User(
+        privacy_mode="cloud_assisted",
+        active_consent_version="v1",
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(
+        ConsentRecord(
+            user_id=user.id,
+            consent_version="v1",
+            health_categories_enabled=["all"],
+            cloud_processing_enabled=False,
+            external_llm_enabled=False,
+            raw_note_processing_enabled=False,
+            timestamp=dt.datetime(2026, 7, 1, tzinfo=dt.UTC),
+        )
+    )
+    db_session.commit()
+
+    def fail_create_embedder(settings: Settings | None = None) -> object:
+        _ = settings
+        raise AssertionError("embedder should not be created without consent")
+
+    monkeypatch.setattr(
+        "baseline_api.briefing.service.create_embedder",
+        fail_create_embedder,
+    )
+
+    result = await DailyBriefingService(db_session)._retrieve_external_knowledge(
+        user_id=user.id,
+        include_external_knowledge=True,
+        privacy_mode=PrivacyMode.cloud_assisted,
+        active_goals=[{"category": "vo2_max"}],
+    )
+
+    assert result.hits == []
+    assert result.external_knowledge == []
+    assert result.uncertainty == [
+        "External knowledge was requested but consent is not active."
+    ]
+
+
+def test_external_knowledge_query_includes_goal_topics_only() -> None:
+    query = _external_knowledge_query(
+        active_goals=[
+            {"category": "strength"},
+            {"category": "cognitive_performance"},
+        ],
+        requested_scope="daily briefing",
+    )
+
+    assert "strength training" in query
+    assert "cognitive readiness" in query
+    assert "daily briefing" in query
+    assert "non personalized" in query
+    assert "high_sleep_debt" not in query
+    assert "mixed" not in query
+    assert "HRV is favorable" not in query
 
 
 def test_external_retrieval_db_error_degrades_without_wrong_history_label(

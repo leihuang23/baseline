@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, PostgresDsn, RedisDsn, model_validator
@@ -66,6 +67,25 @@ class Settings(BaseSettings):
         ge=1,
         alias="DELETION_FAILURE_ALERT_THRESHOLD",
     )
+    export_storage_dir: Path | None = Field(default=None, alias="EXPORT_STORAGE_DIR")
+    export_retention_hours: int = Field(default=24, ge=1, alias="EXPORT_RETENTION_HOURS")
+    export_cleanup_on_start: bool = Field(default=True, alias="EXPORT_CLEANUP_ON_START")
+    knowledge_embedding_provider: Literal["hash", "http"] = Field(
+        default="hash",
+        alias="KNOWLEDGE_EMBEDDING_PROVIDER",
+    )
+    knowledge_embedding_api_url: str | None = Field(
+        default=None,
+        alias="KNOWLEDGE_EMBEDDING_API_URL",
+    )
+    knowledge_embedding_api_key: str | None = Field(
+        default=None,
+        alias="KNOWLEDGE_EMBEDDING_API_KEY",
+    )
+    knowledge_embedding_model: str | None = Field(
+        default=None,
+        alias="KNOWLEDGE_EMBEDDING_MODEL",
+    )
 
     @model_validator(mode="after")
     def require_production_auth_token(self) -> "Settings":
@@ -80,6 +100,26 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "BASELINE_API_AUTH_TOKEN must be at least 32 characters "
                     "when APP_ENV is staging or production."
+                )
+            if self.export_storage_dir is None:
+                raise ValueError(
+                    "EXPORT_STORAGE_DIR is required when APP_ENV is staging or production."
+                )
+        if self.knowledge_embedding_provider == "http":
+            if not (
+                self.knowledge_embedding_api_url
+                and self.knowledge_embedding_api_key
+                and self.knowledge_embedding_model
+            ):
+                raise ValueError(
+                    "KNOWLEDGE_EMBEDDING_API_URL, KNOWLEDGE_EMBEDDING_API_KEY, and "
+                    "KNOWLEDGE_EMBEDDING_MODEL are required when "
+                    "KNOWLEDGE_EMBEDDING_PROVIDER=http."
+                )
+            if self.app_env in {"staging", "production"} and not self.knowledge_embedding_api_url.startswith("https://"):
+                raise ValueError(
+                    "KNOWLEDGE_EMBEDDING_API_URL must use https:// when "
+                    "KNOWLEDGE_EMBEDDING_PROVIDER=http in staging/production."
                 )
         return self
 
