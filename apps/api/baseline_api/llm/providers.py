@@ -114,3 +114,38 @@ class DeepSeekProvider:
             cost=None,
             latency_ms=int((time.perf_counter() - started) * 1000),
         )
+
+
+class LocalDeterministicFallbackProvider:
+    """Schema-valid local fallback used when the primary provider is unavailable."""
+
+    name = "local-deterministic"
+    requires_external_llm_consent = False
+
+    async def generate(self, request: ProviderRequest) -> ProviderResponse:
+        content = {
+            "schema_version": "llm_explanation_v1",
+            "summary": (
+                "LLM explanation unavailable; using the deterministic assessment without "
+                "additional prose recommendations."
+            ),
+            "rationale": [
+                "The primary model provider was unavailable.",
+                "Baseline is serving only deterministic briefing evidence.",
+            ],
+            "uncertainty": [
+                "No model-authored interpretation was added because fallback mode is active."
+            ],
+            "personal_evidence_refs": ["deterministic_assessment"],
+            "external_citations": [],
+            "safety_boundary_acknowledged": True,
+            "no_diagnosis_or_treatment_claims": True,
+        }
+        return ProviderResponse(
+            provider=self.name,
+            model=request.model,
+            content=json.dumps(content),
+            token_usage={"prompt": 0, "completion": 0, "total": 0},
+            cost=0.0,
+            latency_ms=0,
+        )

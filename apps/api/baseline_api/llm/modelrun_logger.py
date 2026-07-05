@@ -73,6 +73,10 @@ class ModelRunLogger:
         latency_ms: int | None,
         safety_result: dict[str, Any],
     ) -> ModelRun:
+        input_metadata = minimized_payload_metadata(input_payload)
+        input_metadata["run_type"] = run_type.value
+        if not isinstance(input_metadata.get("feature"), str) or not input_metadata["feature"]:
+            input_metadata["feature"] = run_type.value
         return self._runs.create(
             ModelRun(
                 user_id=user_id,
@@ -87,7 +91,7 @@ class ModelRunLogger:
                 cost=cost,
                 latency_ms=latency_ms,
                 safety_result=safety_result,
-                input_metadata=minimized_payload_metadata(input_payload),
+                input_metadata=input_metadata,
             )
         )
 
@@ -109,6 +113,8 @@ def minimized_payload_metadata(input_payload: Any) -> dict[str, Any]:
         "payload_hash": hash_payload(input_payload),
         "provider": input_payload.get("provider"),
         "model": input_payload.get("model"),
+        "feature": input_payload.get("feature"),
+        "task_type": input_payload.get("task_type"),
         "prompt_version": input_payload.get("prompt_version"),
         "schema_version": input_payload.get("schema_version"),
         "message_count": len(message_metadata),

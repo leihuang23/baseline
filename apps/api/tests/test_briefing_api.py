@@ -12,10 +12,12 @@ from fastapi.testclient import TestClient
 from packages.knowledge.models import KnowledgeSourceDocument
 from packages.knowledge.pipeline import KnowledgeIngestionPipeline
 from packages.knowledge.store import SQLModelKnowledgeVectorStore
+from sqlalchemy import text
 from sqlmodel import Session, col, select
 
 from baseline_api.app import create_app
 from baseline_api.briefing.service import (
+    DailyBriefingService,
     RetrievalResult,
     _combine_retrieval,
     _completed_job_ordering,
@@ -810,6 +812,99 @@ def test_llm_failure_degrades_to_deterministic_briefing(db_session: Session) -> 
     generation = trace.trace_payload["briefing_generation"]
     assert generation["status"] == "degraded"
     assert generation["degrade_reason"] == "RuntimeError"
+    assert {"stage": "llm_explanation", "reason": "RuntimeError"} in generation["degraded_stages"]
+
+
+def test_feature_computation_failure_degrades_to_deterministic_briefing(
+    db_session: Session,
+    monkeypatch: Any,
+) -> None:
+    _seed_fixture_day(db_session)
+    for feature in db_session.exec(select(DerivedDailyFeature)).all():
+        db_session.delete(feature)
+    db_session.flush()
+
+    def fail_features(self: DailyBriefingService, **_: Any) -> DerivedDailyFeature:
+        raise RuntimeError("feature worker down")
+
+    monkeypatch.setattr(DailyBriefingService, "_load_or_compute_features", fail_features)
+    client = _client(db_session)
+
+    _generate(client, privacy_mode="local_only")
+    briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
+
+    assert briefing["evidence"]
+    assert any(
+        note["metric"] == "missing_feature_computation" for note in briefing["data_quality_notes"]
+    )
+    trace = db_session.exec(select(ReasoningTrace)).one()
+    generation = trace.trace_payload["briefing_generation"]
+    assert generation["status"] == "degraded"
+    assert {"stage": "features", "reason": "RuntimeError"} in generation["degraded_stages"]
+    feature_stage = next(stage for stage in generation["stages"] if stage["stage"] == "features")
+    assert feature_stage["status"] == "degraded"
+
+
+def test_sync_freshness_failure_flags_stale_sources_and_serves_briefing(
+    db_session: Session,
+    monkeypatch: Any,
+) -> None:
+    _seed_fixture_day(db_session)
+    original_exec = db_session.exec
+    sync_failed = False
+
+    def flaky_exec(statement: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal sync_failed
+        if not sync_failed and "FROM normalized_health_metric" in str(statement):
+            sync_failed = True
+            raise RuntimeError("sync unavailable")
+        return original_exec(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "exec", flaky_exec)
+    client = _client(db_session)
+
+    _generate(client, privacy_mode="local_only")
+    briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
+
+    assert sync_failed is True
+    assert "sync_unavailable" in briefing["data_freshness"]["stale_sources"]
+    trace = db_session.exec(select(ReasoningTrace)).one()
+    generation = trace.trace_payload["briefing_generation"]
+    assert {"stage": "sync", "reason": "RuntimeError"} in generation["degraded_stages"]
+    freshness_stage = next(
+        stage for stage in generation["stages"] if stage["stage"] == "data_freshness"
+    )
+    assert freshness_stage["status"] == "degraded"
+
+
+def test_sync_freshness_db_error_does_not_poison_briefing_session(
+    db_session: Session,
+    monkeypatch: Any,
+) -> None:
+    _seed_fixture_day(db_session)
+    original_exec = db_session.exec
+    sync_failed = False
+
+    def flaky_exec(statement: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal sync_failed
+        if not sync_failed and "FROM normalized_health_metric" in str(statement):
+            sync_failed = True
+            original_exec(text("SELECT 1 / 0"))
+        return original_exec(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "exec", flaky_exec)
+    client = _client(db_session)
+
+    _generate(client, privacy_mode="local_only")
+    briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
+
+    assert sync_failed is True
+    assert briefing["evidence"]
+    assert "sync_unavailable" in briefing["data_freshness"]["stale_sources"]
+    trace = db_session.exec(select(ReasoningTrace)).one()
+    generation = trace.trace_payload["briefing_generation"]
+    sync_stage = next(stage for stage in generation["degraded_stages"] if stage["stage"] == "sync")
+    assert sync_stage["reason"]
 
 
 def test_last_briefing_can_be_served_for_offline_view(db_session: Session) -> None:
@@ -868,6 +963,39 @@ def test_external_knowledge_opt_in_adds_bound_non_personal_citations(
     generation = trace.trace_payload["briefing_generation"]
     assert generation["external_source_count"] == 1
     assert generation["external_citation_accuracy"] >= 0.95
+
+
+def test_external_retrieval_db_error_degrades_without_wrong_history_label(
+    db_session: Session,
+    monkeypatch: Any,
+) -> None:
+    _seed_fixture_day(db_session)
+    _seed_external_reference(db_session)
+    db_session.flush()
+    original_exec = db_session.exec
+    retrieval_failed = False
+
+    def flaky_exec(statement: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal retrieval_failed
+        if not retrieval_failed and "FROM knowledge_chunk" in str(statement):
+            retrieval_failed = True
+            original_exec(text("SELECT 1 / 0"))
+        return original_exec(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "exec", flaky_exec)
+    client = _client(db_session)
+
+    _generate(client, include_external_knowledge=True)
+    briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
+
+    assert retrieval_failed is True
+    assert briefing["evidence"]
+    assert any("External knowledge retrieval" in item for item in briefing["uncertainty"])
+    assert not any("Recent-history retrieval" in item for item in briefing["uncertainty"])
+    trace = db_session.exec(select(ReasoningTrace)).one()
+    generation = trace.trace_payload["briefing_generation"]
+    assert generation["retrieval_degraded"] is True
+    assert generation["retrieval_degrade_reason"]
 
 
 def test_retrieval_degraded_mode_still_persists_deterministic_briefing(

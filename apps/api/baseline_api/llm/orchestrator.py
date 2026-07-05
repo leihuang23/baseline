@@ -194,6 +194,7 @@ class LLMOrchestrator:
         last_schema_error: str | None = None
         last_provider_error: str | None = None
         external_route_skipped = False
+        failed_routes: list[dict[str, str]] = []
 
         routes = self._router.routes_for(prompt_inputs.task_type)
         for route_index, route in enumerate(routes):
@@ -218,6 +219,8 @@ class LLMOrchestrator:
                 input_payload = {
                     "provider": provider.name,
                     "model": route.model,
+                    "feature": run_type.value,
+                    "task_type": prompt_inputs.task_type.value,
                     "prompt_version": attempt_prompt.version,
                     "messages": attempt_prompt.messages,
                     "schema_version": SCHEMA_VERSION,
@@ -228,10 +231,19 @@ class LLMOrchestrator:
                 except ProviderError as exc:
                     last_provider_error = "provider_error"
                     latency_ms = int((time.perf_counter() - started) * 1000)
-                    safety_result = {
+                    safety_result: dict[str, Any] = {
                         "status": "provider_error",
                         "error_type": type(exc).__name__,
                     }
+                    if route_index < len(routes) - 1:
+                        safety_result["fallback_provider"] = routes[route_index + 1].provider_name
+                        failed_routes.append(
+                            {
+                                "provider": provider.name,
+                                "model": route.model,
+                                "reason": "provider_error",
+                            }
+                        )
                     if route_index == len(routes) - 1:
                         safety_result["terminal_status"] = "degraded"
                     model_runs.append(
@@ -257,6 +269,18 @@ class LLMOrchestrator:
                 except StructuredOutputError as exc:
                     last_schema_error = "schema_invalid"
                     safety_result = {"status": "schema_invalid"}
+                    if (
+                        attempt_index == self._max_schema_attempts - 1
+                        and route_index < len(routes) - 1
+                    ):
+                        safety_result["fallback_provider"] = routes[route_index + 1].provider_name
+                        failed_routes.append(
+                            {
+                                "provider": response.provider,
+                                "model": response.model,
+                                "reason": "schema_invalid",
+                            }
+                        )
                     if (
                         route_index == len(routes) - 1
                         and attempt_index == self._max_schema_attempts - 1
@@ -316,6 +340,14 @@ class LLMOrchestrator:
                         model_runs=model_runs,
                     )
                 safety_status = str(safety_result.get("status", "failed"))
+                if failed_routes:
+                    safety_result = {
+                        **safety_result,
+                        "fallback": True,
+                        "fallback_from_provider": failed_routes[-1]["provider"],
+                        "fallback_from_model": failed_routes[-1]["model"],
+                        "fallback_reason": failed_routes[-1]["reason"],
+                    }
                 replacement_output: LLMExplanationOutput | None = None
                 if safety_status in {"rewritten", "blocked", "escalated"}:
                     try:

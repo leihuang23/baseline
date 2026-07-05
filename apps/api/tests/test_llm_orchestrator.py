@@ -11,8 +11,10 @@ from uuid import UUID, uuid4
 import pytest
 from sqlmodel import Session, select
 
+from baseline_api.config import Settings
 from baseline_api.db.models import ConsentRecord, ModelRun, User
 from baseline_api.db.models.enums import PrivacyMode, RunType
+from baseline_api.llm.factory import build_default_router
 from baseline_api.llm.hash import hash_payload
 from baseline_api.llm.orchestrator import LLMConsent, LLMOrchestrator
 from baseline_api.llm.prompts import PROMPT_REQUIREMENTS, SAFETY_BOUNDARY, PromptRegistry
@@ -382,6 +384,44 @@ async def test_provider_error_falls_back_to_next_provider_without_db() -> None:
         "mock-fallback",
     ]
     assert logger.records[0].safety_result["status"] == "provider_error"
+    assert logger.records[0].safety_result["fallback_provider"] == "mock-fallback"
+    assert logger.records[1].safety_result["fallback"] is True
+    assert logger.records[1].safety_result["fallback_from_provider"] == "mock-primary"
+
+
+@pytest.mark.asyncio
+async def test_default_router_falls_back_to_local_deterministic_provider_without_db() -> None:
+    settings = Settings(
+        APP_ENV="test",
+        DATABASE_URL="postgresql+psycopg://baseline@localhost:5433/baseline",
+        REDIS_URL="redis://localhost:6379/0",
+        LLM_CHEAP_MODEL="deepseek-primary",
+        LLM_STRONG_MODEL="deepseek-strong",
+        LLM_FALLBACK_MODEL="baseline-local-fallback",
+    )
+    logger = FakeModelRunLogger()
+    orchestrator = LLMOrchestrator(
+        router=build_default_router(settings),
+        consent_resolver=FakeConsentResolver(),
+        model_run_logger=logger,
+        safety_gate=FakeSafetyGate(),
+    )
+
+    result = await orchestrator.explain(user_id=uuid4(), prompt_inputs=_prompt_inputs())
+
+    assert result.degraded is False
+    assert result.output.summary.startswith("LLM explanation unavailable")
+    assert [record.model_provider for record in logger.records] == [
+        "deepseek",
+        "local-deterministic",
+    ]
+    assert [record.model_name for record in logger.records] == [
+        "deepseek-primary",
+        "baseline-local-fallback",
+    ]
+    assert logger.records[0].safety_result["status"] == "provider_error"
+    assert logger.records[0].safety_result["fallback_provider"] == "local-deterministic"
+    assert logger.records[1].safety_result["fallback"] is True
 
 
 @pytest.mark.asyncio
@@ -703,6 +743,9 @@ async def test_provider_error_falls_back_to_next_provider(db_session: Session) -
     assert result.output.summary == "Fallback worked."
     assert [run.model_provider for run in result.model_runs] == ["mock-primary", "mock-fallback"]
     assert result.model_runs[0].safety_result["status"] == "provider_error"
+    assert result.model_runs[0].safety_result["fallback_provider"] == "mock-fallback"
+    assert result.model_runs[1].safety_result["fallback"] is True
+    assert result.model_runs[1].safety_result["fallback_reason"] == "provider_error"
 
 
 @pytest.mark.asyncio

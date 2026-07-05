@@ -41,7 +41,7 @@ def _llm_explainer(request: Request, session: Session) -> LLMExplainer | None:
         return explainer  # type: ignore[no-any-return]
 
     settings = request.app.state.settings
-    if not isinstance(settings, Settings) or not settings.deepseek_api_key:
+    if not isinstance(settings, Settings):
         return None
     return LLMOrchestrator(
         session=session,
@@ -173,7 +173,7 @@ async def _run_daily_analysis_job(
     try:
         with Session(engine) as session:
             explainer = llm_explainer
-            if explainer is None and settings.deepseek_api_key:
+            if explainer is None:
                 explainer = LLMOrchestrator(
                     session=session,
                     router=build_default_router(settings),
