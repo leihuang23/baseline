@@ -49,6 +49,8 @@ PROTECTED_NON_AUTOMATION_PATHS = (
 )
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\][^\a]*(?:\a|\x1b\\))")
 TOKEN_USAGE_RE = re.compile(r"tokens used\s*\n\s*([0-9][0-9,]*)", re.IGNORECASE)
+PYTEST_FAILED_TEST_RE = re.compile(r"FAILED\s+([^\s]+::[^\s]+)")
+PYTEST_ASSERTION_RE = re.compile(r"^E\s+(.+)$", re.MULTILINE)
 FAILURE_SUMMARY_MAX_CHARS = 220
 CODEX_REPAIR_GUIDANCE = """Repair mode:
 - Treat the existing working tree as the current draft.
@@ -1194,6 +1196,10 @@ def normalized_failure_text(value: object, limit: int = 360) -> str:
 
 def failure_progress_signature(failure_result: str) -> str:
     failure_kind = repair_failure_kind(failure_result) or "unknown"
+    if failure_kind == "gate":
+        gate_signature = gate_failure_progress_signature(failure_result)
+        if gate_signature:
+            return gate_signature
     decision = decision_payload_from_failure(failure_result)
     if decision is not None:
         findings = decision.get("findings")
@@ -1219,6 +1225,19 @@ def failure_progress_signature(failure_result: str) -> str:
     return f"{failure_kind}:text:{normalized_failure_text(first_line)}"
 
 
+def gate_failure_progress_signature(failure_result: str) -> str | None:
+    failed_tests = PYTEST_FAILED_TEST_RE.findall(failure_result)
+    if failed_tests:
+        return "gate:pytest:" + "|".join(sorted(set(failed_tests)))
+    assertion = PYTEST_ASSERTION_RE.search(failure_result)
+    if assertion:
+        return f"gate:assertion:{normalized_failure_text(assertion.group(1))}"
+    first_line = failure_result.strip().splitlines()[0] if failure_result.strip() else ""
+    if not first_line:
+        return None
+    return re.sub(r"; see \S+", "", normalized_failure_text(first_line))
+
+
 def failure_status_summary(failure_result: str) -> str:
     decision = decision_payload_from_failure(failure_result)
     if decision is not None:
@@ -1236,6 +1255,9 @@ def failure_status_summary(failure_result: str) -> str:
         summary = decision.get("summary")
         if summary:
             return normalized_failure_text(summary, FAILURE_SUMMARY_MAX_CHARS)
+    gate_signature = gate_failure_progress_signature(failure_result)
+    if gate_signature and gate_signature.startswith("gate:pytest:"):
+        return normalized_failure_text(gate_signature.removeprefix("gate:pytest:"))
     first_line = failure_result.strip().splitlines()[0] if failure_result.strip() else ""
     return normalized_failure_text(first_line, FAILURE_SUMMARY_MAX_CHARS)
 
@@ -1922,7 +1944,10 @@ def run_final_repair(
             return False
         failure_signature = failure_progress_signature(current_failure)
         failure_fingerprint = git_worktree_fingerprint(exclude_protected=True) or "unavailable"
-        no_progress_key = (failure_kind, failure_signature, failure_fingerprint)
+        no_progress_fingerprint = (
+            "gate-root-failure" if failure_kind == "gate" else failure_fingerprint
+        )
+        no_progress_key = (failure_kind, failure_signature, no_progress_fingerprint)
         no_progress_count = repeated_no_progress.get(no_progress_key, 0)
         if no_progress_limit and no_progress_count >= no_progress_limit:
             message = (

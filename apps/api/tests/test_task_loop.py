@@ -1832,6 +1832,103 @@ def test_final_repair_stops_repeated_no_progress_findings(monkeypatch) -> None:
     assert "same actionable finding repeated" in args.last_block_message
 
 
+def test_gate_failure_signature_uses_failed_pytest_node_not_run_log_path() -> None:
+    first = (
+        "make test failed; see .task-runs/run-a/04-gate-make-test.log\n\n"
+        "Log tail:\n"
+        "FAILED apps/api/tests/test_briefing_api.py::test_external_knowledge_opt_in\n"
+        "E       assert []\n"
+    )
+    second = (
+        "make test failed; see .task-runs/run-b/04-gate-make-test.log\n\n"
+        "Log tail:\n"
+        "FAILED apps/api/tests/test_briefing_api.py::test_external_knowledge_opt_in\n"
+        "E       assert []\n"
+    )
+
+    assert TASK_LOOP.failure_progress_signature(first) == TASK_LOOP.failure_progress_signature(
+        second
+    )
+    assert (
+        TASK_LOOP.failure_status_summary(first)
+        == "apps/api/tests/test_briefing_api.py::test_external_knowledge_opt_in"
+    )
+
+
+def test_final_repair_stops_repeated_gate_failure_despite_worktree_changes(
+    monkeypatch,
+) -> None:
+    task = {
+        "id": "P5-02",
+        "title": "knowledge retrieval citations",
+        "prompt": "tasks/P5-02-knowledge-retrieval-citations.md",
+    }
+    args = finish_args(final_repair_attempts=0, max_no_progress_repairs=2)
+    calls: list[str] = []
+    gate_failures = [
+        (
+            False,
+            "make test failed; see .task-runs/run-b/04-gate-make-test.log\n\n"
+            "Log tail:\n"
+            "FAILED apps/api/tests/test_briefing_api.py::test_external_knowledge_opt_in\n"
+            "E       assert []\n",
+        ),
+        (
+            False,
+            "make test failed; see .task-runs/run-c/04-gate-make-test.log\n\n"
+            "Log tail:\n"
+            "FAILED apps/api/tests/test_briefing_api.py::test_external_knowledge_opt_in\n"
+            "E       assert []\n",
+        ),
+    ]
+    fingerprints = iter(["fp-before-a", "fp-before-b", "fp-before-c"])
+
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "implementation_prompt",
+        lambda _task, attempt, _failure, *_args: calls.append(f"attempt:{attempt}") or "fix",
+    )
+    monkeypatch.setattr(TASK_LOOP, "run_logged", lambda *args, **kwargs: calls.append("codex") or 0)
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "run_quality_gates",
+        lambda *args, **kwargs: calls.append("gates") or gate_failures.pop(0),
+    )
+    monkeypatch.setattr(
+        TASK_LOOP,
+        "git_worktree_fingerprint",
+        lambda **_kwargs: next(fingerprints),
+    )
+
+    assert (
+        TASK_LOOP.run_final_repair(
+            {"quality_gates": []},
+            task,
+            args,
+            "make test failed; see .task-runs/run-a/04-gate-make-test.log\n\n"
+            "Log tail:\n"
+            "FAILED apps/api/tests/test_briefing_api.py::test_external_knowledge_opt_in\n"
+            "E       assert []\n",
+        )
+        is False
+    )
+
+    assert calls == [
+        "attempt:1",
+        "codex",
+        "gates",
+        "attempt:2",
+        "codex",
+        "gates",
+    ]
+    assert args.last_stop_reason == "no_progress"
+    assert "same actionable finding repeated" in args.last_block_message
+    assert (
+        args.last_failure_summary
+        == "apps/api/tests/test_briefing_api.py::test_external_knowledge_opt_in"
+    )
+
+
 def test_final_repair_retries_actionable_audit_findings(monkeypatch) -> None:
     task = {
         "id": "P3-08",
