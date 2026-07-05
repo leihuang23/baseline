@@ -10,7 +10,20 @@ htmlcov/
 artifacts/
 dist/
 build/
+apps/ios/.build/
 *.egg-info/
 .DS_Store
 .omx/
 .task-runs/
+
+# Generated local agent/editor surfaces.
+.claude/
+.codex/
+.cursor/
+.opencode/
+.qoder/
+.qwen/
+.trae/
+.github/prompts/
+.github/skills/
+openspec/
