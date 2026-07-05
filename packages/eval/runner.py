@@ -17,7 +17,13 @@ from packages.fixtures import get_scenario
 from packages.fixtures.models import fixture_to_dict
 
 GATED_FAILURE_TYPES = frozenset(
-    {EvalType.REASONING, EvalType.REGRESSION, EvalType.RETRIEVAL, EvalType.SAFETY}
+    {
+        EvalType.PRIVACY,
+        EvalType.REASONING,
+        EvalType.REGRESSION,
+        EvalType.RETRIEVAL,
+        EvalType.SAFETY,
+    }
 )
 
 

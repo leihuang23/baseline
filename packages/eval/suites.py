@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from packages.eval.definitions import EvalSuite, EvalType
+from packages.eval.demo import demo_privacy_suites
 from packages.eval.feature_golden_expected import HIGH_HRV_GOLDEN_BUNDLE
 from packages.eval.reasoning_scenarios import reasoning_scenario_suites
 from packages.eval.registry import EvalRegistry
@@ -58,5 +59,7 @@ def build_default_registry() -> EvalRegistry:
     for suite in retrieval_scenario_suites():
         registry.register(suite)
     for suite in safety_scenario_suites():
+        registry.register(suite)
+    for suite in demo_privacy_suites():
         registry.register(suite)
     return registry

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from collections.abc import Generator
-from typing import Any
+from collections.abc import Generator, Sequence
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -13,6 +13,7 @@ from packages.knowledge.models import KnowledgeSourceDocument
 from packages.knowledge.pipeline import KnowledgeIngestionPipeline
 from packages.knowledge.store import SQLModelKnowledgeVectorStore
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, col, select
 
 from baseline_api.app import create_app
@@ -50,7 +51,11 @@ from baseline_api.db.session import get_db_session
 from baseline_api.llm.orchestrator import OrchestratorResult
 from baseline_api.llm.schemas import LLMExplanationOutput
 from baseline_api.observability import metrics
-from baseline_api.retrieval import KnowledgeChunkHit, KnowledgeRetrievalResult
+from baseline_api.retrieval import (
+    KnowledgeChunkHit,
+    KnowledgeRetrievalResult,
+    KnowledgeRetrievalService,
+)
 from baseline_api.safety.engine import SafetyPolicyEngine
 from baseline_api.schemas.api import DailyBriefingResponse
 from baseline_api.schemas.recommendation import RecommendationContract
@@ -246,6 +251,40 @@ def test_combined_retrieval_binds_citations_from_external_prompt_payload() -> No
     assert combined.citation_accuracy == 1.0
 
 
+def test_external_retrieval_db_error_does_not_fallback_to_lexical(
+    monkeypatch: Any,
+) -> None:
+    service = KnowledgeRetrievalService(cast(Session, object()))
+
+    def fail_vector_query(
+        query: str,
+        query_embedding: Sequence[float],
+        *,
+        limit: int,
+    ) -> list[KnowledgeChunkHit]:
+        _ = (query, query_embedding, limit)
+        raise SQLAlchemyError("external corpus database unavailable")
+
+    def fail_if_lexical_fallback_runs(
+        query: str,
+        *,
+        limit: int,
+    ) -> list[KnowledgeChunkHit]:
+        _ = (query, limit)
+        raise AssertionError("database failures must not be relabeled as lexical fallback")
+
+    monkeypatch.setattr(service, "_rank_hits", fail_vector_query)
+    monkeypatch.setattr(service, "_rank_lexical_hits", fail_if_lexical_fallback_runs)
+
+    result = service.retrieve("daily readiness training recovery")
+
+    assert result.degraded is True
+    assert result.hits == []
+    assert result.external_knowledge == []
+    assert result.degrade_reason == "SQLAlchemyError"
+    assert any("External knowledge retrieval" in item for item in result.uncertainty)
+
+
 def test_exact_date_briefing_lookup_prefers_external_knowledge_job() -> None:
     ordering = [str(item) for item in _completed_job_ordering(offline_last=False)]
 
@@ -268,6 +307,30 @@ def test_final_safety_gate_evaluates_suppressed_llm_citation_side_fields() -> No
     assert enforced.external_citations == []
     assert "overtrained" not in served_text
     assert "diagnosis is" not in served_text
+
+
+def test_final_safety_rewrite_preserves_operational_retrieval_uncertainty() -> None:
+    briefing = _minimal_briefing().model_copy(
+        update={
+            "uncertainty": [
+                "External knowledge retrieval was unavailable; deterministic briefing was used.",
+                "Unsafe uncertainty says your diagnosis is overtrained.",
+            ],
+        }
+    )
+
+    enforced = _enforce_served_briefing_safety(
+        SafetyPolicyEngine.from_default_policy(),
+        briefing,
+    )
+
+    uncertainty = " ".join(enforced.uncertainty)
+    served_text = json.dumps(enforced.model_dump(mode="json")).lower()
+    assert enforced.safety_status.value == "rewritten"
+    assert "External knowledge retrieval" in uncertainty
+    assert "Recent-history retrieval" not in uncertainty
+    assert "diagnosis is" not in served_text
+    assert "overtrained" not in served_text
 
 
 def test_external_retrieval_uncertainty_preserves_citations_through_safety_passes() -> None:
@@ -972,17 +1035,21 @@ def test_external_retrieval_db_error_degrades_without_wrong_history_label(
     _seed_fixture_day(db_session)
     _seed_external_reference(db_session)
     db_session.flush()
-    original_exec = db_session.exec
     retrieval_failed = False
 
-    def flaky_exec(statement: Any, *args: Any, **kwargs: Any) -> Any:
+    def fail_vector_query(
+        service: KnowledgeRetrievalService,
+        query: str,
+        query_embedding: Sequence[float],
+        *,
+        limit: int,
+    ) -> list[KnowledgeChunkHit]:
         nonlocal retrieval_failed
-        if not retrieval_failed and "FROM knowledge_chunk" in str(statement):
-            retrieval_failed = True
-            original_exec(text("SELECT 1 / 0"))
-        return original_exec(statement, *args, **kwargs)
+        _ = (service, query, query_embedding, limit)
+        retrieval_failed = True
+        raise SQLAlchemyError("external corpus database unavailable")
 
-    monkeypatch.setattr(db_session, "exec", flaky_exec)
+    monkeypatch.setattr(KnowledgeRetrievalService, "_rank_hits", fail_vector_query)
     client = _client(db_session)
 
     _generate(client, include_external_knowledge=True)

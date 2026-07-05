@@ -251,14 +251,34 @@ export const demoDashboardData = {
   ],
   demoScenarios: [
     {
-      name: "Portfolio review",
+      name: "60-day persona",
       status: "ready",
-      description: "Synthetic walkthrough with generated traces, evals, and cost metrics.",
+      description: "Longitudinal synthetic persona with travel, sleep debt, illness, and fitness trend.",
     },
     {
-      name: "Operator inspection",
+      name: "Low recovery",
       status: "ready",
-      description: "Read-only health, trace, model-run, and safety rollups.",
+      description: "Low HRV, elevated resting heart rate, and recent sleep debt.",
+    },
+    {
+      name: "Mixed signals",
+      status: "ready",
+      description: "High HRV conflicts with accumulated sleep debt.",
+    },
+    {
+      name: "Training density",
+      status: "ready",
+      description: "Recent lower-body density constrains intensity recommendations.",
+    },
+    {
+      name: "Illness guardrail",
+      status: "ready",
+      description: "Illness flag overrides high motivation in wellness-only guidance.",
+    },
+    {
+      name: "Missing HRV",
+      status: "ready",
+      description: "The pipeline explains incomplete inputs without inventing values.",
     },
   ],
 };
