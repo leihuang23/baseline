@@ -1,5 +1,5 @@
 {
-  "active_cluster": "P4-memory-data-controls",
+  "active_cluster": "P5-knowledge-ops",
   "clusters": [
     {
       "cluster_review_required": true,
@@ -345,10 +345,12 @@
       "title": "knowledge retrieval citations"
     },
     {
+      "completed_at": "2026-07-05T02:57:20Z",
       "id": "P5-03",
+      "last_run_dir": ".task-runs/2026-07-05T025204Z-P5-03-final-repair-2",
       "phase": "P5",
       "prompt": "tasks/P5-03-eval-ops-dashboard.md",
-      "status": "pending",
+      "status": "complete",
       "title": "eval ops dashboard"
     },
     {
@@ -373,6 +375,6 @@
       "title": "portfolio docs"
     }
   ],
-  "updated_at": "2026-07-04T15:05:59Z",
+  "updated_at": "2026-07-05T02:57:20Z",
   "version": 1
 }
