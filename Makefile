@@ -3,7 +3,7 @@ DATABASE_URL ?= postgresql+psycopg://baseline@localhost:5433/baseline
 export UV_CACHE_DIR
 export DATABASE_URL
 
-.PHONY: dev test lint typecheck migrate fmt eval task-status task-next task-current task-current-watch task-finish task-finish-commit task-loop-one task-loop-one-codex task-loop-one-commit task-loop-one-commit-codex task-loop-p0-cluster task-loop-p0-cluster-codex
+.PHONY: dev test lint typecheck migrate fmt eval docs-check task-status task-next task-current task-current-watch task-finish task-finish-commit task-loop-one task-loop-one-codex task-loop-one-commit task-loop-one-commit-codex task-loop-p0-cluster task-loop-p0-cluster-codex
 
 dev:
 	uv run uvicorn baseline_api.main:app --reload
@@ -26,6 +26,9 @@ fmt:
 
 eval:
 	uv run python -m packages.eval
+
+docs-check:
+	uv run python scripts/check_docs.py
 
 task-status:
 	python3 scripts/run_task_loop.py status
