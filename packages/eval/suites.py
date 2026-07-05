@@ -6,6 +6,7 @@ from packages.eval.definitions import EvalSuite, EvalType
 from packages.eval.feature_golden_expected import HIGH_HRV_GOLDEN_BUNDLE
 from packages.eval.reasoning_scenarios import reasoning_scenario_suites
 from packages.eval.registry import EvalRegistry
+from packages.eval.retrieval_scenarios import retrieval_scenario_suites
 from packages.eval.safety_scenarios import safety_scenario_suites
 from packages.eval.scorers import (
     expected_outcomes_match,
@@ -53,6 +54,8 @@ def build_default_registry() -> EvalRegistry:
         )
     )
     for suite in reasoning_scenario_suites():
+        registry.register(suite)
+    for suite in retrieval_scenario_suites():
         registry.register(suite)
     for suite in safety_scenario_suites():
         registry.register(suite)

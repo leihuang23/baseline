@@ -336,10 +336,12 @@
       "title": "knowledge corpus"
     },
     {
+      "completed_at": "2026-07-05T01:58:16Z",
       "id": "P5-02",
+      "last_run_dir": ".task-runs/2026-07-05T014632Z-P5-02-final-repair-17",
       "phase": "P5",
       "prompt": "tasks/P5-02-knowledge-retrieval-citations.md",
-      "status": "pending",
+      "status": "complete",
       "title": "knowledge retrieval citations"
     },
     {

@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
@@ -53,6 +53,13 @@ from baseline_api.observability.metrics import (
 from baseline_api.observability.tracing import create_job_context, use_trace_context
 from baseline_api.reasoning.engine import ReadinessAssessmentOutput
 from baseline_api.reasoning.service import ReasoningService, features_to_mapping
+from baseline_api.retrieval import (
+    KnowledgeChunkHit,
+    KnowledgeRetrievalResult,
+    KnowledgeRetrievalService,
+    bind_external_claims,
+    has_external_knowledge_consent,
+)
 from baseline_api.safety.engine import SafetyPolicyEngine
 from baseline_api.schemas.api import (
     BriefingTraceInspection,
@@ -106,6 +113,11 @@ class RetrievalResult:
     trace_items: list[dict[str, Any]]
     degraded: bool = False
     degrade_reason: str | None = None
+    external_hits: list[KnowledgeChunkHit] = field(default_factory=list)
+    external_knowledge: list[dict[str, Any]] = field(default_factory=list)
+    external_citations: list[ExternalCitation] = field(default_factory=list)
+    external_uncertainty: list[str] = field(default_factory=list)
+    citation_accuracy: float = 1.0
 
 
 class DailyBriefingService:
@@ -241,7 +253,13 @@ class DailyBriefingService:
                     ),
                 ]
                 active_goals = self._active_goals()
-                retrieval = self._retrieve_recent_history(user_id, request.date)
+                personal_retrieval = self._retrieve_recent_history(user_id, request.date)
+                external_retrieval = self._retrieve_external_knowledge(
+                    user_id=user_id,
+                    include_external_knowledge=request.include_external_knowledge,
+                    privacy_mode=request.privacy_mode,
+                )
+                retrieval = _combine_retrieval(personal_retrieval, external_retrieval)
                 stage_trace.append(
                     _stage_event(
                         "retrieval",
@@ -251,6 +269,8 @@ class DailyBriefingService:
                         degraded=retrieval.degraded,
                         degrade_reason=retrieval.degrade_reason,
                         observation_count=len(retrieval.observations),
+                        external_source_count=len(retrieval.external_citations),
+                        citation_accuracy=retrieval.citation_accuracy,
                     )
                 )
                 assessment = ReasoningService(self._session).assess_and_persist(
@@ -280,7 +300,7 @@ class DailyBriefingService:
                     deterministic_assessment=assessment_data,
                     derived_features=features_to_mapping(feature),
                     retrieved_evidence=retrieval.trace_items,
-                    external_knowledge=[],
+                    external_knowledge=retrieval.external_knowledge,
                     raw_samples=[],
                     raw_notes=[],
                 )
@@ -406,15 +426,21 @@ class DailyBriefingService:
         offline_last: bool = False,
     ) -> DailyBriefingResponse:
         user = self._get_single_user()
-        recommendation = self._recommendations.latest_for_user_date(
+        recommendation = self._latest_completed_job_recommendation(
             user_id=user.id,
             date=target_date,
+            offline_last=offline_last,
         )
-        if recommendation is None and offline_last:
-            recommendation = self._recommendations.latest_for_user_on_or_before(
+        if recommendation is None:
+            recommendation = self._recommendations.latest_for_user_date(
                 user_id=user.id,
                 date=target_date,
             )
+            if recommendation is None and offline_last:
+                recommendation = self._recommendations.latest_for_user_on_or_before(
+                    user_id=user.id,
+                    date=target_date,
+                )
         if recommendation is None:
             raise BriefingError(
                 code="briefing_not_found",
@@ -428,6 +454,33 @@ class DailyBriefingService:
                 status_code=409,
             )
         return DailyBriefingResponse.model_validate(recommendation.briefing_payload)
+
+    def _latest_completed_job_recommendation(
+        self,
+        *,
+        user_id: UUID,
+        date: dt.date,
+        offline_last: bool,
+    ) -> Recommendation | None:
+        date_filter = (
+            DailyAnalysisJob.date <= date if offline_last else DailyAnalysisJob.date == date
+        )
+        job = self._session.exec(
+            select(DailyAnalysisJob)
+            .where(
+                DailyAnalysisJob.user_id == user_id,
+                date_filter,
+                DailyAnalysisJob.status == AnalysisJobStatus.completed.value,
+                col(DailyAnalysisJob.recommendation_id).is_not(None),
+            )
+            .order_by(*_completed_job_ordering(offline_last=offline_last))
+        ).first()
+        if job is None or job.recommendation_id is None:
+            return None
+        recommendation = self._session.get(Recommendation, job.recommendation_id)
+        if recommendation is None or recommendation.user_id != user_id:
+            return None
+        return recommendation
 
     def get_trace(self, trace_id: UUID) -> BriefingTraceInspection:
         user = self._get_single_user()
@@ -559,6 +612,39 @@ class DailyBriefingService:
             trace_items=summaries,
         )
 
+    def _retrieve_external_knowledge(
+        self,
+        *,
+        user_id: UUID,
+        include_external_knowledge: bool,
+        privacy_mode: PrivacyMode,
+    ) -> KnowledgeRetrievalResult:
+        if not include_external_knowledge:
+            return KnowledgeRetrievalResult(
+                hits=[],
+                citations=[],
+                external_knowledge=[],
+                uncertainty=[],
+            )
+        if privacy_mode == PrivacyMode.local_only:
+            return KnowledgeRetrievalResult(
+                hits=[],
+                citations=[],
+                external_knowledge=[],
+                uncertainty=[
+                    "External knowledge was requested but disabled by local-only privacy mode."
+                ],
+            )
+        if not has_external_knowledge_consent(self._session, user_id):
+            return KnowledgeRetrievalResult(
+                hits=[],
+                citations=[],
+                external_knowledge=[],
+                uncertainty=["External knowledge was requested but consent is not active."],
+            )
+        query = "daily readiness training recovery sleep general research"
+        return KnowledgeRetrievalService(self._session).retrieve(query)
+
     async def _explain(
         self,
         *,
@@ -617,7 +703,10 @@ class DailyBriefingService:
             confidence=assessment["confidence"],
             personal_evidence=_personal_evidence(assessment["evidence_items"]),
             memory_observations=retrieval.observations,
-            external_citations=_external_citations_from_llm(explanation.external_citations),
+            external_citations=_external_citations_from_retrieval(
+                explanation.external_citations,
+                retrieval,
+            ),
             risk_flags=assessment["risk_flags"],
             recommendation=RecommendationSummary(
                 primary=_primary_recommendation(assessment, explanation),
@@ -658,7 +747,11 @@ class DailyBriefingService:
             trace_id=assessment["reasoning_trace_id"],
             generated_at=dt.datetime.now(dt.UTC),
         )
-        return _enforce_served_briefing_safety(self._safety_engine, briefing)
+        return _enforce_served_briefing_safety(
+            self._safety_engine,
+            briefing,
+            extra_generated_text=_llm_side_field_text(explanation),
+        )
 
     def _persist_recommendation(
         self,
@@ -749,6 +842,8 @@ class DailyBriefingService:
             "degrade_reason": explanation.degrade_reason,
             "retrieval_degraded": retrieval.degraded,
             "retrieval_degrade_reason": retrieval.degrade_reason,
+            "external_source_count": len(retrieval.external_citations),
+            "external_citation_accuracy": retrieval.citation_accuracy,
             "model_run_ids": [str(row.id) for row in explanation.model_runs if hasattr(row, "id")],
             "total_cost": _total_cost(explanation),
             "latency_ms": latency_ms,
@@ -859,13 +954,95 @@ def _retarget_stage_trace(
     return [{**dict(stage), "trace_id": trace_id} for stage in stage_trace]
 
 
+def _combine_retrieval(
+    personal: RetrievalResult,
+    external: KnowledgeRetrievalResult,
+) -> RetrievalResult:
+    degraded = personal.degraded or external.degraded
+    degrade_reason = personal.degrade_reason or external.degrade_reason
+    external_hits = external.hits or _external_hits_from_prompt_knowledge(
+        external.external_knowledge
+    )
+    external_citations = _retrieval_citations(external, external_hits)
+    return RetrievalResult(
+        observations=personal.observations,
+        trace_items=personal.trace_items,
+        degraded=degraded,
+        degrade_reason=degrade_reason,
+        external_hits=external_hits,
+        external_knowledge=external.external_knowledge,
+        external_citations=external_citations,
+        external_uncertainty=external.uncertainty,
+        citation_accuracy=(
+            1.0 if external_citations and external_hits else external.citation_accuracy
+        ),
+    )
+
+
+def _completed_job_ordering(*, offline_last: bool) -> tuple[Any, ...]:
+    date_order = (col(DailyAnalysisJob.date).desc(),)
+    timestamp_order = (
+        col(DailyAnalysisJob.completed_at).desc(),
+        col(DailyAnalysisJob.started_at).desc(),
+        col(DailyAnalysisJob.created_at).desc(),
+    )
+    external_order = (col(DailyAnalysisJob.include_external_knowledge).desc(),)
+    if offline_last:
+        return (*date_order, *timestamp_order, *external_order)
+    return (*date_order, *external_order, *timestamp_order)
+
+
+def _retrieval_citations(
+    external: KnowledgeRetrievalResult,
+    external_hits: Sequence[KnowledgeChunkHit],
+) -> list[ExternalCitation]:
+    if external.citations or not external_hits:
+        return list(external.citations)
+    return bind_external_claims([hit.cited_claim for hit in external_hits], external_hits).citations
+
+
+def _external_hits_from_prompt_knowledge(
+    external_knowledge: Sequence[Mapping[str, Any]],
+) -> list[KnowledgeChunkHit]:
+    hits: list[KnowledgeChunkHit] = []
+    for item in external_knowledge:
+        hit = _external_hit_from_prompt_knowledge(item)
+        if hit is not None:
+            hits.append(hit)
+    return hits
+
+
+def _external_hit_from_prompt_knowledge(
+    item: Mapping[str, Any],
+) -> KnowledgeChunkHit | None:
+    try:
+        return KnowledgeChunkHit(
+            chunk_id=UUID(str(item["chunk_id"])),
+            source_id=UUID(str(item["source_id"])),
+            source_version=str(item["source_version"]),
+            chunk_index=int(item["chunk_index"]),
+            text=str(item["text"]),
+            relevance_score=float(item["relevance_score"]),
+            title=str(item["title"]),
+            source=str(item["source"]),
+            url_or_identifier=str(item["url_or_identifier"]),
+            trust_level=str(item["trust_level"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _enforce_served_briefing_safety(
     safety_engine: SafetyPolicyEngine,
     briefing: DailyBriefingResponse,
+    *,
+    extra_generated_text: str = "",
 ) -> DailyBriefingResponse:
     result = safety_engine.evaluate(
         request_text=" ".join(briefing.risk_flags),
-        generated_text=_served_briefing_text(briefing),
+        generated_text=" ".join(
+            part for part in [_served_briefing_text(briefing), extra_generated_text] if part
+        ),
     )
     safety_notes = [result.safety_note]
     if result.status is SafetyStatus.passed:
@@ -974,6 +1151,20 @@ def _served_briefing_text(briefing: DailyBriefingResponse) -> str:
     return " ".join(part for part in parts if part)
 
 
+def _llm_side_field_text(explanation: LLMExplanationOutput) -> str:
+    parts: list[str] = []
+    for item in explanation.external_citations:
+        payload = item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+        try:
+            citation = ExternalCitation.model_validate(payload)
+        except ValueError:
+            continue
+        parts.extend(
+            [citation.title, citation.source, citation.cited_claim, str(citation.url or "")]
+        )
+    return " ".join(part for part in parts if part)
+
+
 def _personal_evidence(items: Sequence[Mapping[str, Any]]) -> list[PersonalEvidence]:
     evidence: list[PersonalEvidence] = []
     for item in items:
@@ -1000,15 +1191,58 @@ def _personal_evidence(items: Sequence[Mapping[str, Any]]) -> list[PersonalEvide
     ]
 
 
-def _external_citations_from_llm(items: Sequence[Any]) -> list[ExternalCitation]:
-    citations: list[ExternalCitation] = []
+def _external_citations_from_retrieval(
+    items: Sequence[Any],
+    retrieval: RetrievalResult,
+) -> list[ExternalCitation]:
+    external_hits = retrieval.external_hits or _external_hits_from_prompt_knowledge(
+        retrieval.external_knowledge
+    )
+    if not external_hits:
+        return list(retrieval.external_citations)
+    citations = _retrieval_hit_citations(retrieval, external_hits)
+    claims: list[str] = []
     for item in items:
-        if isinstance(item, ExternalCitation):
-            citations.append(item)
-            continue
         payload = item.model_dump(mode="json") if hasattr(item, "model_dump") else item
-        citations.append(ExternalCitation.model_validate(payload))
-    return citations
+        try:
+            claims.append(ExternalCitation.model_validate(payload).cited_claim)
+        except ValueError:
+            continue
+    if not claims:
+        return citations
+    return _dedupe_external_citations(
+        [*citations, *bind_external_claims(claims, external_hits).citations]
+    )
+
+
+def _retrieval_hit_citations(
+    retrieval: RetrievalResult,
+    external_hits: Sequence[KnowledgeChunkHit] | None = None,
+) -> list[ExternalCitation]:
+    if retrieval.external_citations:
+        return list(retrieval.external_citations)
+    hits = retrieval.external_hits if external_hits is None else external_hits
+    return bind_external_claims(
+        [hit.cited_claim for hit in hits],
+        hits,
+    ).citations
+
+
+def _dedupe_external_citations(citations: Sequence[ExternalCitation]) -> list[ExternalCitation]:
+    deduped: list[ExternalCitation] = []
+    seen: set[tuple[str, str, str, str | None]] = set()
+    for citation in citations:
+        key = (
+            citation.title,
+            citation.source,
+            citation.cited_claim,
+            str(citation.url) if citation.url is not None else None,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(citation)
+    return deduped
 
 
 def _rule_labels(items: Sequence[Mapping[str, Any]], *, fallback: str | None = None) -> list[str]:
@@ -1086,6 +1320,7 @@ def _uncertainty(
 ) -> list[str]:
     values = [str(item) for item in assessment["uncertainty"]]
     values.extend(str(item) for item in explanation.uncertainty if str(item) not in values)
+    values.extend(item for item in retrieval.external_uncertainty if item not in values)
     if retrieval.degraded:
         values.append("Recent-history retrieval was unavailable, so continuity context is limited.")
     return values or ["No material uncertainty beyond normal day-to-day variability."]
