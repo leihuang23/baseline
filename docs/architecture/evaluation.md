@@ -1,49 +1,134 @@
-# Evaluation Harness
+# Evaluation Report
 
-Baseline uses a scenario-driven evaluation harness as part of the MVP foundation. It is
-offline by default, uses only synthetic fixtures, and writes both database rows and report
-artifacts for later dashboard ingestion.
+Baseline uses an offline, synthetic-data evaluation harness for deterministic
+features, reasoning behavior, external retrieval, safety policy, privacy leak
+checks, LLM-output properties, and regression coverage. The default registry is
+defined in `packages/eval/suites.py` and runs through:
 
-## Shape
+```bash
+make eval
+```
 
-Each suite declares:
-
-- `name`: stable suite identifier used by the registry and CLI.
-- `eval_type`: one of `deterministic`, `llm_property`, `reasoning`, `retrieval`, `safety`,
-  `privacy`, or `regression`.
-- `scenario_name`: scenario label persisted to `EvaluationCase`.
-- `input_fixture`: named synthetic fixture from `packages.fixtures`.
-- `expected_properties`: structured properties the scorer checks.
-- `scorer`: deterministic code that returns pass/fail, observed properties, and an optional
-  failure reason.
-
-LLM-property suites must provide a mocked or recorded response. The harness has no live model
-client and `make eval` is safe for CI.
-
-## Persistence and Reports
-
-Every suite run writes an `EvaluationCase` row:
-
-- `input_fixture` stores the synthetic fixture payload.
-- `expected_properties` stores the suite expectations.
-- `actual_output` stores `suite_name`, `eval_type`, observed properties, optional mocked model
-  response, and optional failure reason.
-- `pass_fail`, `failure_reason`, and `evaluated_at` store the final score.
-
-The reporter writes:
+The harness persists `EvaluationCase` rows and writes:
 
 - `artifacts/eval/evaluation-report.json`
 - `artifacts/eval/evaluation-report.md`
 
-The JSON report includes summary totals, totals by eval type, gated failure types, failures,
-and per-suite result records with `EvaluationCase` IDs.
+## Current Suite Inventory
 
-## CI Gate
+The default registry currently contains 54 suites:
 
-`make eval` runs the default registry through `python -m packages.eval`.
-CI runs `make migrate` before the eval gate so the service database has the
-`EvaluationCase` table before results are persisted.
+| Eval type | Count | What it covers |
+| --- | ---: | --- |
+| `reasoning` | 30 | Golden and variant scenario checks for readiness state, recommendation band ceilings, risk flags, evidence, confidence, uncertainty, trace IDs, goal tradeoffs, and safety routing. |
+| `safety` | 14 | Diagnosis, treatment, dosing, emergency, injury-rehab, sexual-health, and trend-proves-condition refusal/rewrite/escalation behavior. |
+| `privacy` | 6 | Demo-mode artifact leak checks across selectable public scenarios. |
+| `retrieval` | 1 | Curated external knowledge relevance, citation binding, and separation from personal evidence. |
+| `regression` | 1 | Feature-engine golden bundle regression. |
+| `deterministic` | 1 | Fixture expected-outcome smoke coverage. |
+| `llm_property` | 1 | Mocked model response property check for medical-boundary behavior. |
 
-The gate returns nonzero when any `reasoning`, `safety`, or `regression` suite fails. Other
-eval failures are reported but do not fail the gate unless they are promoted to one of those
-gated types in a later task.
+`reasoning`, `safety`, `privacy`, and `regression` failures are CI-gated by
+`packages.eval.runner.GATED_FAILURE_TYPES`. Other suite types are reported and
+can be promoted later if their risk changes.
+
+## Golden Scenario Coverage
+
+The fixture catalog in `packages/fixtures/scenarios.py` includes the 10 named
+PRD golden scenarios:
+
+- `high_hrv_good_sleep_low_load`
+- `low_hrv_high_rhr_poor_sleep`
+- `mixed_high_hrv_sleep_debt`
+- `three_lower_body_sessions_six_days`
+- `illness_flag_high_motivation`
+- `missing_hrv`
+- `stale_sleep`
+- `vo2_improving_recovery_declining`
+- `cognitive_priority_week`
+- `medical_diagnosis_request`
+
+It also includes 20 synthetic variants across sleep, training, and recovery
+families, plus `demo_60_day_persona`. The reasoning eval therefore covers 30
+golden/variant readiness scenarios, satisfying the portfolio requirement for at
+least 30 golden-style scenarios without using private data.
+
+## What The Harness Proves
+
+### Deterministic And Regression
+
+The deterministic and regression suites verify that fixture expectations and the
+feature-engine golden bundle stay stable. These suites are intentionally based
+on structured feature objects, not generated prose.
+
+### Reasoning
+
+Reasoning suites call `baseline_api.features.assembler.assemble_daily_features`
+and `baseline_api.reasoning.engine.assess_readiness`. They assert structural
+properties such as:
+
+- evidence must be present,
+- confidence must be present,
+- uncertainty must be present,
+- trace IDs and input hashes must round-trip,
+- safety and data-quality flags must cap recommendation intensity,
+- missing or stale inputs must reduce confidence and be disclosed.
+
+### Retrieval
+
+The retrieval suite runs the starter external corpus through
+`packages.knowledge.pipeline.KnowledgeIngestionPipeline`, retrieves relevant
+chunks, and checks `baseline_api.retrieval.bind_external_claims`. It verifies
+that external citations are relevant and are not mixed into personal evidence.
+
+### Safety
+
+The safety suites evaluate `baseline_api.safety.engine.SafetyPolicyEngine`
+against adversarial requests and generated text. They check blocked, rewritten,
+and escalated outcomes for the refusal categories documented in
+`docs/safety/policy.md`.
+
+### Privacy And Demo
+
+The privacy suites build deterministic demo artifacts through
+`packages.eval.demo` and scan briefing, trace, memory, dashboard, and export
+payloads for private-data markers. They also verify that demo mode exercises
+product loaders and persistence instead of bypassing the real pipeline.
+
+### LLM Property
+
+The LLM property suite uses a recorded/mock response. The default eval gate does
+not call a live model provider, which keeps CI deterministic and safe.
+
+## Current Results
+
+Latest local run:
+
+- Command: `make eval`
+- Evaluated at: `2026-07-05T05:44:48.420801+00:00`
+- Total pass rate: 54/54 suites passed (100%)
+- Gate failed: `false`
+- Failure count: 0
+
+| Eval type | Current result |
+| --- | ---: |
+| `deterministic` | 1/1 passed |
+| `llm_property` | 1/1 passed |
+| `privacy` | 6/6 passed |
+| `reasoning` | 30/30 passed |
+| `regression` | 1/1 passed |
+| `retrieval` | 1/1 passed |
+| `safety` | 14/14 passed |
+
+The run wrote the detailed suite list to `artifacts/eval/evaluation-report.md`
+and `artifacts/eval/evaluation-report.json`. Those generated artifacts are not
+checked into source control, so rerun `make eval` after changing feature,
+reasoning, retrieval, safety, privacy, demo, or eval code.
+
+## Known Limits
+
+- The harness proves behavior over synthetic scenarios only.
+- It does not claim clinical validation or population-level accuracy.
+- The LLM-property suite is mocked; live provider quality belongs in later
+  recorded or shadow evals.
+- Database-backed eval persistence requires a reachable configured database.
