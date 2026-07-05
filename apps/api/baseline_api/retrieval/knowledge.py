@@ -14,6 +14,7 @@ from typing import Any
 from uuid import UUID
 
 from packages.knowledge.embeddings import EmbeddingProvider, HashEmbeddingProvider
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, col, select
 
 from baseline_api.db.models.knowledge import KnowledgeChunk, KnowledgeSource
@@ -138,6 +139,17 @@ class KnowledgeRetrievalService:
         try:
             query_embedding = self._embedder.embed(normalized_query)
             hits = self._rank_hits(normalized_query, query_embedding, limit=limit)
+        except SQLAlchemyError as exc:
+            return KnowledgeRetrievalResult(
+                hits=[],
+                citations=[],
+                external_knowledge=[],
+                uncertainty=[
+                    "External knowledge retrieval was unavailable; no external claims were used."
+                ],
+                degraded=True,
+                degrade_reason=type(exc).__name__,
+            )
         except Exception as exc:
             try:
                 hits = self._rank_lexical_hits(normalized_query, limit=limit)

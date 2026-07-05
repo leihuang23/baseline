@@ -363,10 +363,12 @@
       "title": "cost latency fallback"
     },
     {
+      "completed_at": "2026-07-05T05:26:18Z",
       "id": "P6-01",
+      "last_run_dir": ".task-runs/manual-P6-01-finish",
       "phase": "P6",
       "prompt": "tasks/P6-01-demo-mode-leak-tests.md",
-      "status": "pending",
+      "status": "complete",
       "title": "demo mode leak tests"
     },
     {
@@ -377,6 +379,6 @@
       "title": "portfolio docs"
     }
   ],
-  "updated_at": "2026-07-05T04:12:03Z",
+  "updated_at": "2026-07-05T05:26:18Z",
   "version": 1
 }

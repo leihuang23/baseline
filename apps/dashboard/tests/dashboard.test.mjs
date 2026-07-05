@@ -29,6 +29,13 @@ test("renders every dashboard section from synthetic data", () => {
   assert.match(html, /Demo scenarios/);
 });
 
+test("demo data exposes at least five selectable scenarios", () => {
+  const safe = sanitizeDashboardData(demoDashboardData);
+
+  assert.ok(safe.demoScenarios.length >= 5);
+  assert.equal(new Set(safe.demoScenarios.map((scenario) => scenario.name)).size, safe.demoScenarios.length);
+});
+
 test("recommendation traces are browsable and tied to trace ids", () => {
   const html = renderDashboard(demoDashboardData, { mode: "demo" });
 

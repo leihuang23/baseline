@@ -20,7 +20,7 @@ test("demo bootstrap ignores real global dashboard data", async () => {
   await import(`${MAIN_URL.href}?case=demo-isolation-${Date.now()}`);
 
   assert.match(root.innerHTML, /Demo mode/);
-  assert.match(root.innerHTML, /Synthetic walkthrough/);
+  assert.match(root.innerHTML, /60-day persona/);
   assert.doesNotMatch(root.innerHTML, /alice@example\.com/);
   assert.doesNotMatch(root.innerHTML, /doctor note/);
   assert.doesNotMatch(root.innerHTML, /raw sample/);

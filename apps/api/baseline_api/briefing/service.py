@@ -1248,9 +1248,7 @@ def _enforce_served_briefing_safety(
                     ),
                 )
             ],
-            "uncertainty": [
-                "Baseline can discuss wellness signals, not medical conclusions.",
-            ],
+            "uncertainty": _safety_rewrite_uncertainty(briefing.uncertainty),
             "data_quality_notes": [
                 DataQualityNote(
                     metric="safety_review",
@@ -1267,6 +1265,21 @@ def _enforce_served_briefing_safety(
             "safety_notes": safety_notes,
         }
     )
+
+
+def _safety_rewrite_uncertainty(uncertainty: Sequence[str]) -> list[str]:
+    values = ["Baseline can discuss wellness signals, not medical conclusions."]
+    operational_markers = (
+        "external knowledge retrieval",
+        "recent-history retrieval",
+        "local-only privacy mode",
+        "consent is not active",
+    )
+    for item in uncertainty:
+        text = str(item)
+        if any(marker in text.casefold() for marker in operational_markers):
+            values.append(text)
+    return list(dict.fromkeys(values))
 
 
 def _served_briefing_text(briefing: DailyBriefingResponse) -> str:
