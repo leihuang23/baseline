@@ -10,6 +10,7 @@ struct RootView: View {
             if model.onboardingComplete {
                 BaselineHomeView(
                     apiBaseURL: model.currentAPIBaseURL,
+                    apiAuthToken: model.currentAPIAuthToken,
                     privacyMode: { model.privacyMode }
                 )
             } else {
@@ -89,8 +90,11 @@ struct BaselineHomeView: View {
     @StateObject private var goalsModel: GoalsViewModel
     private let privacyMode: () -> PrivacyMode
 
-    init(apiBaseURL: URL, privacyMode: @escaping () -> PrivacyMode) {
-        let apiClient = URLSessionHealthSyncAPIClient(baseURL: apiBaseURL)
+    init(apiBaseURL: URL, apiAuthToken: String?, privacyMode: @escaping () -> PrivacyMode) {
+        let apiClient = URLSessionHealthSyncAPIClient(
+            baseURL: apiBaseURL,
+            apiAuthToken: apiAuthToken
+        )
         let supportDirectory = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask

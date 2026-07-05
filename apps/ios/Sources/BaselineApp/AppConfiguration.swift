@@ -6,7 +6,9 @@ enum BaselineAppConfigurationError: Error, Equatable {
 
 struct BaselineAppConfiguration: Equatable {
     static let environmentKey = "BASELINE_API_BASE_URL"
+    static let apiAuthTokenEnvironmentKey = "BASELINE_API_AUTH_TOKEN"
     static let infoPlistKey = "BaselineAPIBaseURL"
+    static let apiAuthTokenInfoPlistKey = "BaselineAPIAuthToken"
     static let localDevelopmentAPIBaseURL: URL = {
         var components = URLComponents()
         components.scheme = "http"
@@ -16,6 +18,7 @@ struct BaselineAppConfiguration: Equatable {
     }()
 
     var apiBaseURL: URL
+    var apiAuthToken: String?
 
     static func current(
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -27,10 +30,16 @@ struct BaselineAppConfiguration: Equatable {
         guard let url = URL(string: rawValue), url.scheme != nil, url.host != nil else {
             throw BaselineAppConfigurationError.invalidAPIBaseURL(rawValue)
         }
-        return BaselineAppConfiguration(apiBaseURL: url)
+        let token = environment[apiAuthTokenEnvironmentKey]
+            ?? infoDictionary[apiAuthTokenInfoPlistKey] as? String
+        return BaselineAppConfiguration(apiBaseURL: url, apiAuthToken: token)
     }
 
     static func resolvedCurrentAPIBaseURL() -> URL {
         (try? current().apiBaseURL) ?? localDevelopmentAPIBaseURL
+    }
+
+    static func resolvedCurrentAPIAuthToken() -> String? {
+        try? current().apiAuthToken
     }
 }

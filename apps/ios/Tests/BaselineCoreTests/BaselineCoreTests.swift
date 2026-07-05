@@ -251,6 +251,7 @@ final class BaselineCoreTests: XCTestCase {
                 "https://api.example.test/v1/data/export/00000000-0000-0000-0000-000000000001/file"
             )
             XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "application/octet-stream")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
             let response = HTTPURLResponse(
                 url: try XCTUnwrap(request.url),
                 statusCode: 200,
@@ -262,7 +263,8 @@ final class BaselineCoreTests: XCTestCase {
         defer { BinaryExportURLProtocol.handler = nil }
         let client = URLSessionHealthSyncAPIClient(
             baseURL: try XCTUnwrap(URL(string: "https://api.example.test/base")),
-            session: URLSession(configuration: configuration)
+            session: URLSession(configuration: configuration),
+            apiAuthToken: "test-token"
         )
 
         let data = try await client.downloadDataExport(
@@ -270,6 +272,35 @@ final class BaselineCoreTests: XCTestCase {
         )
 
         XCTAssertEqual(data, expected)
+    }
+
+    func testDataExportDownloadDoesNotAttachBearerTokenToExternalURLs() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BinaryExportURLProtocol.self]
+        BinaryExportURLProtocol.handler = { request in
+            XCTAssertEqual(
+                request.url?.absoluteString,
+                "https://exports.example.test/export.bin"
+            )
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/octet-stream"]
+            )
+            return (try XCTUnwrap(response), Data([1, 2, 3]))
+        }
+        defer { BinaryExportURLProtocol.handler = nil }
+        let client = URLSessionHealthSyncAPIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test/base")),
+            session: URLSession(configuration: configuration),
+            apiAuthToken: "test-token"
+        )
+
+        let data = try await client.downloadDataExport(from: "https://exports.example.test/export.bin")
+
+        XCTAssertEqual(data, Data([1, 2, 3]))
     }
 
     func testDataExportDownloadCanDecryptEncryptedBytes() async throws {
@@ -314,6 +345,83 @@ final class BaselineCoreTests: XCTestCase {
         let data = try await client.downloadDecryptedDataExport(response)
 
         XCTAssertEqual(data, plaintext)
+    }
+
+    func testAPIClientAttachesBearerTokenToEnvelopeRequests() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BinaryExportURLProtocol.self]
+        BinaryExportURLProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
+            XCTAssertEqual(request.url?.absoluteString, "https://api.example.test/base/v1/health/sync")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )
+            let data = try JSONSerialization.data(withJSONObject: [
+                "status": "success",
+                "data": [
+                    "schema_version": "v1",
+                    "sync_id": "00000000-0000-0000-0000-000000000001",
+                    "accepted_count": 0,
+                    "duplicate_count": 0,
+                    "rejected_count": 0,
+                    "warnings": [],
+                    "next_anchor": "anchor-1",
+                ],
+            ])
+            return (try XCTUnwrap(response), data)
+        }
+        defer { BinaryExportURLProtocol.handler = nil }
+        let client = URLSessionHealthSyncAPIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test/base")),
+            session: URLSession(configuration: configuration),
+            apiAuthToken: "test-token"
+        )
+
+        let response = try await client.postHealthSync(
+            HealthSyncRequest(
+                clientSyncID: "sync-1",
+                deviceID: "device-1",
+                timezone: "UTC",
+                samples: [],
+                lastAnchor: nil,
+                consentVersion: "consent-v1"
+            )
+        )
+
+        XCTAssertEqual(response.nextAnchor, "anchor-1")
+    }
+
+    func testAPIClientAttachesBearerTokenToDeleteRequests() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BinaryExportURLProtocol.self]
+        BinaryExportURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "DELETE")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-token")
+            XCTAssertEqual(
+                request.url?.absoluteString,
+                "https://api.example.test/base/v1/checkins/daily/00000000-0000-0000-0000-000000000001"
+            )
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 204,
+                httpVersion: nil,
+                headerFields: nil
+            )
+            return (try XCTUnwrap(response), Data())
+        }
+        defer { BinaryExportURLProtocol.handler = nil }
+        let client = URLSessionHealthSyncAPIClient(
+            baseURL: try XCTUnwrap(URL(string: "https://api.example.test/base")),
+            session: URLSession(configuration: configuration),
+            apiAuthToken: "test-token"
+        )
+
+        try await client.deleteDailyCheckIn(
+            id: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        )
     }
 
     func testDataControlPayloadsEncodeAndDecode() throws {

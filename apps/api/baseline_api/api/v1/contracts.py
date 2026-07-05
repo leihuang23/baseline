@@ -1,15 +1,15 @@
-"""Versioned contract stubs for API endpoints whose behavior lands in later slices."""
+"""Versioned API endpoints for daily analysis, briefings, and feedback."""
 
 import datetime as dt
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import create_engine
 from sqlmodel import Session
 
 from baseline_api.briefing import BriefingError, DailyBriefingService, LLMExplainer
+from baseline_api.briefing.queue import ArqDailyBriefingJobQueue, DailyBriefingJobQueue
 from baseline_api.config import Settings
 from baseline_api.db.session import get_db_session
 from baseline_api.feedback import FeedbackError, FeedbackService
@@ -75,7 +75,6 @@ def _feedback_error_response(error: FeedbackError) -> JSONResponse:
 async def generate_daily_analysis(
     payload: DailyAnalysisRequest,
     request: Request,
-    background_tasks: BackgroundTasks,
     session: Annotated[Session, Depends(get_db_session)],
 ) -> APIEnvelope[DailyAnalysisResponse] | JSONResponse:
     service = DailyBriefingService(
@@ -87,15 +86,20 @@ async def generate_daily_analysis(
         if getattr(request.app.state, "briefing_run_inline", False):
             data = await service.run_daily_job(job.id)
         else:
-            settings = request.app.state.settings
-            if not isinstance(settings, Settings):
-                raise RuntimeError("Application settings are not initialized.")
-            background_tasks.add_task(
-                _run_daily_analysis_job,
-                settings,
-                job.id,
-                getattr(request.app.state, "briefing_llm_explainer", None),
-            )
+            queue = _daily_briefing_queue(request)
+            try:
+                await queue.enqueue_daily_briefing(job_id=job.id)
+            except Exception as exc:
+                service.mark_daily_job_failed(
+                    job.id,
+                    error_code="analysis_enqueue_failed",
+                    error_message=exc.__class__.__name__,
+                )
+                raise BriefingError(
+                    code="analysis_enqueue_failed",
+                    message="Daily briefing job could not be queued.",
+                    status_code=503,
+                ) from exc
             data = DailyAnalysisResponse(
                 analysis_job_id=job.id,
                 status=job.status,
@@ -104,6 +108,17 @@ async def generate_daily_analysis(
     except BriefingError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
+
+
+def _daily_briefing_queue(request: Request) -> DailyBriefingJobQueue:
+    queue = getattr(request.app.state, "daily_briefing_queue", None)
+    if queue is not None:
+        return queue  # type: ignore[no-any-return]
+
+    settings = request.app.state.settings
+    if not isinstance(settings, Settings):
+        raise RuntimeError("Application settings are not initialized.")
+    return ArqDailyBriefingJobQueue(str(settings.redis_url))
 
 
 @router.get("/analysis/daily/{job_id}", response_model=APIEnvelope[DailyAnalysisResponse])
@@ -162,22 +177,3 @@ async def submit_recommendation_feedback(
     except FeedbackError as error:
         return _feedback_error_response(error)
     return APIEnvelope(status="success", data=data)
-
-
-async def _run_daily_analysis_job(
-    settings: Settings,
-    job_id: UUID,
-    llm_explainer: LLMExplainer | None,
-) -> None:
-    engine = create_engine(str(settings.database_url))
-    try:
-        with Session(engine) as session:
-            explainer = llm_explainer
-            if explainer is None:
-                explainer = LLMOrchestrator(
-                    session=session,
-                    router=build_default_router(settings),
-                )
-            await DailyBriefingService(session, llm_explainer=explainer).run_daily_job(job_id)
-    finally:
-        engine.dispose()

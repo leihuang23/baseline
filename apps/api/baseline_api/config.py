@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, RedisDsn
+from pydantic import Field, PostgresDsn, RedisDsn, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     app_env: Literal["local", "test", "staging", "production"] = Field(alias="APP_ENV")
     database_url: PostgresDsn = Field(alias="DATABASE_URL")
     redis_url: RedisDsn = Field(alias="REDIS_URL")
+    api_auth_token: str | None = Field(default=None, alias="BASELINE_API_AUTH_TOKEN")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO",
         alias="LOG_LEVEL",
@@ -65,6 +66,22 @@ class Settings(BaseSettings):
         ge=1,
         alias="DELETION_FAILURE_ALERT_THRESHOLD",
     )
+
+    @model_validator(mode="after")
+    def require_production_auth_token(self) -> "Settings":
+        token = self.api_auth_token.strip() if self.api_auth_token else None
+        self.api_auth_token = token
+        if self.app_env in {"staging", "production"}:
+            if not token:
+                raise ValueError(
+                    "BASELINE_API_AUTH_TOKEN is required when APP_ENV is staging or production."
+                )
+            if len(token) < 32:
+                raise ValueError(
+                    "BASELINE_API_AUTH_TOKEN must be at least 32 characters "
+                    "when APP_ENV is staging or production."
+                )
+        return self
 
 
 @lru_cache
