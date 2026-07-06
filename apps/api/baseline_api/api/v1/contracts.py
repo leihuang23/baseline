@@ -201,4 +201,6 @@ async def submit_recommendation_feedback(
         data = service.submit_feedback(id, payload, user=context.user)
     except FeedbackError as error:
         return _feedback_error_response(error)
+    except PrivacyError as error:
+        return _error_response(error)
     return APIEnvelope(status="success", data=data)
