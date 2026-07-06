@@ -1,6 +1,10 @@
 import Foundation
 import SwiftUI
 import XCTest
+#if os(iOS)
+import BackgroundTasks
+import UserNotifications
+#endif
 @testable import BaselineCore
 @testable import BaselineApp
 
@@ -519,6 +523,7 @@ final class BaselineAppTests: XCTestCase {
         XCTAssertTrue(api.fetchRequests.isEmpty)
         XCTAssertEqual(viewModel.briefing, cached)
         XCTAssertTrue(viewModel.isOfflineFallback)
+        XCTAssertTrue(viewModel.isRetryable)
         XCTAssertEqual(viewModel.statusMessage, "Analysis is still running. Showing latest saved briefing.")
     }
 
@@ -825,6 +830,116 @@ final class BaselineAppTests: XCTestCase {
             DailyCheckInLayoutSnapshot.oneMinuteInteractionBudget
         )
     }
+
+    @MainActor
+    func testBriefingPollingRespectsEstimateFloorAndCeiling() {
+        let viewModel = DailyBriefingViewModel(
+            apiClient: MockBriefingAPIClient(),
+            briefingStore: InMemoryBriefingStore(),
+            privacyMode: { .hybrid },
+            dateProvider: { "2026-07-04" }
+        )
+
+        let lowEstimate = DailyAnalysisResponse(
+            analysisJobID: UUID(),
+            status: "queued",
+            estimatedCompletionSeconds: 10
+        )
+        let mediumEstimate = DailyAnalysisResponse(
+            analysisJobID: UUID(),
+            status: "queued",
+            estimatedCompletionSeconds: 50
+        )
+        let highEstimate = DailyAnalysisResponse(
+            analysisJobID: UUID(),
+            status: "queued",
+            estimatedCompletionSeconds: 120
+        )
+
+        XCTAssertEqual(viewModel.pollingAttemptLimit(for: lowEstimate), 31)
+        XCTAssertEqual(viewModel.pollingAttemptLimit(for: mediumEstimate), 51)
+        XCTAssertEqual(viewModel.pollingAttemptLimit(for: highEstimate), 91)
+    }
+
+    func testNextWakeDateUsesTodayWhenBeforeWakeTime() {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = DateComponents(calendar: calendar, year: 2026, month: 7, day: 6, hour: 5, minute: 0).date!
+        let wake = WakeTime(hour: 7, minute: 0)
+
+        let result = nextWakeDate(for: wake, now: now, calendar: calendar)
+
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: result)
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 7)
+        XCTAssertEqual(components.day, 6)
+        XCTAssertEqual(components.hour, 7)
+        XCTAssertEqual(components.minute, 0)
+    }
+
+    func testNextWakeDateRollsToTomorrowWhenAfterWakeTime() {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = DateComponents(calendar: calendar, year: 2026, month: 7, day: 6, hour: 9, minute: 0).date!
+        let wake = WakeTime(hour: 7, minute: 30)
+
+        let result = nextWakeDate(for: wake, now: now, calendar: calendar)
+
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: result)
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 7)
+        XCTAssertEqual(components.day, 7)
+        XCTAssertEqual(components.hour, 7)
+        XCTAssertEqual(components.minute, 30)
+    }
+
+    #if os(iOS)
+        @MainActor
+        func testBackgroundRefreshSchedulingUsesWakeTime() async {
+            let scheduler = MockBackgroundTaskScheduler()
+            let notifications = MockUserNotificationCenter()
+            await BackgroundRefreshScheduler.register(
+                taskScheduler: scheduler,
+                notificationCenter: notifications,
+                syncHandler: { true },
+                wakeTimeProvider: { WakeTime(hour: 6, minute: 30) }
+            )
+
+            BackgroundRefreshScheduler.schedule()
+            try? await Task.sleep(nanoseconds: 50_000_000)
+
+            let request = scheduler.submittedRequests.first as? BGAppRefreshTaskRequest
+            XCTAssertEqual(request?.identifier, BackgroundRefreshScheduler.identifier)
+            XCTAssertNotNil(request?.earliestBeginDate)
+            let calendar = Calendar.current
+            let components = calendar.dateComponents([.hour, .minute], from: request?.earliestBeginDate ?? Date())
+            XCTAssertEqual(components.hour, 6)
+            XCTAssertEqual(components.minute, 30)
+        }
+
+        @MainActor
+        func testNotificationAuthorizationRequestedAndMorningReminderScheduled() async {
+            let scheduler = MockBackgroundTaskScheduler()
+            let notifications = MockUserNotificationCenter()
+            await BackgroundRefreshScheduler.register(
+                taskScheduler: scheduler,
+                notificationCenter: notifications,
+                syncHandler: { true },
+                wakeTimeProvider: { WakeTime(hour: 7, minute: 15) }
+            )
+
+            let granted = await BackgroundRefreshScheduler.requestNotificationAuthorization()
+            await BackgroundRefreshScheduler.scheduleMorningReminder()
+
+            XCTAssertTrue(granted)
+            XCTAssertEqual(notifications.requestedOptions, [.alert, .sound])
+            XCTAssertEqual(notifications.removedIdentifiers, [BackgroundRefreshScheduler.morningReminderIdentifier])
+            let request = notifications.addedRequests.first
+            XCTAssertEqual(request?.identifier, BackgroundRefreshScheduler.morningReminderIdentifier)
+            let trigger = request?.trigger as? UNCalendarNotificationTrigger
+            XCTAssertEqual(trigger?.dateMatchingComponents.hour, 7)
+            XCTAssertEqual(trigger?.dateMatchingComponents.minute, 15)
+            XCTAssertTrue(trigger?.repeats ?? false)
+        }
+    #endif
 }
 
 private enum TestError: Error {
@@ -1179,6 +1294,46 @@ private final class InMemoryConsentStore: ConsentPersisting, @unchecked Sendable
         self.consent = consent
     }
 }
+
+#if os(iOS)
+private final class MockBackgroundTaskScheduler: BackgroundTaskScheduling, @unchecked Sendable {
+    private(set) var registeredIdentifiers: [String] = []
+    private(set) var submittedRequests: [BGTaskRequest] = []
+
+    func register(
+        forTaskWithIdentifier identifier: String,
+        using queue: DispatchQueue?,
+        launchHandler: @escaping (BGTask) -> Void
+    ) -> Bool {
+        registeredIdentifiers.append(identifier)
+        return true
+    }
+
+    func submit(_ taskRequest: BGTaskRequest) throws {
+        submittedRequests.append(taskRequest)
+    }
+}
+
+private final class MockUserNotificationCenter: UserNotificationCentering, @unchecked Sendable {
+    private(set) var requestedOptions: UNAuthorizationOptions?
+    var authorizationGranted = true
+    private(set) var addedRequests: [UNNotificationRequest] = []
+    private(set) var removedIdentifiers: [String] = []
+
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
+        requestedOptions = options
+        return authorizationGranted
+    }
+
+    func add(_ request: UNNotificationRequest) async throws {
+        addedRequests.append(request)
+    }
+
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        removedIdentifiers.append(contentsOf: identifiers)
+    }
+}
+#endif
 
 private func sampleBriefing(
     recommendation: String = "Keep training moderate."
