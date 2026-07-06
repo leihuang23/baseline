@@ -25,7 +25,6 @@ from baseline_api.briefing.service import (
     _completed_job_ordering,
     _enforce_served_briefing_safety,
     _external_citations_from_retrieval,
-    _external_knowledge_query,
 )
 from baseline_api.config import Settings
 from baseline_api.db.models import (
@@ -57,6 +56,7 @@ from baseline_api.retrieval import (
     KnowledgeChunkHit,
     KnowledgeRetrievalResult,
     KnowledgeRetrievalService,
+    build_external_knowledge_query,
 )
 from baseline_api.safety.engine import SafetyPolicyEngine
 from baseline_api.schemas.api import DailyAnalysisRequest, DailyBriefingResponse
@@ -1252,7 +1252,7 @@ async def test_external_knowledge_without_consent_does_not_create_embedder(
 
 
 def test_external_knowledge_query_includes_goal_topics_only() -> None:
-    query = _external_knowledge_query(
+    query = build_external_knowledge_query(
         active_goals=[
             {"category": "strength"},
             {"category": "cognitive_performance"},
