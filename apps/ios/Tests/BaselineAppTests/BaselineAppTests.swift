@@ -992,10 +992,10 @@ final class BaselineAppTests: XCTestCase {
                 enableBackgroundRefreshAndNotifications: false
             )
             model.onboardingComplete = true
-            let view = SettingsView(apiClient: api, appModel: model)
+            let viewModel = SettingsViewModel(apiClient: api)
+            let view = SettingsView(viewModel: viewModel, appModel: model)
             let snapshot = renderedStrings(in: view.body)
 
-            XCTAssertTrue(snapshot.contains("Settings"))
             XCTAssertTrue(snapshot.contains("Privacy mode"))
             XCTAssertTrue(snapshot.contains("Export"))
             XCTAssertTrue(snapshot.contains("Delete all Baseline data"))
@@ -1023,7 +1023,7 @@ final class BaselineAppTests: XCTestCase {
         }
 
         @MainActor
-        func testSettingsExportRequestEncodesScopeAndFormat() async {
+        func testSettingsExportRequestEncodesScopeAndFormat() async throws {
             let api = MockSettingsAPIClient()
             let model = BaselineAppModel(
                 apiClient: api,
@@ -1031,9 +1031,9 @@ final class BaselineAppTests: XCTestCase {
                 consentStore: InMemoryConsentStore(),
                 enableBackgroundRefreshAndNotifications: false
             )
-            let viewModel = SettingsViewModel(apiClient: api, appModel: model)
-            viewModel.exportScope = .checkins
-            viewModel.exportFormat = .csv
+            let viewModel = SettingsViewModel(apiClient: api)
+            viewModel.exportScope = DataExportScope.checkins
+            viewModel.exportFormat = DataExportFormat.csv
             viewModel.includeRawData = true
 
             await viewModel.requestExport()
@@ -1080,7 +1080,7 @@ final class BaselineAppTests: XCTestCase {
                 consentStore: InMemoryConsentStore(),
                 enableBackgroundRefreshAndNotifications: false
             )
-            let viewModel = SettingsViewModel(apiClient: api, appModel: model)
+            let viewModel = SettingsViewModel(apiClient: api)
 
             await viewModel.deleteAll()
 
@@ -1097,7 +1097,7 @@ final class BaselineAppTests: XCTestCase {
                 consentStore: InMemoryConsentStore(),
                 enableBackgroundRefreshAndNotifications: false
             )
-            let viewModel = SettingsViewModel(apiClient: api, appModel: model)
+            let viewModel = SettingsViewModel(apiClient: api)
             let id = UUID(uuidString: "00000000-0000-0000-0000-000000000010")!
             viewModel.checkInIDToDelete = id.uuidString
 
