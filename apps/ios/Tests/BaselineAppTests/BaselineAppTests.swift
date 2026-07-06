@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftUI
 import XCTest
@@ -7,6 +8,8 @@ import UserNotifications
 #endif
 @testable import BaselineCore
 @testable import BaselineApp
+
+private typealias SettingsAPIClient = HealthSyncAPIClient & CheckInAPIClient & DataControlsAPIClient & DailyBriefingAPIClient
 
 final class BaselineAppTests: XCTestCase {
     #if os(iOS)
@@ -978,6 +981,154 @@ final class BaselineAppTests: XCTestCase {
             XCTAssertEqual(trigger?.dateComponents.minute, 15)
             XCTAssertTrue(trigger?.repeats ?? false)
         }
+
+        @MainActor
+        func testSettingsViewRendersPrivacyModeAndExportControls() {
+            let api = MockSettingsAPIClient()
+            let model = BaselineAppModel(
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: InMemoryConsentStore(),
+                enableBackgroundRefreshAndNotifications: false
+            )
+            model.onboardingComplete = true
+            let view = SettingsView(apiClient: api, appModel: model)
+            let snapshot = renderedStrings(in: view.body)
+
+            XCTAssertTrue(snapshot.contains("Settings"))
+            XCTAssertTrue(snapshot.contains("Privacy mode"))
+            XCTAssertTrue(snapshot.contains("Export"))
+            XCTAssertTrue(snapshot.contains("Delete all Baseline data"))
+            XCTAssertTrue(snapshot.contains("LLM provider"))
+        }
+
+        @MainActor
+        func testPrivacyModeChangeRecordsConsentRequest() async {
+            let api = MockOnboardingAPIClient(serverConsentVersion: "server-consent-v2")
+            let model = BaselineAppModel(
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: InMemoryConsentStore(),
+                enableBackgroundRefreshAndNotifications: false
+            )
+            model.enabledCategories = [.sleep, .workouts]
+            model.privacyMode = .hybrid
+
+            await model.updatePrivacyMode(.cloudAssisted)
+
+            XCTAssertEqual(model.privacyMode, .cloudAssisted)
+            XCTAssertEqual(api.consentRequests.single?.privacyMode, .cloudAssisted)
+            XCTAssertEqual(api.consentRequests.single?.externalLLMEnabled, true)
+            XCTAssertEqual(api.consentRequests.single?.cloudProcessingEnabled, true)
+        }
+
+        @MainActor
+        func testSettingsExportRequestEncodesScopeAndFormat() async {
+            let api = MockSettingsAPIClient()
+            let model = BaselineAppModel(
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: InMemoryConsentStore(),
+                enableBackgroundRefreshAndNotifications: false
+            )
+            let viewModel = SettingsViewModel(apiClient: api, appModel: model)
+            viewModel.exportScope = .checkins
+            viewModel.exportFormat = .csv
+            viewModel.includeRawData = true
+
+            await viewModel.requestExport()
+
+            let request = try XCTUnwrap(api.exportRequests.single)
+            XCTAssertEqual(request.exportScope, .checkins)
+            XCTAssertEqual(request.format, .csv)
+            XCTAssertTrue(request.includeRawData)
+        }
+
+        func testExportDecryptionRoundTrip() throws {
+            let plaintext = Data("Private export payload".utf8)
+            let key = SymmetricKey(size: .bits256)
+            let magic = Data("BASELINE-EXPORT-AES256GCM-V1".utf8)
+            let nonce = AES.GCM.Nonce()
+            let sealedBox = try AES.GCM.seal(plaintext, using: key, nonce: nonce, authenticating: magic)
+            var encrypted = magic
+            encrypted.append(contentsOf: nonce)
+            encrypted.append(contentsOf: sealedBox.tag)
+            encrypted.append(contentsOf: sealedBox.ciphertext)
+
+            let response = DataExportResponse(
+                schemaVersion: "v1",
+                exportJobID: UUID(),
+                status: "ready",
+                expiresAt: "2026-07-07T00:00:00Z",
+                encryption: [
+                    "algorithm": "AES-256-GCM",
+                    "key_base64": key.withUnsafeBytes { Data($0) }.base64EncodedString(),
+                    "key_custody": "client_response",
+                ]
+            )
+
+            let decrypted = try URLSessionHealthSyncAPIClient.decryptDataExport(encrypted, encryption: response.encryption)
+            XCTAssertEqual(decrypted, plaintext)
+        }
+
+        @MainActor
+        func testSettingsDeleteAllSendsDeleteRequest() async {
+            let api = MockSettingsAPIClient()
+            let model = BaselineAppModel(
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: InMemoryConsentStore(),
+                enableBackgroundRefreshAndNotifications: false
+            )
+            let viewModel = SettingsViewModel(apiClient: api, appModel: model)
+
+            await viewModel.deleteAll()
+
+            XCTAssertEqual(api.deleteAllCount, 1)
+            XCTAssertEqual(viewModel.deleteAllResult?.deleted["checkins"], 1)
+        }
+
+        @MainActor
+        func testSettingsDeleteCheckInNoteSendsDataEndpointRequest() async {
+            let api = MockSettingsAPIClient()
+            let model = BaselineAppModel(
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: InMemoryConsentStore(),
+                enableBackgroundRefreshAndNotifications: false
+            )
+            let viewModel = SettingsViewModel(apiClient: api, appModel: model)
+            let id = UUID(uuidString: "00000000-0000-0000-0000-000000000010")!
+            viewModel.checkInIDToDelete = id.uuidString
+
+            await viewModel.deleteCheckInNote()
+
+            XCTAssertEqual(api.deletedCheckInNoteIDs, [id])
+        }
+
+        @MainActor
+        func testBriefingFeedbackEncodesRatingAndActionTaken() async {
+            let api = MockBriefingAPIClient()
+            let viewModel = DailyBriefingViewModel(
+                apiClient: api,
+                briefingStore: InMemoryBriefingStore(initialBriefing: sampleBriefing()),
+                privacyMode: { .hybrid },
+                dateProvider: { "2026-07-04" }
+            )
+            viewModel.feedbackRating = .useful
+            viewModel.feedbackAction = .followed
+            viewModel.feedbackReason = "Matched how I felt"
+            viewModel.feedbackOutcomeNotes = "Kept it moderate"
+
+            await viewModel.submitFeedback()
+
+            XCTAssertEqual(api.feedbackRequests.count, 1)
+            XCTAssertEqual(api.feedbackRequests.first?.recommendationID, sampleBriefing().recommendationID)
+            XCTAssertEqual(api.feedbackRequests.first?.request.rating, .useful)
+            XCTAssertEqual(api.feedbackRequests.first?.request.actionTaken, .followed)
+            XCTAssertEqual(api.feedbackRequests.first?.request.reason, "Matched how I felt")
+            XCTAssertEqual(api.feedbackRequests.first?.request.outcomeNotes, "Kept it moderate")
+        }
     #endif
 }
 
@@ -1031,6 +1182,7 @@ private final class MockCheckInAPIClient: CheckInAPIClient, @unchecked Sendable 
     private(set) var submittedRequests: [DailyCheckInRequest] = []
     private(set) var updatedRequests: [(id: UUID, request: DailyCheckInRequest)] = []
     private(set) var deletedIDs: [UUID] = []
+    private(set) var deletedNoteIDs: [UUID] = []
 
     init(
         fetchResult: DailyCheckInDetailResponse? = nil,
@@ -1071,6 +1223,10 @@ private final class MockCheckInAPIClient: CheckInAPIClient, @unchecked Sendable 
 
     func deleteDailyCheckIn(id: UUID) async throws {
         deletedIDs.append(id)
+    }
+
+    func deleteDailyCheckInNote(id: UUID) async throws {
+        deletedNoteIDs.append(id)
     }
 }
 
@@ -1144,6 +1300,9 @@ private final class MockBriefingAPIClient: DailyBriefingAPIClient, @unchecked Se
     private(set) var fetchRequests: [(date: String, offlineLast: Bool)] = []
     private(set) var traceRequestIDs: [UUID] = []
     private(set) var assistantRequests: [AssistantQueryRequest] = []
+    private let feedbackResult: RecommendationFeedbackResponse
+    private let feedbackError: Error?
+    private(set) var feedbackRequests: [(recommendationID: UUID, request: RecommendationFeedbackRequest)] = []
 
     init(
         generateResult: DailyAnalysisResponse = DailyAnalysisResponse(
@@ -1171,7 +1330,14 @@ private final class MockBriefingAPIClient: DailyBriefingAPIClient, @unchecked Se
             safetyStatus: "passed",
             traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
         ),
-        assistantError: Error? = nil
+        assistantError: Error? = nil,
+        feedbackResult: RecommendationFeedbackResponse = RecommendationFeedbackResponse(
+            schemaVersion: "v1",
+            feedbackID: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
+            memoryUpdateStatus: "applied",
+            evalQueueStatus: "queued"
+        ),
+        feedbackError: Error? = nil
     ) {
         self.generateResult = generateResult
         self.generateError = generateError
@@ -1181,6 +1347,8 @@ private final class MockBriefingAPIClient: DailyBriefingAPIClient, @unchecked Se
         self.traceError = traceError
         self.assistantResult = assistantResult
         self.assistantError = assistantError
+        self.feedbackResult = feedbackResult
+        self.feedbackError = feedbackError
     }
 
     func generateDailyAnalysis(_ request: DailyAnalysisRequest) async throws -> DailyAnalysisResponse {
@@ -1224,6 +1392,17 @@ private final class MockBriefingAPIClient: DailyBriefingAPIClient, @unchecked Se
             throw assistantError
         }
         return assistantResult
+    }
+
+    func submitRecommendationFeedback(
+        recommendationID: UUID,
+        request: RecommendationFeedbackRequest
+    ) async throws -> RecommendationFeedbackResponse {
+        feedbackRequests.append((recommendationID, request))
+        if let feedbackError {
+            throw feedbackError
+        }
+        return feedbackResult
     }
 }
 
@@ -1303,6 +1482,219 @@ private final class MockOnboardingAPIClient: HealthSyncAPIClient, @unchecked Sen
             warnings: [],
             nextAnchor: "anchor"
         )
+    }
+}
+
+private final class MockSettingsAPIClient: SettingsAPIClient, @unchecked Sendable {
+    private let exportResult: DataExportResponse
+    private let deleteAllResult: DataDeleteResponse
+    private let llmSettingsResult: LLMSettingsResponse
+    private let feedbackResult: RecommendationFeedbackResponse
+    private let consentResult: DataControlConsentResponse
+    private let consentHistoryResult: ConsentHistoryResponse
+    private let modelDisclosureResult: ModelDisclosureResponse
+    private(set) var consentRequests: [ConsentRecordRequest] = []
+    private(set) var syncRequests: [HealthSyncRequest] = []
+    private(set) var exportRequests: [DataExportRequest] = []
+    private(set) var deleteAllCount = 0
+    private(set) var deletedCheckInIDs: [UUID] = []
+    private(set) var deletedCheckInNoteIDs: [UUID] = []
+    private(set) var disableExternalLLMRequests: [DisableExternalLLMRequest] = []
+    private(set) var disableCloudProcessingRequests: [ConsentRevocationRequest] = []
+    private(set) var feedbackRequests: [(recommendationID: UUID, request: RecommendationFeedbackRequest)] = []
+    private(set) var llmSettingsCount = 0
+    private(set) var consentHistoryCount = 0
+    private(set) var modelDisclosureCount = 0
+
+    init(
+        exportResult: DataExportResponse = DataExportResponse(
+            schemaVersion: "v1",
+            exportJobID: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!,
+            status: "ready",
+            expiresAt: "2026-07-07T00:00:00Z",
+            downloadURL: "/v1/data/export/00000000-0000-0000-0000-000000000006/file",
+            encryption: [
+                "algorithm": "AES-256-GCM",
+                "key_base64": "",
+                "key_custody": "client_response",
+                "file_sha256": "sha256",
+            ]
+        ),
+        deleteAllResult: DataDeleteResponse = DataDeleteResponse(
+            schemaVersion: "v1",
+            deleted: ["checkins": 1, "samples": 2]
+        ),
+        llmSettingsResult: LLMSettingsResponse = LLMSettingsResponse(
+            schemaVersion: "v1",
+            provider: "deepseek",
+            cheapModel: "deepseek-v4-pro",
+            strongModel: "deepseek-v4-pro",
+            fallbackModel: "baseline-local-deterministic-v1"
+        ),
+        feedbackResult: RecommendationFeedbackResponse = RecommendationFeedbackResponse(
+            schemaVersion: "v1",
+            feedbackID: UUID(uuidString: "00000000-0000-0000-0000-000000000007")!,
+            memoryUpdateStatus: "applied",
+            evalQueueStatus: "queued"
+        ),
+        consentResult: DataControlConsentResponse = DataControlConsentResponse(
+            schemaVersion: "v1",
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000008")!,
+            userID: UUID(uuidString: "00000000-0000-0000-0000-000000000009")!,
+            consentVersion: "server-consent-v1",
+            healthCategoriesEnabled: ["activity", "sleep"],
+            cloudProcessingEnabled: true,
+            externalLLMEnabled: false,
+            rawNoteProcessingEnabled: false,
+            timestamp: "2026-07-04T08:00:00Z",
+            revokedAt: nil
+        ),
+        consentHistoryResult: ConsentHistoryResponse = ConsentHistoryResponse(
+            schemaVersion: "v1",
+            activeConsentVersion: "server-consent-v1",
+            records: []
+        ),
+        modelDisclosureResult: ModelDisclosureResponse = ModelDisclosureResponse(
+            schemaVersion: "v1",
+            runs: []
+        )
+    ) {
+        self.exportResult = exportResult
+        self.deleteAllResult = deleteAllResult
+        self.llmSettingsResult = llmSettingsResult
+        self.feedbackResult = feedbackResult
+        self.consentResult = consentResult
+        self.consentHistoryResult = consentHistoryResult
+        self.modelDisclosureResult = modelDisclosureResult
+    }
+
+    func recordConsent(_ request: ConsentRecordRequest) async throws -> DataControlConsentResponse {
+        consentRequests.append(request)
+        return consentResult
+    }
+
+    func postHealthSync(_ request: HealthSyncRequest) async throws -> HealthSyncResponse {
+        syncRequests.append(request)
+        return HealthSyncResponse(
+            schemaVersion: "v1",
+            syncID: UUID(),
+            acceptedCount: request.samples.count,
+            duplicateCount: 0,
+            rejectedCount: 0,
+            warnings: [],
+            nextAnchor: "anchor"
+        )
+    }
+
+    func fetchDailyCheckIn(date: String) async throws -> DailyCheckInDetailResponse {
+        throw BaselineAPIError.unsuccessfulStatus(404)
+    }
+
+    func submitDailyCheckIn(_ request: DailyCheckInRequest) async throws -> DailyCheckInResponse {
+        DailyCheckInResponse(
+            schemaVersion: "v1",
+            checkinID: UUID(),
+            acceptedFields: ["date"],
+            redactionStatus: .none
+        )
+    }
+
+    func updateDailyCheckIn(id: UUID, request: DailyCheckInRequest) async throws -> DailyCheckInResponse {
+        DailyCheckInResponse(
+            schemaVersion: "v1",
+            checkinID: id,
+            acceptedFields: ["date"],
+            redactionStatus: .none
+        )
+    }
+
+    func deleteDailyCheckIn(id: UUID) async throws {
+        deletedCheckInIDs.append(id)
+    }
+
+    func deleteDailyCheckInNote(id: UUID) async throws {
+        deletedCheckInNoteIDs.append(id)
+    }
+
+    func generateDailyAnalysis(_ request: DailyAnalysisRequest) async throws -> DailyAnalysisResponse {
+        DailyAnalysisResponse(
+            schemaVersion: "v1",
+            analysisJobID: UUID(),
+            status: "completed",
+            estimatedCompletionSeconds: 0
+        )
+    }
+
+    func fetchDailyAnalysisJob(id: UUID) async throws -> DailyAnalysisResponse {
+        DailyAnalysisResponse(
+            schemaVersion: "v1",
+            analysisJobID: id,
+            status: "completed",
+            estimatedCompletionSeconds: 0
+        )
+    }
+
+    func fetchDailyBriefing(date: String, offlineLast: Bool) async throws -> DailyBriefingResponse {
+        throw BaselineAPIError.unsuccessfulStatus(404)
+    }
+
+    func fetchBriefingTrace(traceID: UUID) async throws -> BriefingTraceInspection {
+        throw BaselineAPIError.unsuccessfulStatus(404)
+    }
+
+    func submitAssistantQuery(_ request: AssistantQueryRequest) async throws -> AssistantQueryResponse {
+        throw BaselineAPIError.unsuccessfulStatus(404)
+    }
+
+    func submitRecommendationFeedback(
+        recommendationID: UUID,
+        request: RecommendationFeedbackRequest
+    ) async throws -> RecommendationFeedbackResponse {
+        feedbackRequests.append((recommendationID, request))
+        return feedbackResult
+    }
+
+    func requestDataExport(_ request: DataExportRequest) async throws -> DataExportResponse {
+        exportRequests.append(request)
+        return exportResult
+    }
+
+    func downloadDataExport(from downloadURL: String) async throws -> Data {
+        Data()
+    }
+
+    func downloadDecryptedDataExport(_ response: DataExportResponse) async throws -> Data {
+        Data()
+    }
+
+    func deleteAllData() async throws -> DataDeleteResponse {
+        deleteAllCount += 1
+        return deleteAllResult
+    }
+
+    func disableExternalLLM(_ request: DisableExternalLLMRequest) async throws -> DataControlConsentResponse {
+        disableExternalLLMRequests.append(request)
+        return consentResult
+    }
+
+    func disableCloudProcessing(_ request: ConsentRevocationRequest) async throws -> DataControlConsentResponse {
+        disableCloudProcessingRequests.append(request)
+        return consentResult
+    }
+
+    func fetchConsentHistory() async throws -> ConsentHistoryResponse {
+        consentHistoryCount += 1
+        return consentHistoryResult
+    }
+
+    func fetchModelDisclosures() async throws -> ModelDisclosureResponse {
+        modelDisclosureCount += 1
+        return modelDisclosureResult
+    }
+
+    func fetchLLMSettings() async throws -> LLMSettingsResponse {
+        llmSettingsCount += 1
+        return llmSettingsResult
     }
 }
 
@@ -1435,7 +1827,8 @@ private func sampleBriefing(
         safetyStatus: "passed",
         safetyNotes: ["This is wellness decision support, not medical advice."],
         traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-        generatedAt: "2026-07-04T06:40:00Z"
+        generatedAt: "2026-07-04T06:40:00Z",
+        recommendationID: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
     )
 }
 

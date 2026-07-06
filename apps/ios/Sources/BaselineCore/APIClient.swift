@@ -75,6 +75,19 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
         }
     }
 
+    public func deleteDailyCheckInNote(id: UUID) async throws {
+        var urlRequest = URLRequest(url: Self.dailyCheckInNoteURL(baseURL: baseURL, id: id))
+        urlRequest.httpMethod = "DELETE"
+        applyAuthHeader(to: &urlRequest)
+        let (_, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BaselineAPIError.invalidResponse
+        }
+        guard 200 ..< 300 ~= httpResponse.statusCode else {
+            throw BaselineAPIError.unsuccessfulStatus(httpResponse.statusCode)
+        }
+    }
+
     public func listGoals() async throws -> [GoalResponse] {
         try await sendEnvelope(method: "GET", url: Self.goalsURL(baseURL: baseURL), body: Optional<String>.none)
     }
@@ -121,6 +134,17 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
 
     public func submitAssistantQuery(_ request: AssistantQueryRequest) async throws -> AssistantQueryResponse {
         try await sendEnvelope(method: "POST", url: Self.assistantQueryURL(baseURL: baseURL), body: request)
+    }
+
+    public func submitRecommendationFeedback(
+        recommendationID: UUID,
+        request: RecommendationFeedbackRequest
+    ) async throws -> RecommendationFeedbackResponse {
+        try await sendEnvelope(
+            method: "POST",
+            url: Self.recommendationFeedbackURL(baseURL: baseURL, id: recommendationID),
+            body: request
+        )
     }
 
     public func requestDataExport(_ request: DataExportRequest) async throws -> DataExportResponse {
@@ -205,6 +229,10 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
 
     public func fetchModelDisclosures() async throws -> ModelDisclosureResponse {
         try await sendEnvelope(method: "GET", url: Self.modelDisclosuresURL(baseURL: baseURL), body: Optional<String>.none)
+    }
+
+    public func fetchLLMSettings() async throws -> LLMSettingsResponse {
+        try await sendEnvelope(method: "GET", url: Self.llmSettingsURL(baseURL: baseURL), body: Optional<String>.none)
     }
 
     public static func healthSyncURL(baseURL: URL) -> URL {
@@ -295,6 +323,24 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
 
     public static func modelDisclosuresURL(baseURL: URL) -> URL {
         baseURL.appendingPathComponent("v1/data/model-disclosures")
+    }
+
+    public static func llmSettingsURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/data/llm-settings")
+    }
+
+    public static func dailyCheckInNoteURL(baseURL: URL, id: UUID) -> URL {
+        baseURL
+            .appendingPathComponent("v1/data/checkins")
+            .appendingPathComponent(id.uuidString)
+            .appendingPathComponent("note")
+    }
+
+    public static func recommendationFeedbackURL(baseURL: URL, id: UUID) -> URL {
+        baseURL
+            .appendingPathComponent("v1/recommendations")
+            .appendingPathComponent(id.uuidString)
+            .appendingPathComponent("feedback")
     }
 
     private func sendEnvelope<Response: Codable & Sendable, Body: Encodable>(

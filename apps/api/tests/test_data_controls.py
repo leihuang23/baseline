@@ -1599,3 +1599,17 @@ def test_view_data_sent_sanitizes_legacy_model_metadata(db_session: Session) -> 
     assert disclosure["task_type"] == "simple_explanation"
     assert disclosure["_redacted_fields"][0]["key_hash"]
     assert disclosure["_redacted_fields"][0]["value"]["hash"]
+
+
+def test_llm_settings_returns_operator_config(db_session: Session) -> None:
+    _seed_user(db_session)
+    client = _client(db_session)
+
+    response = client.get("/v1/data/llm-settings")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["provider"] == "deepseek"
+    assert data["cheap_model"] == "deepseek-v4-pro"
+    assert data["strong_model"] == "deepseek-v4-pro"
+    assert data["fallback_model"] == "baseline-local-deterministic-v1"

@@ -30,6 +30,7 @@ from baseline_api.schemas.api import (
     DataExportRequest,
     DataExportResponse,
     DisableExternalLLMRequest,
+    LLMSettingsResponse,
     ModelDisclosureResponse,
 )
 from baseline_api.schemas.common import APIEnvelope, APIError
@@ -235,6 +236,21 @@ def model_disclosures(
         data = ModelDisclosureService(session).list_model_payloads(user=context.user)
     except PrivacyError as error:
         return _error_response(error)
+    return APIEnvelope(status="success", data=data)
+
+
+@router.get("/llm-settings", response_model=APIEnvelope[LLMSettingsResponse])
+def llm_settings(
+    request: Request,
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
+) -> APIEnvelope[LLMSettingsResponse] | Response:
+    settings = request.app.state.settings
+    data = LLMSettingsResponse(
+        provider=settings.llm_default_provider,
+        cheap_model=settings.llm_cheap_model,
+        strong_model=settings.llm_strong_model,
+        fallback_model=settings.llm_fallback_model,
+    )
     return APIEnvelope(status="success", data=data)
 
 

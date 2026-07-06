@@ -209,6 +209,21 @@ final class BaselineAppModel: ObservableObject {
         return lastSyncedAt != nil
     }
 
+    func updatePrivacyMode(_ mode: PrivacyMode) async {
+        guard mode != privacyMode else {
+            return
+        }
+        privacyMode = mode
+        let consent = consentRecord
+        do {
+            let persisted = try await recordServerConsentIfNeeded(consent)
+            try? consentStore.saveConsent(persisted)
+            acceptedConsent = persisted
+        } catch {
+            syncMessage = "Privacy mode changed, but consent could not be recorded on the server."
+        }
+    }
+
     private func buildSyncEngine(for categories: Set<HealthCategory>) throws -> HealthSyncEngine {
         healthKitClient.enabledCategories = categories
         return HealthSyncEngine(
