@@ -598,6 +598,9 @@ class DailyBriefingService:
                         self._session.get(DailyAnalysisJob, job_record_id)
                     ),
                 )
+            except BriefingError:
+                self._session.rollback()
+                raise
             except Exception as exc:
                 self._session.rollback()
                 self._mark_job_failed(
