@@ -55,6 +55,60 @@ LEXICAL_FALLBACK_MIN_OVERLAP = 0.2
 MIN_CLAIM_SUPPORT_SCORE = 0.35
 GENERAL_RESEARCH_LABEL = "General research (non-personalized): "
 
+QUERY_TOPIC_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "aerobic",
+        "cardio",
+        "cardiorespiratory",
+        "cognitive",
+        "consistency",
+        "fitness",
+        "heart rate variability",
+        "hrv",
+        "hydration",
+        "lifestyle",
+        "load",
+        "moderate",
+        "nutrition",
+        "performance",
+        "physical activity",
+        "progression",
+        "rhr",
+        "recovery",
+        "rest",
+        "resting heart rate",
+        "sleep",
+        "sleep consistency",
+        "sleep debt",
+        "strength",
+        "stress",
+        "training",
+        "training load",
+        "vo2",
+        "wellness",
+        "wellness boundaries",
+    }
+)
+
+RECOMMENDATION_BAND_TOPICS: dict[str, tuple[str, ...]] = {
+    "rest": ("rest", "recovery", "conservative training"),
+    "easy": ("easy training", "recovery", "aerobic"),
+    "easy_or_recovery": ("easy training", "recovery"),
+    "moderate": ("moderate training", "progression"),
+    "moderate_or_upper_body": ("moderate training", "progression"),
+    "hard_training_ok": ("hard training", "performance", "aerobic"),
+    "insufficient_data": ("insufficient data", "conservative training"),
+}
+
+GOAL_CATEGORY_TOPICS: dict[str, tuple[str, ...]] = {
+    "vo2_max": ("cardiorespiratory fitness", "aerobic training"),
+    "strength": ("strength training", "resistance training", "progression"),
+    "sleep": ("sleep debt", "sleep consistency"),
+    "recovery": ("recovery", "training load"),
+    "cognitive_performance": ("sleep", "stress", "attention", "cognitive readiness"),
+    "long_term_wellness": ("physical activity", "wellness boundaries", "lifestyle consistency"),
+}
+
 TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 STOPWORDS = frozenset(
     {
@@ -407,6 +461,44 @@ def has_external_knowledge_consent(session: Session, user_id: UUID) -> bool:
     return bool(
         record is not None and record.cloud_processing_enabled and record.external_llm_enabled
     )
+
+
+def build_external_knowledge_query(
+    *,
+    active_goals: Sequence[Mapping[str, Any]],
+    recommendation_band: str | None = None,
+    question: str | None = None,
+    requested_scope: str = "daily briefing",
+) -> str:
+    """Construct a non-personalized external-knowledge query.
+
+    Only high-level signals are embedded: active goal categories, a recommendation
+    band, and a small keyword allow-list derived from an optional question. Raw
+    feature values, HRV/RHR numbers, free-text notes, or any personal identifiers
+    must never be passed through this boundary.
+    """
+
+    tokens: list[str] = [requested_scope, "general research", "non personalized"]
+    for goal in active_goals:
+        category = goal.get("category") if isinstance(goal, Mapping) else None
+        if not category:
+            continue
+        tokens.extend(GOAL_CATEGORY_TOPICS.get(str(category), (str(category),)))
+    if recommendation_band:
+        tokens.extend(RECOMMENDATION_BAND_TOPICS.get(recommendation_band, (recommendation_band,)))
+    tokens.extend(_allowed_question_topics(question))
+    return " ".join(token for token in tokens if token).strip()
+
+
+def _allowed_question_topics(question: str | None) -> list[str]:
+    if not question:
+        return []
+    normalized = " ".join(question.split()).casefold()
+    found: list[str] = []
+    for topic in QUERY_TOPIC_ALLOWLIST:
+        if topic in normalized:
+            found.append(topic)
+    return found
 
 
 def _empty_result(uncertainty: str) -> KnowledgeRetrievalResult:

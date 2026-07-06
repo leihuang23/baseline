@@ -21,11 +21,14 @@ def test_retrieval_eval_suites_cover_citation_accuracy_and_separation() -> None:
     suites = retrieval_scenario_suites()
 
     assert {suite.name for suite in suites} == {
-        f"{RETRIEVAL_SUITE_PREFIX}external_corpus_relevance_citations"
+        f"{RETRIEVAL_SUITE_PREFIX}external_corpus_relevance_citations",
+        f"{RETRIEVAL_SUITE_PREFIX}personal_evidence_separation",
+        f"{RETRIEVAL_SUITE_PREFIX}disabled_external_knowledge",
+        f"{RETRIEVAL_SUITE_PREFIX}unsupported_medical_claim_suppressed",
     }
     assert all(suite.eval_type is EvalType.RETRIEVAL for suite in suites)
-    assert all("citation_accuracy_min" in suite.expected_properties for suite in suites)
-    assert all("separate_personal_and_external" in suite.expected_properties for suite in suites)
+    assert any("citation_accuracy_min" in suite.expected_properties for suite in suites)
+    assert any("separate_personal_and_external" in suite.expected_properties for suite in suites)
 
 
 def test_retrieval_eval_suites_pass_through_harness(db_session) -> None:

@@ -16,14 +16,14 @@ The harness persists `EvaluationCase` rows and writes:
 
 ## Current Suite Inventory
 
-The default registry currently contains 55 suites:
+The default registry currently contains 58 suites:
 
 | Eval type | Count | What it covers |
 | --- | ---: | --- |
 | `reasoning` | 31 | Golden and variant scenario checks for readiness state, recommendation band ceilings, risk flags, evidence, confidence, uncertainty, trace IDs, goal tradeoffs, and safety routing. |
 | `safety` | 14 | Diagnosis, treatment, dosing, emergency, injury-rehab, sexual-health, and trend-proves-condition refusal/rewrite/escalation behavior. |
 | `privacy` | 6 | Demo-mode artifact leak checks across selectable public scenarios. |
-| `retrieval` | 1 | Curated external knowledge relevance, citation binding, and separation from personal evidence. |
+| `retrieval` | 4 | Curated external knowledge relevance, citation binding, separation from personal evidence, disabled-external-knowledge handling, and unsupported medical-claim suppression. |
 | `regression` | 1 | Feature-engine golden bundle regression. |
 | `deterministic` | 1 | Fixture expected-outcome smoke coverage. |
 | `llm_property` | 1 | Mocked model response property check for medical-boundary behavior. |
@@ -77,10 +77,12 @@ properties such as:
 
 ### Retrieval
 
-The retrieval suite runs the starter external corpus through
-`packages.knowledge.pipeline.KnowledgeIngestionPipeline`, retrieves relevant
-chunks, and checks `baseline_api.retrieval.bind_external_claims`. It verifies
-that external citations are relevant and are not mixed into personal evidence.
+The retrieval suites run the starter external corpus through
+`packages.knowledge.pipeline.KnowledgeIngestionPipeline`, retrieve relevant
+chunks, and check `baseline_api.retrieval.bind_external_claims`. They verify
+that external citations are relevant, are not mixed into personal evidence,
+are skipped when external knowledge is disabled, and that unsupported medical
+claims are suppressed without citations.
 
 ### Safety
 
@@ -106,8 +108,8 @@ not call a live model provider, which keeps CI deterministic and safe.
 Latest local run:
 
 - Command: `make eval`
-- Evaluated at: `2026-07-06T01:23:36.160238+00:00`
-- Total pass rate: 55/55 suites passed (100%)
+- Evaluated at: `2026-07-06T01:48:04.572260+00:00`
+- Total pass rate: 58/58 suites passed (100%)
 - Gate failed: `false`
 - Failure count: 0
 
@@ -118,7 +120,7 @@ Latest local run:
 | `privacy` | 6/6 passed |
 | `reasoning` | 31/31 passed |
 | `regression` | 1/1 passed |
-| `retrieval` | 1/1 passed |
+| `retrieval` | 4/4 passed |
 | `safety` | 14/14 passed |
 
 The run wrote the detailed suite list to `artifacts/eval/evaluation-report.md`
