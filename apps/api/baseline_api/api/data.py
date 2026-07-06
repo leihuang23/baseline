@@ -11,6 +11,7 @@ from fastapi.responses import Response
 from sqlmodel import Session
 
 from baseline_api.api.deps import SingleUserContext, get_single_user_context
+from baseline_api.db.models.enums import PeriodType
 from baseline_api.db.session import get_db_session
 from baseline_api.memory import MemoryService
 from baseline_api.observability.logging import log_event
@@ -104,11 +105,20 @@ def export_data(
 def download_export(
     export_job_id: UUID,
     store: Annotated[LocalExportStore, Depends(get_export_store)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> Response:
     try:
         stored = store.get(export_job_id)
     except PrivacyError as error:
         return _error_response(error)
+    if stored.user_id != context.user.id:
+        return _error_response(
+            PrivacyError(
+                code="export_not_found",
+                message="Export file was not found or has expired.",
+                status_code=404,
+            )
+        )
     return Response(
         content=stored.path.read_bytes(),
         media_type=stored.content_type,
@@ -218,7 +228,7 @@ def delete_checkin_note(
 def list_memory_summaries(
     session: Annotated[Session, Depends(get_db_session)],
     context: Annotated[SingleUserContext, Depends(get_single_user_context)],
-    period_type: str | None = None,
+    period_type: PeriodType | None = None,
 ) -> APIEnvelope[MemorySummaryListResponse] | Response:
     try:
         summaries = MemoryService(session).list_summaries(

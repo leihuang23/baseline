@@ -7,13 +7,14 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlmodel import Session, col, select
+from sqlmodel import Session
 
 from baseline_api.db.models.enums import GoalCategory as ModelGoalCategory
 from baseline_api.db.models.enums import TimeHorizon as ModelTimeHorizon
 from baseline_api.db.models.goals import Goal
 from baseline_api.db.models.user import User
 from baseline_api.db.repositories.goals import GoalRepository
+from baseline_api.privacy.user import resolve_single_user
 from baseline_api.schemas.api import ActiveGoal, ActiveGoalSet, GoalRequest, GoalResponse
 from baseline_api.schemas.enums import GoalCategory, GoalTimeHorizon
 
@@ -36,16 +37,16 @@ class GoalService:
         self._goals = GoalRepository(session)
 
     def list_goals(self, *, user: User | None = None) -> list[GoalResponse]:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         return [self._to_response(goal) for goal in self._goals.list_for_user(resolved_user.id)]
 
     def get_goal(self, goal_id: UUID, *, user: User | None = None) -> GoalResponse:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         goal = self._get_goal_for_user(goal_id, resolved_user.id)
         return self._to_response(goal)
 
     def create_goal(self, request: GoalRequest, *, user: User | None = None) -> GoalResponse:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         goal = Goal(
             user_id=resolved_user.id,
             category=ModelGoalCategory(request.category.value),
@@ -67,7 +68,7 @@ class GoalService:
         *,
         user: User | None = None,
     ) -> GoalResponse:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         goal = self._get_goal_for_user(goal_id, resolved_user.id)
         goal.category = ModelGoalCategory(request.category.value)
         goal.priority = request.priority
@@ -81,13 +82,13 @@ class GoalService:
         return self._to_response(goal)
 
     def delete_goal(self, goal_id: UUID, *, user: User | None = None) -> None:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         goal = self._get_goal_for_user(goal_id, resolved_user.id)
         self._session.delete(goal)
         self._session.commit()
 
     def pause_goal(self, goal_id: UUID, *, user: User | None = None) -> GoalResponse:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         goal = self._get_goal_for_user(goal_id, resolved_user.id)
         goal.active = False
         goal.paused_at = datetime.now(UTC)
@@ -98,7 +99,7 @@ class GoalService:
         return self._to_response(goal)
 
     def resume_goal(self, goal_id: UUID, *, user: User | None = None) -> GoalResponse:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         goal = self._get_goal_for_user(goal_id, resolved_user.id)
         goal.active = True
         goal.paused_at = None
@@ -109,7 +110,7 @@ class GoalService:
         return self._to_response(goal)
 
     def get_active_goal_set(self, *, user: User | None = None) -> ActiveGoalSet:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         active_goals = self._goals.list_active_for_user(resolved_user.id)
         goals = [
             ActiveGoal(
@@ -131,21 +132,22 @@ class GoalService:
             constraints_by_category=self._constraints_by_category(goals),
         )
 
-    def _get_single_user(self) -> User:
-        users = list(self._session.exec(select(User).order_by(col(User.created_at)).limit(2)).all())
-        if not users:
-            raise GoalError(
+    def _resolve_user(self, user: User | None = None) -> User:
+        if user is not None:
+            return user
+        return resolve_single_user(
+            self._session,
+            empty_error_factory=lambda: GoalError(
                 code="user_not_initialized",
                 message="No Baseline user is available for goals.",
                 status_code=409,
-            )
-        if len(users) > 1:
-            raise GoalError(
+            ),
+            ambiguous_error_factory=lambda: GoalError(
                 code="ambiguous_user",
                 message="Goals require an authenticated user context.",
                 status_code=409,
-            )
-        return users[0]
+            ),
+        )
 
     def _get_goal_for_user(self, goal_id: UUID, user_id: UUID) -> Goal:
         goal = self._goals.get_for_user(goal_id, user_id)

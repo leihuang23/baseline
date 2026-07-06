@@ -1623,9 +1623,9 @@ async def test_stale_briefing_alert_fires_when_no_briefing_by_alert_hour(
     before_alert = dt.datetime(2026, 7, 4, alert_hour - 1, 0, tzinfo=dt.UTC)
     after_alert = dt.datetime(2026, 7, 4, alert_hour, 0, tzinfo=dt.UTC)
 
-    assert stale_briefing_alert(db_session, settings=settings, since=before_alert) == []
+    assert stale_briefing_alert(db_session, settings=settings, now=before_alert) == []
 
-    alerts = stale_briefing_alert(db_session, settings=settings, since=after_alert)
+    alerts = stale_briefing_alert(db_session, settings=settings, now=after_alert)
     assert len(alerts) == 1
     assert alerts[0].alert_type == "stale_briefing"
     assert alerts[0].metadata["date"] == "2026-07-04"
@@ -1635,4 +1635,4 @@ async def test_stale_briefing_alert_fires_when_no_briefing_by_alert_hour(
     job = service.get_or_create_daily_job_for_date(TARGET_DATE, user=user)
     db_session.commit()
     await service.run_daily_job(job.id)
-    assert stale_briefing_alert(db_session, settings=settings, since=after_alert) == []
+    assert stale_briefing_alert(db_session, settings=settings, now=after_alert) == []

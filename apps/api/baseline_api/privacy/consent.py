@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlmodel import Session, col, select
 
 from baseline_api.db.models.enums import AuditEventType, PrivacyMode
@@ -68,6 +69,7 @@ class ConsentService:
         return _consent_response(record)
 
     def _get_or_create_first_user(self, request: ConsentRecordRequest) -> User:
+        self._lock_first_user_creation(self._session)
         users = list_single_user_candidates(self._session)
         if len(users) > 1:
             raise PrivacyError(
@@ -85,6 +87,21 @@ class ConsentService:
         self._session.add(user)
         self._session.flush()
         return user
+
+    @staticmethod
+    def _lock_first_user_creation(session: Session) -> None:
+        """Serialize first-user bootstrap across concurrent consent requests.
+
+        Uses a PostgreSQL advisory transaction lock when available. The lock is
+        released automatically at transaction commit/rollback.
+        """
+
+        bind = session.bind
+        if bind is None or getattr(bind, "dialect", None) is None:
+            return
+        if bind.dialect.name != "postgresql":
+            return
+        session.execute(text("SELECT pg_advisory_xact_lock(42)"))
 
     def disable_external_llm(
         self,

@@ -113,7 +113,7 @@ async def generate_daily_analysis(
             data = DailyAnalysisResponse(
                 analysis_job_id=job.id,
                 status=job.status,
-                estimated_completion_seconds=30,
+                estimated_completion_seconds=request.app.state.settings.daily_briefing_estimate_seconds,
             )
     except BriefingError as error:
         return _error_response(error)
@@ -194,10 +194,11 @@ async def submit_recommendation_feedback(
     id: UUID,
     payload: RecommendationFeedbackRequest,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[RecommendationFeedbackResponse] | JSONResponse:
     service = FeedbackService(session)
     try:
-        data = service.submit_feedback(id, payload)
+        data = service.submit_feedback(id, payload, user=context.user)
     except FeedbackError as error:
         return _feedback_error_response(error)
     return APIEnvelope(status="success", data=data)

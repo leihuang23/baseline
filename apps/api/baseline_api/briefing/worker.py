@@ -49,7 +49,7 @@ async def daily_briefing_cron(ctx: dict[str, Any]) -> dict[str, Any]:
             ),
             settings=settings,
         )
-        user = service._get_single_user()  # noqa: SLF001
+        user = service._resolve_user()
         job = service.get_or_create_daily_job_for_date(
             today,
             user=user,

@@ -72,6 +72,11 @@ class Settings(BaseSettings):
         ge=0,
         alias="DAILY_BRIEFING_MAX_RETRIES",
     )
+    daily_briefing_estimate_seconds: int = Field(
+        default=90,
+        ge=5,
+        alias="DAILY_BRIEFING_ESTIMATE_SECONDS",
+    )
     stale_briefing_alert_hour_utc: int = Field(
         default=12,
         ge=0,

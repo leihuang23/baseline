@@ -53,6 +53,7 @@ from baseline_api.observability.metrics import (
     observe_briefing_latency,
 )
 from baseline_api.observability.tracing import create_job_context, use_trace_context
+from baseline_api.privacy.user import resolve_single_user
 from baseline_api.reasoning.engine import ReadinessAssessmentOutput
 from baseline_api.reasoning.service import ReasoningService, features_to_mapping
 from baseline_api.retrieval import (
@@ -170,7 +171,7 @@ class DailyBriefingService:
         *,
         user: User | None = None,
     ) -> DailyAnalysisJob:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         user = resolved_user
         job_id = uuid4()
         context = create_job_context(job_id=str(job_id), internal_user_id=str(user.id))
@@ -213,7 +214,7 @@ class DailyBriefingService:
         job instead of spawning duplicate recommendations.
         """
 
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         existing = self._session.exec(
             select(DailyAnalysisJob)
             .where(DailyAnalysisJob.user_id == resolved_user.id)
@@ -249,7 +250,7 @@ class DailyBriefingService:
         *,
         user: User | None = None,
     ) -> DailyAnalysisResponse:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         job = self._session.get(DailyAnalysisJob, job_id)
         if job is None or job.user_id != resolved_user.id:
             raise BriefingError(
@@ -260,8 +261,21 @@ class DailyBriefingService:
         return DailyAnalysisResponse(
             analysis_job_id=job.id,
             status=AnalysisJobStatus(job.status),
-            estimated_completion_seconds=0 if job.status in {"completed", "failed"} else 5,
+            estimated_completion_seconds=self._estimate_remaining_seconds(job),
         )
+
+    def _estimate_remaining_seconds(self, job: DailyAnalysisJob | None) -> int:
+        terminal = {
+            AnalysisJobStatus.completed.value,
+            AnalysisJobStatus.failed.value,
+        }
+        if job is None or job.status in terminal:
+            return 0
+        base = self._settings.daily_briefing_estimate_seconds if self._settings is not None else 90
+        if job.started_at is not None:
+            elapsed = (dt.datetime.now(dt.UTC) - job.started_at).total_seconds()
+            return max(5, int(base - elapsed))
+        return base
 
     def mark_daily_job_failed(
         self,
@@ -297,7 +311,7 @@ class DailyBriefingService:
             return DailyAnalysisResponse(
                 analysis_job_id=job.id,
                 status=status,
-                estimated_completion_seconds=5,
+                estimated_completion_seconds=self._estimate_remaining_seconds(job),
             )
         if status == AnalysisJobStatus.completed:
             if not job.force_recompute:
@@ -580,7 +594,9 @@ class DailyBriefingService:
                 return DailyAnalysisResponse(
                     analysis_job_id=job_record_id,
                     status=AnalysisJobStatus.completed,
-                    estimated_completion_seconds=0,
+                    estimated_completion_seconds=self._estimate_remaining_seconds(
+                        self._session.get(DailyAnalysisJob, job_record_id)
+                    ),
                 )
             except Exception as exc:
                 self._session.rollback()
@@ -603,7 +619,7 @@ class DailyBriefingService:
         offline_last: bool = False,
         user: User | None = None,
     ) -> DailyBriefingResponse:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         recommendation = self._latest_completed_job_recommendation(
             user_id=resolved_user.id,
             date=target_date,
@@ -666,7 +682,7 @@ class DailyBriefingService:
         *,
         user: User | None = None,
     ) -> BriefingTraceInspection:
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         trace = self._session.get(ReasoningTrace, trace_id)
         if trace is None or trace.user_id != resolved_user.id:
             raise BriefingError(
@@ -1167,21 +1183,22 @@ class DailyBriefingService:
         self._session.add(job)
         self._session.commit()
 
-    def _get_single_user(self) -> User:
-        users = list(self._session.exec(select(User).order_by(col(User.created_at)).limit(2)).all())
-        if not users:
-            raise BriefingError(
+    def _resolve_user(self, user: User | None = None) -> User:
+        if user is not None:
+            return user
+        return resolve_single_user(
+            self._session,
+            empty_error_factory=lambda: BriefingError(
                 code="user_not_initialized",
                 message="No Baseline user is available for briefing generation.",
                 status_code=409,
-            )
-        if len(users) > 1:
-            raise BriefingError(
+            ),
+            ambiguous_error_factory=lambda: BriefingError(
                 code="ambiguous_user",
                 message="Briefing generation requires an authenticated user context.",
                 status_code=409,
-            )
-        return users[0]
+            ),
+        )
 
 
 def _assessment_mapping(assessment: Any) -> dict[str, Any]:

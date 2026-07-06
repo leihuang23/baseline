@@ -12,7 +12,7 @@ from sqlmodel import Session
 from baseline_api.db.models.assessment import ReadinessAssessment, Recommendation
 from baseline_api.db.models.audit import AuditEvent
 from baseline_api.db.models.checkin import DailyCheckIn
-from baseline_api.db.models.enums import AuditEventType, RedactionStatus
+from baseline_api.db.models.enums import AuditEventType, PeriodType, RedactionStatus
 from baseline_api.db.models.features import DerivedDailyFeature
 from baseline_api.db.models.memory import MemorySummary
 from baseline_api.db.repositories.audit import AuditEventRepository
@@ -150,17 +150,12 @@ class MemoryService:
         self,
         *,
         user_id: UUID,
-        period_type: str | None = None,
+        period_type: PeriodType | None = None,
         limit: int = 100,
     ) -> list[MemorySummary]:
-        from baseline_api.db.models.enums import PeriodType
-
-        parsed_period: PeriodType | None = None
-        if period_type is not None:
-            parsed_period = PeriodType(period_type)
         return self._summaries.list_for_user(
             user_id=user_id,
-            period_type=parsed_period,
+            period_type=period_type,
             limit=limit,
         )
 

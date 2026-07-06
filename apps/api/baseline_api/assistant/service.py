@@ -23,6 +23,7 @@ from baseline_api.db.models import (
     WorkoutSession,
 )
 from baseline_api.db.models.enums import Modality
+from baseline_api.privacy.user import resolve_single_user
 from baseline_api.retrieval import (
     KnowledgeRetrievalResult,
     KnowledgeRetrievalService,
@@ -93,7 +94,7 @@ class AssistantQueryService:
         user: User | None = None,
     ) -> AssistantQueryResponse:
         started = time.perf_counter()
-        resolved_user = user or self._get_single_user()
+        resolved_user = self._resolve_user(user)
         user = resolved_user
         target_date = request.date_context or dt.date.today()
         precheck = self._safety_engine.evaluate(
@@ -812,21 +813,22 @@ class AssistantQueryService:
             generated_text=visible_text,
         )
 
-    def _get_single_user(self) -> User:
-        users = list(self._session.exec(select(User).order_by(col(User.created_at)).limit(2)).all())
-        if not users:
-            raise AssistantQueryError(
+    def _resolve_user(self, user: User | None = None) -> User:
+        if user is not None:
+            return user
+        return resolve_single_user(
+            self._session,
+            empty_error_factory=lambda: AssistantQueryError(
                 code="user_not_initialized",
                 message="No Baseline user is available for assistant queries.",
                 status_code=409,
-            )
-        if len(users) > 1:
-            raise AssistantQueryError(
+            ),
+            ambiguous_error_factory=lambda: AssistantQueryError(
                 code="ambiguous_user",
                 message="Assistant queries require an authenticated user context.",
                 status_code=409,
-            )
-        return users[0]
+            ),
+        )
 
     def _active_goals(self) -> list[dict[str, Any]]:
         from baseline_api.goals import GoalService

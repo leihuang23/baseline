@@ -342,14 +342,8 @@ class KnowledgeRetrievalService:
         *,
         limit: int,
     ) -> list[KnowledgeChunkHit]:
-        chunks = self._session.exec(
-            select(KnowledgeChunk).order_by(col(KnowledgeChunk.chunk_index))
-        ).all()
         hits: list[KnowledgeChunkHit] = []
-        for chunk in chunks:
-            source = self._session.get(KnowledgeSource, chunk.source_id)
-            if source is None or source.superseded_at is not None or source.removed_at is not None:
-                continue
+        for chunk, source in self._active_chunk_pairs(require_embedding=True):
             trust_level = _trust_level_value(source.trust_level)
             if trust_level is None:
                 continue
@@ -378,14 +372,8 @@ class KnowledgeRetrievalService:
         return sorted(hits, key=lambda hit: hit.relevance_score, reverse=True)[:limit]
 
     def _rank_lexical_hits(self, query: str, *, limit: int) -> list[KnowledgeChunkHit]:
-        chunks = self._session.exec(
-            select(KnowledgeChunk).order_by(col(KnowledgeChunk.chunk_index))
-        ).all()
         hits: list[KnowledgeChunkHit] = []
-        for chunk in chunks:
-            source = self._session.get(KnowledgeSource, chunk.source_id)
-            if source is None or source.superseded_at is not None or source.removed_at is not None:
-                continue
+        for chunk, source in self._active_chunk_pairs(require_embedding=False):
             trust_level = _trust_level_value(source.trust_level)
             if trust_level is None:
                 continue
@@ -412,6 +400,47 @@ class KnowledgeRetrievalService:
                 )
             )
         return sorted(hits, key=lambda hit: hit.relevance_score, reverse=True)[:limit]
+
+    def _active_chunk_pairs(
+        self,
+        *,
+        require_embedding: bool,
+    ) -> list[tuple[KnowledgeChunk, KnowledgeSource]]:
+        """Return active chunks paired with their sources.
+
+        Uses a joined, database-filtered query against real SQLModel sessions to avoid
+        loading the whole corpus and N+1 source lookups. Falls back to the previous
+        chunked lookup for test fakes that do not implement joins.
+        """
+
+        if isinstance(self._session, Session):
+            statement = (
+                select(KnowledgeChunk, KnowledgeSource)
+                .join(KnowledgeSource, KnowledgeSource.id == KnowledgeChunk.source_id)  # type: ignore[arg-type]
+                .where(
+                    col(KnowledgeSource.superseded_at).is_(None),
+                    col(KnowledgeSource.removed_at).is_(None),
+                    col(KnowledgeSource.trust_level).isnot(None),
+                )
+                .order_by(col(KnowledgeChunk.chunk_index))
+            )
+            if require_embedding:
+                statement = statement.where(col(KnowledgeChunk.embedding).isnot(None))
+            return list(self._session.exec(statement).all())
+
+        # Fallback for unit-test fake sessions: load chunks and resolve sources one by one.
+        chunks = self._session.exec(
+            select(KnowledgeChunk).order_by(col(KnowledgeChunk.chunk_index))
+        ).all()
+        pairs: list[tuple[KnowledgeChunk, KnowledgeSource]] = []
+        for chunk in chunks:
+            source = self._session.get(KnowledgeSource, chunk.source_id)
+            if source is None or source.superseded_at is not None or source.removed_at is not None:
+                continue
+            if require_embedding and chunk.embedding is None:
+                continue
+            pairs.append((chunk, source))
+        return pairs
 
 
 def bind_external_claims(
