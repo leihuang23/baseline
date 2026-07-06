@@ -226,9 +226,13 @@ class DailyBriefingService:
                 return existing
             if status == AnalysisJobStatus.completed and not force_recompute:
                 return existing
-            # A failed job will be retried by ``run_daily_job``; a forced
-            # recompute for a completed job enqueues a fresh run with the
-            # caller's latest parameters (e.g. external-knowledge opt-in).
+            if status == AnalysisJobStatus.failed:
+                # Retry on the same job row up to ``DAILY_BRIEFING_MAX_RETRIES``.
+                # If retries are exhausted, return the failed job so callers do
+                # not spawn a new run until the underlying issue is resolved.
+                return existing
+            # A forced recompute for a completed job enqueues a fresh run with
+            # the caller's latest parameters (e.g. external-knowledge opt-in).
         return self.create_daily_job(
             DailyAnalysisRequest(
                 date=target_date,
@@ -314,14 +318,17 @@ class DailyBriefingService:
                 self._settings.daily_briefing_max_retries if self._settings is not None else 2
             )
             if job.retry_count >= max_retries:
-                return DailyAnalysisResponse(
-                    analysis_job_id=job.id,
-                    status=status,
-                    estimated_completion_seconds=0,
+                raise BriefingError(
+                    code="analysis_job_max_retries_exceeded",
+                    message="Daily briefing generation failed after maximum retries.",
+                    status_code=409,
                 )
             job.retry_count += 1
             job.status = AnalysisJobStatus.running.value
             job.started_at = dt.datetime.now(dt.UTC)
+            job.completed_at = None
+            job.error_code = None
+            job.error_message = None
             job.stage_trace = [
                 *job.stage_trace,
                 _stage_event(
@@ -580,11 +587,11 @@ class DailyBriefingService:
                     error_message="Daily briefing generation failed.",
                 )
                 increment_llm_generation_result(status="failed")
-                return DailyAnalysisResponse(
-                    analysis_job_id=job_record_id,
-                    status=AnalysisJobStatus.failed,
-                    estimated_completion_seconds=0,
-                )
+                raise BriefingError(
+                    code="daily_briefing_generation_failed",
+                    message="Daily briefing generation failed.",
+                    status_code=502,
+                ) from exc
 
     def get_briefing(
         self,

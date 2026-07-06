@@ -19,6 +19,7 @@ from sqlmodel import Session, col, select
 
 from baseline_api.app import create_app
 from baseline_api.briefing.service import (
+    BriefingError,
     DailyBriefingService,
     RetrievalResult,
     _combine_retrieval,
@@ -60,7 +61,11 @@ from baseline_api.retrieval import (
     build_external_knowledge_query,
 )
 from baseline_api.safety.engine import SafetyPolicyEngine
-from baseline_api.schemas.api import DailyAnalysisRequest, DailyBriefingResponse
+from baseline_api.schemas.api import (
+    DailyAnalysisRequest,
+    DailyAnalysisResponse,
+    DailyBriefingResponse,
+)
 from baseline_api.schemas.enums import AnalysisJobStatus, PrivacyMode
 from baseline_api.schemas.recommendation import RecommendationContract
 from baseline_api.worker import WorkerSettings
@@ -1426,6 +1431,7 @@ async def test_failed_daily_briefing_job_retries_up_to_max_retries(
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Failed jobs retry on the same row via API/cron-like get-or-create paths."""
     user = _seed_fixture_day(db_session)
     service = DailyBriefingService(
         db_session,
@@ -1451,19 +1457,151 @@ async def test_failed_daily_briefing_job_retries_up_to_max_retries(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("features down")),
     )
 
-    for expected_retry in (1, 2):
-        response = await service.run_daily_job(job.id)
+    max_retries = _settings().daily_briefing_max_retries
+    for expected_retry in range(1, max_retries + 1):
+        # The API/cron path resolves to the existing failed job row.
+        resolved = service.get_or_create_daily_job_for_date(TARGET_DATE, user=user)
+        assert resolved.id == job.id
+
+        with pytest.raises(BriefingError):
+            await service.run_daily_job(job.id)
         db_session.refresh(job)
-        assert response.analysis_job_id == job.id
-        assert response.status == AnalysisJobStatus.failed
         assert job.retry_count == expected_retry
         assert job.status == "failed"
 
-    # At max retries the job is left failed without another attempt.
-    final = await service.run_daily_job(job.id)
+    # Once retries are exhausted, run_daily_job refuses another attempt.
+    resolved = service.get_or_create_daily_job_for_date(TARGET_DATE, user=user)
+    assert resolved.id == job.id
+    with pytest.raises(BriefingError) as exc_info:
+        await service.run_daily_job(job.id)
+    assert exc_info.value.code == "analysis_job_max_retries_exceeded"
     db_session.refresh(job)
-    assert final.status == AnalysisJobStatus.failed
-    assert job.retry_count == 2
+    assert job.retry_count == max_retries
+    assert job.status == "failed"
+
+
+def test_get_or_create_daily_job_returns_exhausted_failed_job_without_new_run(
+    db_session: Session,
+) -> None:
+    """An exhausted failed job is returned unchanged; no new job is created."""
+    user = _seed_fixture_day(db_session)
+    service = DailyBriefingService(db_session, settings=_settings())
+    job = service.create_daily_job(
+        DailyAnalysisRequest(
+            date=TARGET_DATE,
+            force_recompute=False,
+            include_external_knowledge=False,
+            privacy_mode="cloud_assisted",
+        ),
+        user=user,
+    )
+    job.status = "failed"
+    job.retry_count = _settings().daily_briefing_max_retries
+    db_session.add(job)
+    db_session.commit()
+
+    resolved = service.get_or_create_daily_job_for_date(TARGET_DATE, user=user)
+
+    assert resolved.id == job.id
+    assert resolved.status == "failed"
+    assert resolved.retry_count == _settings().daily_briefing_max_retries
+    assert db_session.exec(select(DailyAnalysisJob)).one().id == job.id
+
+
+@pytest.mark.asyncio
+async def test_daily_briefing_worker_propagates_briefing_error_on_failure(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The arq worker must surface briefing failures so arq marks the job failed."""
+    from baseline_api.briefing import worker as briefing_worker
+
+    _seed_fixture_day(db_session)
+    job = DailyBriefingService(db_session).create_daily_job(
+        DailyAnalysisRequest(
+            date=TARGET_DATE,
+            force_recompute=False,
+            include_external_knowledge=False,
+            privacy_mode="cloud_assisted",
+        ),
+        user=db_session.exec(select(User)).first(),
+    )
+    job.status = "failed"
+    job.retry_count = _settings().daily_briefing_max_retries
+    db_session.add(job)
+    db_session.commit()
+
+    monkeypatch.setattr(briefing_worker, "get_settings", _settings)
+    monkeypatch.setattr(briefing_worker, "build_default_router", lambda settings: object())
+
+    async def failing_run_daily_job(
+        self: DailyBriefingService,
+        job_id: UUID,
+    ) -> DailyAnalysisResponse:
+        raise BriefingError(
+            code="daily_briefing_generation_failed",
+            message="Daily briefing generation failed.",
+            status_code=502,
+        )
+
+    monkeypatch.setattr(DailyBriefingService, "run_daily_job", failing_run_daily_job)
+
+    with pytest.raises(BriefingError):
+        await briefing_worker.daily_briefing(
+            {"session_maker": lambda: _FakeSessionContext(db_session)},
+            str(job.id),
+        )
+
+
+@pytest.mark.asyncio
+async def test_failed_daily_briefing_retry_clears_stale_error_fields(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = _seed_fixture_day(db_session)
+    service = DailyBriefingService(
+        db_session,
+        llm_explainer=FakeLLMExplainer(db_session),
+        settings=_settings(),
+    )
+    job = service.create_daily_job(
+        DailyAnalysisRequest(
+            date=TARGET_DATE,
+            force_recompute=False,
+            include_external_knowledge=False,
+            privacy_mode="cloud_assisted",
+        ),
+        user=user,
+    )
+    job.status = "failed"
+    job.error_code = "previous_error"
+    job.error_message = "previous failure"
+    job.completed_at = dt.datetime(2026, 7, 4, 5, 0, tzinfo=dt.UTC)
+    db_session.add(job)
+    db_session.commit()
+
+    # Patch feature load to succeed so the retry completes cleanly.
+    monkeypatch.setattr(
+        DailyBriefingService,
+        "_load_or_compute_features_with_degraded_mode",
+        lambda self, *, user_id, target_date, force_recompute: (
+            db_session.exec(
+                select(DerivedDailyFeature).where(
+                    DerivedDailyFeature.user_id == user_id,
+                    DerivedDailyFeature.date == target_date,
+                )
+            ).one(),
+            None,
+        ),
+    )
+
+    response = await service.run_daily_job(job.id)
+    db_session.refresh(job)
+    assert response.status == AnalysisJobStatus.completed
+    assert job.retry_count == 1
+    assert job.error_code is None
+    assert job.error_message is None
+    assert job.completed_at is not None
 
 
 def test_worker_settings_cron_schedule_includes_daily_and_memory_jobs() -> None:
