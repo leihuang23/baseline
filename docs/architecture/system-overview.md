@@ -57,6 +57,10 @@ sequenceDiagram
 | `baseline_api.privacy` | Consent, export, deletion, audit events, model disclosures, and data lifecycle controls. | Product recommendations. |
 | `baseline_api.observability` | Redacted logs, trace IDs, metrics, cost alerts, and operational metadata. | Raw health-data logging. |
 | `baseline_api.briefing` | Daily pipeline orchestration and persisted briefing/trace responses. | New feature formulas beyond the feature engine. |
+| `baseline_api.schemas` | Shared Pydantic request/response schemas, API envelope, enums, and recommendation contract models. | Business logic or data persistence. |
+| `baseline_api.checkin` | Check-in service, redaction pipeline, and worker queue for daily check-in capture. | Feature computation or readiness decisions. |
+| `baseline_api.feedback` | Recommendation feedback capture and persistence. | Safety verdicts or feature calculation. |
+| `baseline_api.assistant` | Evidence-bounded assistant Q&A service with retrieval-augmented responses. | Raw personal time-series queries or medical interpretation. |
 
 ## API Entry Points
 
@@ -69,12 +73,15 @@ The app factory in `baseline_api.app:create_app` includes these router surfaces:
 | `POST /v1/health/sync` | Health sync ingestion contract. |
 | `POST /v1/checkins/daily` | Create daily check-in. |
 | `GET /v1/checkins/daily/by-date/{checkin_date}` | Fetch check-in detail. |
+| `PUT /v1/checkins/daily/{checkin_id}` | Edit daily check-in. |
+| `DELETE /v1/checkins/daily/{checkin_id}` | Delete daily check-in. |
 | `POST /v1/goals` and related goal routes | Goal CRUD, pause, and resume. |
 | `POST /v1/analysis/daily` | Queue daily briefing analysis. |
 | `GET /v1/analysis/daily/{job_id}` | Read analysis job state. |
 | `GET /v1/analysis/traces/{trace_id}` | Inspect recommendation trace. |
 | `GET /v1/briefings/{date}` | Fetch daily briefing. |
 | `POST /v1/assistant/query` | Evidence-bounded assistant Q&A. |
+| `POST /v1/recommendations/{id}/feedback` | Submit recommendation feedback. |
 | `POST /v1/data/export` and deletion/consent routes | Data controls. |
 | `GET /v1/observability/alerts` and `GET /metrics` | Operator observability. |
 

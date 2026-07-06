@@ -13,7 +13,7 @@ Baseline uses synthetic data for development, tests, golden scenarios, and publi
 
 ## Scenario Catalog
 
-The 10 PRD §22.2 golden scenarios are registered by name:
+The 11 PRD §22.2 golden scenarios are registered by name:
 
 - `high_hrv_good_sleep_low_load`
 - `low_hrv_high_rhr_poor_sleep`
@@ -24,6 +24,7 @@ The 10 PRD §22.2 golden scenarios are registered by name:
 - `stale_sleep`
 - `vo2_improving_recovery_declining`
 - `cognitive_priority_week`
+- `missing_strength_data`
 - `medical_diagnosis_request`
 
 The catalog also includes a 60-day `demo_60_day_persona` and additional synthetic variants so the eval harness can grow toward the MVP requirement of at least 30 synthetic scenarios without using private data.

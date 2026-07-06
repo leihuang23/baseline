@@ -72,14 +72,15 @@ Then loop until the success criteria are met or a real blocker remains.
 - Runtime config: `baseline_api.config.Settings`, loaded from environment via
   `pydantic-settings`
 - API routers currently live in `apps/api/baseline_api/api`:
-  health, assistant, check-ins, data controls, goals, `/v1/health`, and
-  `/v1/contracts`
+  health, assistant, check-ins, data controls, goals, `/v1/health`,
+  `/v1/contracts`, and `/v1/observability`
 - Database layer:
   `db/models`, `db/repositories`, `db/session.py`, and Alembic migrations under
   `apps/api/alembic/versions`
 - Core domain modules:
   `ingestion`, `features`, `reasoning`, `llm`, `safety`, `memory`, `retrieval`,
-  `briefing`, `feedback`, `goals`, `privacy`, and `observability`
+  `briefing`, `feedback`, `goals`, `privacy`, `observability`, `schemas`,
+  `checkin`, and `assistant`
 
 ### iOS
 
