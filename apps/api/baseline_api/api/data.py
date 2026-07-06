@@ -12,6 +12,7 @@ from sqlmodel import Session
 
 from baseline_api.api.deps import SingleUserContext, get_single_user_context
 from baseline_api.db.session import get_db_session
+from baseline_api.memory import MemoryService
 from baseline_api.observability.logging import log_event
 from baseline_api.privacy import (
     ConsentService,
@@ -31,6 +32,8 @@ from baseline_api.schemas.api import (
     DataExportResponse,
     DisableExternalLLMRequest,
     LLMSettingsResponse,
+    MemorySummaryItem,
+    MemorySummaryListResponse,
     ModelDisclosureResponse,
 )
 from baseline_api.schemas.common import APIEnvelope, APIError
@@ -205,6 +208,42 @@ def delete_checkin_note(
         data = DataDeletionService(session).delete_note(checkin_id, user=context.user)
     except PrivacyError as error:
         return _error_response(error)
+    return APIEnvelope(status="success", data=data)
+
+
+@router.get(
+    "/memory-summaries",
+    response_model=APIEnvelope[MemorySummaryListResponse],
+)
+def list_memory_summaries(
+    session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
+    period_type: str | None = None,
+) -> APIEnvelope[MemorySummaryListResponse] | Response:
+    try:
+        summaries = MemoryService(session).list_summaries(
+            user_id=context.user.id,
+            period_type=period_type,
+        )
+    except PrivacyError as error:
+        return _error_response(error)
+    data = MemorySummaryListResponse(
+        summaries=[
+            MemorySummaryItem(
+                memory_summary_id=summary.id,
+                period_type=summary.period_type.value,
+                start_date=summary.start_date,
+                end_date=summary.end_date,
+                summary_version=summary.summary_version,
+                confidence=summary.confidence,
+                observations=summary.observations,
+                hypotheses=summary.hypotheses,
+                source_refs=summary.source_refs,
+                sensitive_fields_excluded=summary.sensitive_fields_excluded,
+            )
+            for summary in summaries
+        ]
+    )
     return APIEnvelope(status="success", data=data)
 
 

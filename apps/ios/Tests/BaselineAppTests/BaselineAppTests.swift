@@ -1107,6 +1107,126 @@ final class BaselineAppTests: XCTestCase {
         }
 
         @MainActor
+        func testMemoryViewModelLoadsSummariesAndComputesTrend() async {
+            let latestWeekly = MemorySummaryItem(
+                memorySummaryID: UUID(),
+                periodType: .weekly,
+                startDate: "2026-07-06",
+                endDate: "2026-07-12",
+                summaryVersion: "v1",
+                confidence: 0.8,
+                observations: [MemorySummaryEntry(text: "Sleep improved")]
+            )
+            let previousWeekly = MemorySummaryItem(
+                memorySummaryID: UUID(),
+                periodType: .weekly,
+                startDate: "2026-06-29",
+                endDate: "2026-07-05",
+                summaryVersion: "v1",
+                confidence: 0.7,
+                observations: [MemorySummaryEntry(text: "Stable load")]
+            )
+            let daily = MemorySummaryItem(
+                memorySummaryID: UUID(),
+                periodType: .daily,
+                startDate: "2026-07-12",
+                endDate: "2026-07-12",
+                summaryVersion: "v1",
+                confidence: 0.9,
+                observations: []
+            )
+            let api = MockMemoryAPIClient(
+                summariesResult: MemorySummaryListResponse(summaries: [latestWeekly, previousWeekly, daily])
+            )
+            let viewModel = MemoryViewModel(apiClient: api)
+
+            await viewModel.loadSummaries()
+
+            XCTAssertEqual(viewModel.summaries.count, 3)
+            XCTAssertEqual(api.fetchRequests, [nil])
+            XCTAssertNotNil(viewModel.trendComparison)
+            XCTAssertEqual(viewModel.trendComparison?.latest.id, latestWeekly.id)
+            XCTAssertEqual(viewModel.trendComparison?.newObservations, ["Sleep improved"])
+        }
+
+        @MainActor
+        func testMemoryViewModelFiltersByPeriodType() async {
+            let api = MockMemoryAPIClient(
+                summariesResult: MemorySummaryListResponse(summaries: [
+                    MemorySummaryItem(
+                        memorySummaryID: UUID(),
+                        periodType: .daily,
+                        startDate: "2026-07-12",
+                        endDate: "2026-07-12",
+                        summaryVersion: "v1",
+                        confidence: 0.9,
+                        observations: []
+                    )
+                ])
+            )
+            let viewModel = MemoryViewModel(apiClient: api)
+            viewModel.selectedPeriod = .daily
+
+            await viewModel.loadSummaries()
+
+            XCTAssertEqual(api.fetchRequests, [.daily])
+            XCTAssertEqual(viewModel.summaries.count, 1)
+        }
+
+        @MainActor
+        func testMemoryViewModelDeleteRemovesSummaryOptimistically() async {
+            let id = UUID()
+            let api = MockMemoryAPIClient(
+                summariesResult: MemorySummaryListResponse(summaries: [
+                    MemorySummaryItem(
+                        memorySummaryID: id,
+                        periodType: .daily,
+                        startDate: "2026-07-12",
+                        endDate: "2026-07-12",
+                        summaryVersion: "v1",
+                        confidence: 0.9,
+                        observations: []
+                    )
+                ])
+            )
+            let viewModel = MemoryViewModel(apiClient: api)
+            await viewModel.loadSummaries()
+
+            await viewModel.deleteSummary(id: id)
+
+            XCTAssertTrue(viewModel.summaries.isEmpty)
+            XCTAssertEqual(api.deletedIDs, [id])
+        }
+
+        @MainActor
+        func testMemoryViewRendersTrendsAndSummaries() async {
+            let summary = MemorySummaryItem(
+                memorySummaryID: UUID(),
+                periodType: .weekly,
+                startDate: "2026-07-06",
+                endDate: "2026-07-12",
+                summaryVersion: "v1",
+                confidence: 0.8,
+                observations: [MemorySummaryEntry(text: "Sleep improved")],
+                hypotheses: [MemorySummaryEntry(text: "Higher load may help")]
+            )
+            let api = MockMemoryAPIClient(
+                summariesResult: MemorySummaryListResponse(summaries: [summary])
+            )
+            let viewModel = MemoryViewModel(apiClient: api)
+            await viewModel.loadSummaries()
+            let view = MemoryView(viewModel: viewModel)
+            let snapshot = renderedStrings(in: view.body)
+
+            XCTAssertTrue(snapshot.contains("Trends"))
+            XCTAssertTrue(snapshot.contains("Period"))
+            XCTAssertTrue(snapshot.contains("Summaries"))
+            XCTAssertTrue(snapshot.contains("Sleep improved"))
+            XCTAssertTrue(snapshot.contains("Higher load may help"))
+            XCTAssertTrue(snapshot.contains("2026-07-06"))
+        }
+
+        @MainActor
         func testBriefingFeedbackEncodesRatingAndActionTaken() async {
             let api = MockBriefingAPIClient()
             let viewModel = DailyBriefingViewModel(
@@ -1881,6 +2001,39 @@ private func sampleTrace(
 private extension Array {
     var single: Element? {
         count == 1 ? self[0] : nil
+    }
+}
+
+private final class MockMemoryAPIClient: MemoryAPIClient, @unchecked Sendable {
+    private let summariesResult: MemorySummaryListResponse
+    private(set) var fetchRequests: [MemoryPeriodType?] = []
+    private(set) var deletedIDs: [UUID] = []
+    private let fetchError: Error?
+    private let deleteError: Error?
+
+    init(
+        summariesResult: MemorySummaryListResponse = MemorySummaryListResponse(),
+        fetchError: Error? = nil,
+        deleteError: Error? = nil
+    ) {
+        self.summariesResult = summariesResult
+        self.fetchError = fetchError
+        self.deleteError = deleteError
+    }
+
+    func fetchMemorySummaries(periodType: MemoryPeriodType?) async throws -> MemorySummaryListResponse {
+        fetchRequests.append(periodType)
+        if let fetchError {
+            throw fetchError
+        }
+        return summariesResult
+    }
+
+    func deleteMemorySummary(id: UUID) async throws {
+        deletedIDs.append(id)
+        if let deleteError {
+            throw deleteError
+        }
     }
 }
 

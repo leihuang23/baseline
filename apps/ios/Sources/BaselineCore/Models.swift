@@ -1647,3 +1647,125 @@ public struct HealthSyncResponse: Codable, Equatable, Sendable {
         case nextAnchor = "next_anchor"
     }
 }
+
+public enum MemoryPeriodType: String, Codable, CaseIterable, Identifiable, Sendable {
+    case daily
+    case weekly
+    case monthly
+    case quarterly
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .daily:
+            "Daily"
+        case .weekly:
+            "Weekly"
+        case .monthly:
+            "Monthly"
+        case .quarterly:
+            "Quarterly"
+        }
+    }
+}
+
+public struct MemorySummaryItem: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID { memorySummaryID }
+    public var memorySummaryID: UUID
+    public var periodType: MemoryPeriodType
+    public var startDate: String
+    public var endDate: String
+    public var summaryVersion: String
+    public var confidence: Double
+    public var observations: [MemorySummaryEntry]
+    public var hypotheses: [MemorySummaryEntry]
+    public var sourceRefs: [MemorySourceRef]
+    public var sensitiveFieldsExcluded: [String]
+
+    public init(
+        memorySummaryID: UUID,
+        periodType: MemoryPeriodType,
+        startDate: String,
+        endDate: String,
+        summaryVersion: String,
+        confidence: Double,
+        observations: [MemorySummaryEntry] = [],
+        hypotheses: [MemorySummaryEntry] = [],
+        sourceRefs: [MemorySourceRef] = [],
+        sensitiveFieldsExcluded: [String] = []
+    ) {
+        self.memorySummaryID = memorySummaryID
+        self.periodType = periodType
+        self.startDate = startDate
+        self.endDate = endDate
+        self.summaryVersion = summaryVersion
+        self.confidence = confidence
+        self.observations = observations
+        self.hypotheses = hypotheses
+        self.sourceRefs = sourceRefs
+        self.sensitiveFieldsExcluded = sensitiveFieldsExcluded
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case memorySummaryID = "memory_summary_id"
+        case periodType = "period_type"
+        case startDate = "start_date"
+        case endDate = "end_date"
+        case summaryVersion = "summary_version"
+        case confidence
+        case observations
+        case hypotheses
+        case sourceRefs = "source_refs"
+        case sensitiveFieldsExcluded = "sensitive_fields_excluded"
+    }
+}
+
+public struct MemorySummaryEntry: Codable, Equatable, Sendable {
+    public var text: String?
+    public var metric: String?
+    public var summary: String?
+    public var confidence: Double?
+    public var sourceRefs: [MemorySourceRef]?
+
+    public init(
+        text: String? = nil,
+        metric: String? = nil,
+        summary: String? = nil,
+        confidence: Double? = nil,
+        sourceRefs: [MemorySourceRef]? = nil
+    ) {
+        self.text = text
+        self.metric = metric
+        self.summary = summary
+        self.confidence = confidence
+        self.sourceRefs = sourceRefs
+    }
+}
+
+public struct MemorySourceRef: Codable, Equatable, Sendable {
+    public var table: String?
+    public var id: String?
+    public var field: String?
+
+    public init(table: String? = nil, id: String? = nil, field: String? = nil) {
+        self.table = table
+        self.id = id
+        self.field = field
+    }
+}
+
+public struct MemorySummaryListResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var summaries: [MemorySummaryItem]
+
+    public init(schemaVersion: String = "v1", summaries: [MemorySummaryItem] = []) {
+        self.schemaVersion = schemaVersion
+        self.summaries = summaries
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case summaries
+    }
+}

@@ -1195,6 +1195,66 @@
         ]
       }
     },
+    "/v1/data/memory-summaries": {
+      "get": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "List Memory Summaries",
+        "operationId": "list_memory_summaries_v1_data_memory_summaries_get",
+        "parameters": [
+          {
+            "name": "period_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Period Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_MemorySummaryListResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
     "/v1/data/memory-summaries/{memory_summary_id}": {
       "delete": {
         "tags": [
@@ -2199,6 +2259,47 @@
           "status"
         ],
         "title": "APIEnvelope[LLMSettingsResponse]"
+      },
+      "APIEnvelope_MemorySummaryListResponse_": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemorySummaryListResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/APIResponseMeta"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[MemorySummaryListResponse]"
       },
       "APIEnvelope_ModelDisclosureResponse_": {
         "properties": {
@@ -4208,6 +4309,101 @@
           "relevance"
         ],
         "title": "MemoryObservation"
+      },
+      "MemorySummaryItem": {
+        "properties": {
+          "memory_summary_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Memory Summary Id"
+          },
+          "period_type": {
+            "type": "string",
+            "title": "Period Type"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "title": "End Date"
+          },
+          "summary_version": {
+            "type": "string",
+            "title": "Summary Version"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "observations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Observations"
+          },
+          "hypotheses": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Hypotheses"
+          },
+          "source_refs": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Source Refs"
+          },
+          "sensitive_fields_excluded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sensitive Fields Excluded"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "memory_summary_id",
+          "period_type",
+          "start_date",
+          "end_date",
+          "summary_version",
+          "confidence"
+        ],
+        "title": "MemorySummaryItem"
+      },
+      "MemorySummaryListResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "summaries": {
+            "items": {
+              "$ref": "#/components/schemas/MemorySummaryItem"
+            },
+            "type": "array",
+            "title": "Summaries"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MemorySummaryListResponse"
       },
       "MemoryUpdateStatus": {
         "type": "string",

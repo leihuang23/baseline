@@ -1000,6 +1000,53 @@ def test_delete_checkin_note_removes_note_derived_memory_summary(db_session: Ses
     assert db_session.get(MemorySummary, memory.id) is None
 
 
+def test_list_memory_summaries_returns_single_user_summaries(db_session: Session) -> None:
+    user = _seed_user(db_session)
+    _seed_memory(db_session, user)
+    client = _client(db_session)
+
+    response = client.get("/v1/data/memory-summaries")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert len(data["summaries"]) == 1
+    assert data["summaries"][0]["period_type"] == "weekly"
+    assert data["summaries"][0]["observations"][0]["metric"] == "sleep"
+
+
+def test_list_memory_summaries_filters_by_period_type(db_session: Session) -> None:
+    user = _seed_user(db_session)
+    db_session.add(
+        MemorySummary(
+            user_id=user.id,
+            period_type=PeriodType.daily,
+            start_date=dt.date(2026, 7, 5),
+            end_date=dt.date(2026, 7, 5),
+            summary_version="v1",
+            observations=[],
+        )
+    )
+    db_session.add(
+        MemorySummary(
+            user_id=user.id,
+            period_type=PeriodType.weekly,
+            start_date=dt.date(2026, 6, 29),
+            end_date=dt.date(2026, 7, 5),
+            summary_version="v1",
+            observations=[{"metric": "sleep", "summary": "stable"}],
+        )
+    )
+    db_session.commit()
+    client = _client(db_session)
+
+    response = client.get("/v1/data/memory-summaries?period_type=daily")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert len(data["summaries"]) == 1
+    assert data["summaries"][0]["period_type"] == "daily"
+
+
 def test_record_consent_rejects_cloud_off_external_llm_enabled_state(
     db_session: Session,
 ) -> None:
