@@ -1168,21 +1168,6 @@ def _combine_retrieval(
     )
 
 
-def _external_knowledge_query(
-    *,
-    active_goals: Sequence[Mapping[str, Any]],
-    requested_scope: str,
-    recommendation_band: str | None = None,
-) -> str:
-    """Backward-compatible wrapper around the canonical external-knowledge query builder."""
-
-    return build_external_knowledge_query(
-        active_goals=active_goals,
-        recommendation_band=recommendation_band,
-        requested_scope=requested_scope,
-    )
-
-
 def _external_retrieval_degraded_result(
     *,
     reason: str | None,
