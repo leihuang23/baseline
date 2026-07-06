@@ -86,14 +86,19 @@ class ConsentService:
         self._session.flush()
         return user
 
-    def disable_external_llm(self, request: DisableExternalLLMRequest) -> ConsentRecordResponse:
-        user = get_single_user(self._session)
-        active = self._active_consent(user.id)
+    def disable_external_llm(
+        self,
+        request: DisableExternalLLMRequest,
+        *,
+        user: User | None = None,
+    ) -> ConsentRecordResponse:
+        resolved_user = user or get_single_user(self._session)
+        active = self._active_consent(resolved_user.id)
         now = datetime.now(UTC)
         active.revoked_at = now
         self._session.add(active)
         record = ConsentRecord(
-            user_id=user.id,
+            user_id=resolved_user.id,
             consent_version=request.consent_version
             or f"{active.consent_version}-external-llm-disabled",
             health_categories_enabled=list(active.health_categories_enabled),
@@ -103,13 +108,13 @@ class ConsentService:
             timestamp=now,
         )
         self._session.add(record)
-        user.active_consent_version = record.consent_version
-        user.privacy_mode = _privacy_mode(record)
-        self._session.add(user)
+        resolved_user.active_consent_version = record.consent_version
+        resolved_user.privacy_mode = _privacy_mode(record)
+        self._session.add(resolved_user)
         emit_privacy_audit(
             self._session,
             event_type=AuditEventType.consent_revoked,
-            user_id=user.id,
+            user_id=resolved_user.id,
             metadata={
                 "previous_consent_version": active.consent_version,
                 "consent_version": record.consent_version,
@@ -120,9 +125,14 @@ class ConsentService:
         self._session.commit()
         return _consent_response(record)
 
-    def revoke(self, request: ConsentRevocationRequest) -> ConsentRecordResponse:
-        user = get_single_user(self._session)
-        active = self._active_consent(user.id)
+    def revoke(
+        self,
+        request: ConsentRevocationRequest,
+        *,
+        user: User | None = None,
+    ) -> ConsentRecordResponse:
+        resolved_user = user or get_single_user(self._session)
+        active = self._active_consent(resolved_user.id)
         now = datetime.now(UTC)
 
         categories = list(active.health_categories_enabled)
@@ -151,7 +161,7 @@ class ConsentService:
         active.revoked_at = now
         self._session.add(active)
         record = ConsentRecord(
-            user_id=user.id,
+            user_id=resolved_user.id,
             consent_version=request.consent_version or f"{active.consent_version}-revoked",
             health_categories_enabled=categories,
             cloud_processing_enabled=cloud_processing_enabled,
@@ -160,13 +170,13 @@ class ConsentService:
             timestamp=now,
         )
         self._session.add(record)
-        user.active_consent_version = record.consent_version
-        user.privacy_mode = _privacy_mode(record)
-        self._session.add(user)
+        resolved_user.active_consent_version = record.consent_version
+        resolved_user.privacy_mode = _privacy_mode(record)
+        self._session.add(resolved_user)
         emit_privacy_audit(
             self._session,
             event_type=AuditEventType.consent_revoked,
-            user_id=user.id,
+            user_id=resolved_user.id,
             metadata={
                 "previous_consent_version": active.consent_version,
                 "consent_version": record.consent_version,
@@ -179,17 +189,17 @@ class ConsentService:
         self._session.commit()
         return _consent_response(record)
 
-    def history(self) -> ConsentHistoryResponse:
-        user = get_single_user(self._session)
+    def history(self, *, user: User | None = None) -> ConsentHistoryResponse:
+        resolved_user = user or get_single_user(self._session)
         records = list(
             self._session.exec(
                 select(ConsentRecord)
-                .where(ConsentRecord.user_id == user.id)
+                .where(ConsentRecord.user_id == resolved_user.id)
                 .order_by(col(ConsentRecord.timestamp).desc())
             ).all()
         )
         return ConsentHistoryResponse(
-            active_consent_version=user.active_consent_version,
+            active_consent_version=resolved_user.active_consent_version,
             records=[_consent_response(record) for record in records],
         )
 

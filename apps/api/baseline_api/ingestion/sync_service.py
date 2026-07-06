@@ -84,11 +84,13 @@ class HealthSyncService:
         self,
         request: HealthSyncRequest,
         *,
+        user: User | None = None,
         retry_on_integrity_error: bool = True,
     ) -> HealthSyncResult:
         started_at = datetime.now(UTC)
-        user = self._get_single_user()
-        self._assert_consent(user, request)
+        resolved_user = user or self._get_single_user()
+        self._assert_consent(resolved_user, request)
+        user = resolved_user
 
         request_hash = _request_hash(request)
         existing_batch = self._batches.get_by_client_sync_id(user.id, request.client_sync_id)

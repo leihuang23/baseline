@@ -60,10 +60,16 @@ class CheckinService:
         self._redaction = redaction
         self._queue = queue
 
-    async def create_checkin(self, request: DailyCheckInRequest) -> DailyCheckInResponse:
-        user = self._get_single_user()
-        consent = self._active_consent(user)
+    async def create_checkin(
+        self,
+        request: DailyCheckInRequest,
+        *,
+        user: User | None = None,
+    ) -> DailyCheckInResponse:
+        resolved_user = user or self._get_single_user()
+        consent = self._active_consent(resolved_user)
         self._assert_policy_consent(consent, request.sensitive_note_policy)
+        user = resolved_user
         redacted = await self._redaction.redact(
             request.free_text_note,
             self._model_policy(request.sensitive_note_policy),
@@ -98,17 +104,20 @@ class CheckinService:
         self,
         checkin_id: UUID,
         request: DailyCheckInRequest,
+        *,
+        user: User | None = None,
     ) -> DailyCheckInResponse:
-        user = self._get_single_user()
+        resolved_user = user or self._get_single_user()
         checkin = self._session.get(DailyCheckIn, checkin_id)
-        if checkin is None or checkin.user_id != user.id:
+        if checkin is None or checkin.user_id != resolved_user.id:
             raise CheckinError(
                 code="checkin_not_found",
                 message="Check-in not found.",
                 status_code=404,
             )
 
-        consent = self._active_consent(user)
+        consent = self._active_consent(resolved_user)
+        user = resolved_user
         self._assert_policy_consent(consent, request.sensitive_note_policy)
         preserve_existing_note = self._should_preserve_existing_note(checkin, request)
         if preserve_existing_note:
@@ -148,10 +157,15 @@ class CheckinService:
         )
         return self._to_response(checkin, request)
 
-    async def delete_checkin(self, checkin_id: UUID) -> None:
-        user = self._get_single_user()
+    async def delete_checkin(
+        self,
+        checkin_id: UUID,
+        *,
+        user: User | None = None,
+    ) -> None:
+        resolved_user = user or self._get_single_user()
         checkin = self._session.get(DailyCheckIn, checkin_id)
-        if checkin is None or checkin.user_id != user.id:
+        if checkin is None or checkin.user_id != resolved_user.id:
             raise CheckinError(
                 code="checkin_not_found",
                 message="Check-in not found.",
@@ -162,7 +176,7 @@ class CheckinService:
         self._session.delete(checkin)
         self._emit_raw_audit(
             AuditEventType.checkin_deleted,
-            user.id,
+            resolved_user.id,
             checkin_id,
             checkin_date,
         )
@@ -176,11 +190,16 @@ class CheckinService:
             },
         )
 
-    def get_checkin_for_date(self, checkin_date: date) -> DailyCheckInDetailResponse:
-        user = self._get_single_user()
+    def get_checkin_for_date(
+        self,
+        checkin_date: date,
+        *,
+        user: User | None = None,
+    ) -> DailyCheckInDetailResponse:
+        resolved_user = user or self._get_single_user()
         checkin = self._session.exec(
             select(DailyCheckIn).where(
-                DailyCheckIn.user_id == user.id,
+                DailyCheckIn.user_id == resolved_user.id,
                 DailyCheckIn.date == checkin_date,
             )
         ).first()

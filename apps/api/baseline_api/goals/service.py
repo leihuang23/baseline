@@ -35,19 +35,19 @@ class GoalService:
         self._session = session
         self._goals = GoalRepository(session)
 
-    def list_goals(self) -> list[GoalResponse]:
-        user = self._get_single_user()
-        return [self._to_response(goal) for goal in self._goals.list_for_user(user.id)]
+    def list_goals(self, *, user: User | None = None) -> list[GoalResponse]:
+        resolved_user = user or self._get_single_user()
+        return [self._to_response(goal) for goal in self._goals.list_for_user(resolved_user.id)]
 
-    def get_goal(self, goal_id: UUID) -> GoalResponse:
-        user = self._get_single_user()
-        goal = self._get_goal_for_user(goal_id, user.id)
+    def get_goal(self, goal_id: UUID, *, user: User | None = None) -> GoalResponse:
+        resolved_user = user or self._get_single_user()
+        goal = self._get_goal_for_user(goal_id, resolved_user.id)
         return self._to_response(goal)
 
-    def create_goal(self, request: GoalRequest) -> GoalResponse:
-        user = self._get_single_user()
+    def create_goal(self, request: GoalRequest, *, user: User | None = None) -> GoalResponse:
+        resolved_user = user or self._get_single_user()
         goal = Goal(
-            user_id=user.id,
+            user_id=resolved_user.id,
             category=ModelGoalCategory(request.category.value),
             priority=request.priority,
             time_horizon=ModelTimeHorizon(request.time_horizon.value),
@@ -60,9 +60,15 @@ class GoalService:
         self._session.refresh(goal)
         return self._to_response(goal)
 
-    def update_goal(self, goal_id: UUID, request: GoalRequest) -> GoalResponse:
-        user = self._get_single_user()
-        goal = self._get_goal_for_user(goal_id, user.id)
+    def update_goal(
+        self,
+        goal_id: UUID,
+        request: GoalRequest,
+        *,
+        user: User | None = None,
+    ) -> GoalResponse:
+        resolved_user = user or self._get_single_user()
+        goal = self._get_goal_for_user(goal_id, resolved_user.id)
         goal.category = ModelGoalCategory(request.category.value)
         goal.priority = request.priority
         goal.time_horizon = ModelTimeHorizon(request.time_horizon.value)
@@ -74,15 +80,15 @@ class GoalService:
         self._session.refresh(goal)
         return self._to_response(goal)
 
-    def delete_goal(self, goal_id: UUID) -> None:
-        user = self._get_single_user()
-        goal = self._get_goal_for_user(goal_id, user.id)
+    def delete_goal(self, goal_id: UUID, *, user: User | None = None) -> None:
+        resolved_user = user or self._get_single_user()
+        goal = self._get_goal_for_user(goal_id, resolved_user.id)
         self._session.delete(goal)
         self._session.commit()
 
-    def pause_goal(self, goal_id: UUID) -> GoalResponse:
-        user = self._get_single_user()
-        goal = self._get_goal_for_user(goal_id, user.id)
+    def pause_goal(self, goal_id: UUID, *, user: User | None = None) -> GoalResponse:
+        resolved_user = user or self._get_single_user()
+        goal = self._get_goal_for_user(goal_id, resolved_user.id)
         goal.active = False
         goal.paused_at = datetime.now(UTC)
         goal.updated_at = datetime.now(UTC)
@@ -91,9 +97,9 @@ class GoalService:
         self._session.refresh(goal)
         return self._to_response(goal)
 
-    def resume_goal(self, goal_id: UUID) -> GoalResponse:
-        user = self._get_single_user()
-        goal = self._get_goal_for_user(goal_id, user.id)
+    def resume_goal(self, goal_id: UUID, *, user: User | None = None) -> GoalResponse:
+        resolved_user = user or self._get_single_user()
+        goal = self._get_goal_for_user(goal_id, resolved_user.id)
         goal.active = True
         goal.paused_at = None
         goal.updated_at = datetime.now(UTC)
@@ -102,9 +108,9 @@ class GoalService:
         self._session.refresh(goal)
         return self._to_response(goal)
 
-    def get_active_goal_set(self) -> ActiveGoalSet:
-        user = self._get_single_user()
-        active_goals = self._goals.list_active_for_user(user.id)
+    def get_active_goal_set(self, *, user: User | None = None) -> ActiveGoalSet:
+        resolved_user = user or self._get_single_user()
+        active_goals = self._goals.list_active_for_user(resolved_user.id)
         goals = [
             ActiveGoal(
                 goal_id=goal.id,
@@ -118,7 +124,7 @@ class GoalService:
             for index, goal in enumerate(active_goals, start=1)
         ]
         return ActiveGoalSet(
-            user_id=user.id,
+            user_id=resolved_user.id,
             goals=goals,
             category_priorities=self._category_priorities(goals),
             horizons_by_category=self._horizons_by_category(goals),

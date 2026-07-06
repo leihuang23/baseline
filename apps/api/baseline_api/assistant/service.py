@@ -86,9 +86,15 @@ class AssistantQueryService:
         self._settings = settings
         self._safety_engine = safety_engine or SafetyPolicyEngine.from_default_policy()
 
-    def answer(self, request: AssistantQueryRequest) -> AssistantQueryResponse:
+    def answer(
+        self,
+        request: AssistantQueryRequest,
+        *,
+        user: User | None = None,
+    ) -> AssistantQueryResponse:
         started = time.perf_counter()
-        user = self._get_single_user()
+        resolved_user = user or self._get_single_user()
+        user = resolved_user
         target_date = request.date_context or dt.date.today()
         precheck = self._safety_engine.evaluate(
             request_text=request.question,

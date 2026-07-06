@@ -164,8 +164,14 @@ class DailyBriefingService:
         job = self.create_daily_job(request)
         return await self.run_daily_job(job.id)
 
-    def create_daily_job(self, request: DailyAnalysisRequest) -> DailyAnalysisJob:
-        user = self._get_single_user()
+    def create_daily_job(
+        self,
+        request: DailyAnalysisRequest,
+        *,
+        user: User | None = None,
+    ) -> DailyAnalysisJob:
+        resolved_user = user or self._get_single_user()
+        user = resolved_user
         job_id = uuid4()
         context = create_job_context(job_id=str(job_id), internal_user_id=str(user.id))
         job = DailyAnalysisJob(
@@ -191,10 +197,15 @@ class DailyBriefingService:
         self._session.commit()
         return job
 
-    def get_daily_job(self, job_id: UUID) -> DailyAnalysisResponse:
-        user = self._get_single_user()
+    def get_daily_job(
+        self,
+        job_id: UUID,
+        *,
+        user: User | None = None,
+    ) -> DailyAnalysisResponse:
+        resolved_user = user or self._get_single_user()
         job = self._session.get(DailyAnalysisJob, job_id)
-        if job is None or job.user_id != user.id:
+        if job is None or job.user_id != resolved_user.id:
             raise BriefingError(
                 code="analysis_job_not_found",
                 message="Daily analysis job not found.",
@@ -496,21 +507,22 @@ class DailyBriefingService:
         *,
         target_date: dt.date,
         offline_last: bool = False,
+        user: User | None = None,
     ) -> DailyBriefingResponse:
-        user = self._get_single_user()
+        resolved_user = user or self._get_single_user()
         recommendation = self._latest_completed_job_recommendation(
-            user_id=user.id,
+            user_id=resolved_user.id,
             date=target_date,
             offline_last=offline_last,
         )
         if recommendation is None:
             recommendation = self._recommendations.latest_for_user_date(
-                user_id=user.id,
+                user_id=resolved_user.id,
                 date=target_date,
             )
             if recommendation is None and offline_last:
                 recommendation = self._recommendations.latest_for_user_on_or_before(
-                    user_id=user.id,
+                    user_id=resolved_user.id,
                     date=target_date,
                 )
         if recommendation is None:
@@ -554,10 +566,15 @@ class DailyBriefingService:
             return None
         return recommendation
 
-    def get_trace(self, trace_id: UUID) -> BriefingTraceInspection:
-        user = self._get_single_user()
+    def get_trace(
+        self,
+        trace_id: UUID,
+        *,
+        user: User | None = None,
+    ) -> BriefingTraceInspection:
+        resolved_user = user or self._get_single_user()
         trace = self._session.get(ReasoningTrace, trace_id)
-        if trace is None or trace.user_id != user.id:
+        if trace is None or trace.user_id != resolved_user.id:
             raise BriefingError(
                 code="trace_not_found",
                 message="Briefing trace not found.",
@@ -565,14 +582,14 @@ class DailyBriefingService:
             )
         assessment = self._session.exec(
             select(ReadinessAssessment).where(
-                ReadinessAssessment.user_id == user.id,
+                ReadinessAssessment.user_id == resolved_user.id,
                 ReadinessAssessment.reasoning_trace_id == trace_id,
             )
         ).first()
         recommendation = self._session.exec(
             select(Recommendation)
             .where(
-                Recommendation.user_id == user.id,
+                Recommendation.user_id == resolved_user.id,
                 Recommendation.reasoning_trace_id == trace_id,
             )
             .order_by(col(Recommendation.created_at).desc())

@@ -9,8 +9,10 @@ from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
+from baseline_api.api.deps import SingleUserContext, get_single_user_context
 from baseline_api.db.session import get_db_session
 from baseline_api.goals import GoalError, GoalService
+from baseline_api.privacy import PrivacyError
 from baseline_api.schemas.api import GoalRequest, GoalResponse
 from baseline_api.schemas.common import APIEnvelope, APIError
 
@@ -20,11 +22,14 @@ router = APIRouter(prefix="/v1/goals", tags=["goals"])
 @router.get("", response_model=APIEnvelope[list[GoalResponse]])
 def list_goals(
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[list[GoalResponse]] | JSONResponse:
     service = GoalService(session)
     try:
-        data = service.list_goals()
+        data = service.list_goals(user=context.user)
     except GoalError as error:
+        return _error_response(error)
+    except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
 
@@ -33,11 +38,14 @@ def list_goals(
 def get_goal(
     goal_id: UUID,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[GoalResponse] | JSONResponse:
     service = GoalService(session)
     try:
-        data = service.get_goal(goal_id)
+        data = service.get_goal(goal_id, user=context.user)
     except GoalError as error:
+        return _error_response(error)
+    except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
 
@@ -46,11 +54,14 @@ def get_goal(
 def create_goal(
     request: GoalRequest,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[GoalResponse] | JSONResponse:
     service = GoalService(session)
     try:
-        data = service.create_goal(request)
+        data = service.create_goal(request, user=context.user)
     except GoalError as error:
+        return _error_response(error)
+    except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
 
@@ -60,11 +71,14 @@ def update_goal(
     goal_id: UUID,
     request: GoalRequest,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[GoalResponse] | JSONResponse:
     service = GoalService(session)
     try:
-        data = service.update_goal(goal_id, request)
+        data = service.update_goal(goal_id, request, user=context.user)
     except GoalError as error:
+        return _error_response(error)
+    except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
 
@@ -77,11 +91,14 @@ def update_goal(
 def delete_goal(
     goal_id: UUID,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> None | JSONResponse:
     service = GoalService(session)
     try:
-        service.delete_goal(goal_id)
+        service.delete_goal(goal_id, user=context.user)
     except GoalError as error:
+        return _error_response(error)
+    except PrivacyError as error:
         return _error_response(error)
     return None
 
@@ -90,11 +107,14 @@ def delete_goal(
 def pause_goal(
     goal_id: UUID,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[GoalResponse] | JSONResponse:
     service = GoalService(session)
     try:
-        data = service.pause_goal(goal_id)
+        data = service.pause_goal(goal_id, user=context.user)
     except GoalError as error:
+        return _error_response(error)
+    except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
 
@@ -103,16 +123,19 @@ def pause_goal(
 def resume_goal(
     goal_id: UUID,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[GoalResponse] | JSONResponse:
     service = GoalService(session)
     try:
-        data = service.resume_goal(goal_id)
+        data = service.resume_goal(goal_id, user=context.user)
     except GoalError as error:
+        return _error_response(error)
+    except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
 
 
-def _error_response(error: GoalError) -> JSONResponse:
+def _error_response(error: GoalError | PrivacyError) -> JSONResponse:
     envelope: APIEnvelope[None] = APIEnvelope(
         status="error",
         error=APIError(code=error.code, message=error.message, details=error.details),

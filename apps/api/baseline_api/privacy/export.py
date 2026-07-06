@@ -41,6 +41,7 @@ from baseline_api.db.models import (
 from baseline_api.db.models.enums import AuditEventType
 from baseline_api.privacy.audit import emit_privacy_audit
 from baseline_api.privacy.errors import PrivacyError
+from baseline_api.privacy.key_store import ExportKeyStore, MemoryExportKeyStore
 from baseline_api.privacy.model_runs import (
     model_run_ids_from_payload,
     sanitize_model_input_metadata,
@@ -66,21 +67,29 @@ class StoredExport:
     job_id: UUID
     user_id: UUID
     path: Path
-    key: bytes | None
     expires_at: datetime
     content_type: str
     file_sha256: str
 
 
 class LocalExportStore:
-    """Filesystem-backed encrypted export store with expiring metadata."""
+    """Filesystem-backed encrypted export store with expiring metadata.
+
+    The encryption key is never written to disk; callers must supply it to decrypt.
+    """
 
     def __init__(
         self,
         root: Path | None = None,
         *,
         retention_hours: int = DEFAULT_EXPORT_RETENTION_HOURS,
+        app_env: str = "local",
     ) -> None:
+        if root is None and app_env in {"staging", "production"}:
+            raise RuntimeError(
+                "Temp-backed export storage is not allowed in staging or production. "
+                "Set EXPORT_STORAGE_DIR to a durable private directory."
+            )
         self._root = root or Path(tempfile.gettempdir()) / "baseline_exports"
         self._ttl = timedelta(hours=retention_hours)
         self._root.mkdir(parents=True, exist_ok=True)
@@ -92,7 +101,7 @@ class LocalExportStore:
         *,
         user_id: UUID,
         now: datetime | None = None,
-    ) -> StoredExport:
+    ) -> tuple[StoredExport, bytes]:
         created_at = now or datetime.now(UTC)
         job_id = uuid4()
         key = secrets.token_bytes(AES_GCM_KEY_BYTES)
@@ -104,14 +113,13 @@ class LocalExportStore:
             job_id=job_id,
             user_id=user_id,
             path=path,
-            key=key,
             expires_at=created_at + self._ttl,
             content_type="application/octet-stream",
             file_sha256=file_sha256,
         )
         self._write_manifest(stored)
         self._exports[job_id] = stored
-        return stored
+        return stored, key
 
     def get(self, job_id: UUID, *, now: datetime | None = None) -> StoredExport:
         stored = self._exports.get(job_id) or self._load_manifest(job_id)
@@ -134,11 +142,9 @@ class LocalExportStore:
     def read_encrypted(self, job_id: UUID) -> bytes:
         return self.get(job_id).path.read_bytes()
 
-    def decrypt(self, job_id: UUID) -> bytes:
+    def decrypt(self, job_id: UUID, key: bytes) -> bytes:
         stored = self.get(job_id)
-        if stored.key is None:
-            raise ValueError("Export decryption key is not available in this process.")
-        return decrypt_bytes(stored.path.read_bytes(), stored.key)
+        return decrypt_bytes(stored.path.read_bytes(), key)
 
     def purge_user(self, user_id: UUID) -> int:
         matching_job_ids = {
@@ -218,7 +224,6 @@ class LocalExportStore:
             job_id=job_id,
             user_id=user_id,
             path=path,
-            key=None,
             expires_at=expires_at,
             content_type=str(manifest["content_type"]),
             file_sha256=str(manifest["file_sha256"]),
@@ -246,19 +251,33 @@ class LocalExportStore:
 class DataExportService:
     """Create encrypted exports for the current MVP user."""
 
-    def __init__(self, session: Session, store: LocalExportStore) -> None:
+    def __init__(
+        self,
+        session: Session,
+        store: LocalExportStore,
+        key_store: ExportKeyStore | None = None,
+        key_ttl_seconds: int | None = None,
+    ) -> None:
         self._session = session
         self._store = store
+        self._key_store = key_store or MemoryExportKeyStore()
+        self._key_ttl_seconds = key_ttl_seconds
 
-    def create_export(self, request: DataExportRequest) -> DataExportResponse:
-        user = get_single_user(self._session)
-        payload = self._payload(user, request)
+    def create_export(
+        self,
+        request: DataExportRequest,
+        *,
+        user: User | None = None,
+    ) -> DataExportResponse:
+        resolved_user = user or get_single_user(self._session)
+        payload = self._payload(resolved_user, request)
         plaintext = _payload_bytes(payload, request.format)
-        stored = self._store.create(plaintext, user_id=user.id)
+        stored, key = self._store.create(plaintext, user_id=resolved_user.id)
+        self._key_store.store_key(stored.job_id, key, ttl_seconds=self._key_ttl_seconds)
         emit_privacy_audit(
             self._session,
             event_type=AuditEventType.data_export_requested,
-            user_id=user.id,
+            user_id=resolved_user.id,
             metadata={
                 "export_job_id": str(stored.job_id),
                 "export_scope": request.export_scope.value,
@@ -276,7 +295,7 @@ class DataExportService:
             download_url=f"/v1/data/export/{stored.job_id}/file",
             encryption={
                 "algorithm": "AES-256-GCM",
-                "key_base64": base64.b64encode(cast(bytes, stored.key)).decode("ascii"),
+                "key_base64": base64.b64encode(key).decode("ascii"),
                 "key_custody": "client_response",
                 "file_sha256": stored.file_sha256,
             },
