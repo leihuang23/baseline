@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
+from baseline_api.api.deps import SingleUserContext, get_single_user_context
 from baseline_api.config import Settings
 from baseline_api.db.models.ingestion import HealthImportBatch
 from baseline_api.db.session import get_db_session
@@ -13,6 +14,7 @@ from baseline_api.ingestion import (
     IngestionError,
     NormalizationJobQueue,
 )
+from baseline_api.privacy import PrivacyError
 from baseline_api.schemas.api import HealthSyncRequest, HealthSyncResponse
 from baseline_api.schemas.common import APIEnvelope, APIError
 
@@ -59,10 +61,11 @@ async def sync_health(
     request: HealthSyncRequest,
     session: Annotated[Session, Depends(get_db_session)],
     queue: Annotated[NormalizationJobQueue, Depends(get_normalization_queue)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[HealthSyncResponse] | JSONResponse:
     service = HealthSyncService(session)
     try:
-        result = service.sync(request)
+        result = service.sync(request, user=context.user)
         session.commit()
     except IngestionError as error:
         return _error_response(
@@ -70,6 +73,12 @@ async def sync_health(
             code=error.code,
             message=error.message,
             details=error.details,
+        )
+    except PrivacyError as error:
+        return _error_response(
+            status_code=error.status_code,
+            code=error.code,
+            message=error.message,
         )
 
     pending = result.pending_normalization

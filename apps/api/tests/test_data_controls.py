@@ -614,8 +614,9 @@ def test_export_creates_encrypted_expiring_file_with_requested_scope(
     tampered = bytearray(stored.path.read_bytes())
     tampered[-1] ^= 1
     stored.path.write_bytes(tampered)
+    key = base64.b64decode(data["encryption"]["key_base64"])
     with pytest.raises(ValueError, match="authentication tag"):
-        export_store.decrypt(job_id)
+        export_store.decrypt(job_id, key)
 
     object.__setattr__(stored, "expires_at", dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1))
     expired = client.get(data["download_url"])
@@ -626,7 +627,7 @@ def test_export_creates_encrypted_expiring_file_with_requested_scope(
 
 def test_export_store_cleans_up_expired_manifests_and_encrypted_files(tmp_path) -> None:
     store = LocalExportStore(tmp_path, retention_hours=1)
-    stored = store.create(
+    stored, _key = store.create(
         b'{"sections": {}}',
         user_id=uuid4(),
         now=dt.datetime(2026, 7, 4, 8, 0, tzinfo=dt.UTC),

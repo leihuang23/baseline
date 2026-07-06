@@ -32,6 +32,7 @@ from baseline_api.db.models import (
     Recommendation,
     SleepSession,
     SleepSessionSourceSample,
+    User,
     WorkoutSession,
     WorkoutSessionSourceSample,
 )
@@ -51,16 +52,16 @@ class DataDeletionService:
         self._session = session
         self._export_store = export_store
 
-    def delete_all(self) -> DataDeleteResponse:
-        user = get_single_user(self._session)
+    def delete_all(self, *, user: User | None = None) -> DataDeleteResponse:
+        resolved_user = user or get_single_user(self._session)
         try:
-            return self._delete_all_for_user(user)
+            return self._delete_all_for_user(resolved_user)
         except PrivacyError:
             raise
         except Exception as exc:
             self._record_deletion_failure(
                 event_type=AuditEventType.data_deleted,
-                user_id=user.id,
+                user_id=resolved_user.id,
                 target="all",
                 exc=exc,
             )

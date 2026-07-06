@@ -10,15 +10,20 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from sqlmodel import Session
 
+from baseline_api.api.deps import SingleUserContext, get_single_user_context
+from baseline_api.config import Settings
 from baseline_api.db.session import get_db_session
 from baseline_api.observability.logging import log_event
 from baseline_api.privacy import (
     ConsentService,
     DataDeletionService,
     DataExportService,
+    ExportKeyStore,
     LocalExportStore,
+    MemoryExportKeyStore,
     ModelDisclosureService,
     PrivacyError,
+    RedisExportKeyStore,
 )
 from baseline_api.schemas.api import (
     ConsentHistoryResponse,
@@ -43,9 +48,27 @@ async def get_export_store(request: Request) -> LocalExportStore:
         store = LocalExportStore(
             settings.export_storage_dir,
             retention_hours=settings.export_retention_hours,
+            app_env=settings.app_env,
         )
         request.app.state.export_store = store
     return cast(LocalExportStore, store)
+
+
+def _build_key_store(settings: Settings) -> ExportKeyStore:
+    if settings.export_key_store_provider == "redis":
+        return RedisExportKeyStore(
+            str(settings.redis_url),
+            prefix=settings.export_key_redis_prefix,
+        )
+    return MemoryExportKeyStore()
+
+
+async def get_export_key_store(request: Request) -> ExportKeyStore:
+    key_store = getattr(request.app.state, "export_key_store", None)
+    if key_store is None:
+        key_store = _build_key_store(request.app.state.settings)
+        request.app.state.export_key_store = key_store
+    return cast(ExportKeyStore, key_store)
 
 
 async def _cleanup_expired_exports(store: LocalExportStore) -> None:
@@ -69,11 +92,19 @@ async def _cleanup_expired_exports(store: LocalExportStore) -> None:
 @router.post("/export", response_model=APIEnvelope[DataExportResponse])
 def export_data(
     payload: DataExportRequest,
+    request: Request,
     session: Annotated[Session, Depends(get_db_session)],
     store: Annotated[LocalExportStore, Depends(get_export_store)],
+    key_store: Annotated[ExportKeyStore, Depends(get_export_key_store)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[DataExportResponse] | Response:
     try:
-        data = DataExportService(session, store).create_export(payload)
+        data = DataExportService(
+            session,
+            store,
+            key_store=key_store,
+            key_ttl_seconds=request.app.state.settings.export_key_ttl_seconds,
+        ).create_export(payload, user=context.user)
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
@@ -126,9 +157,10 @@ def record_consent(
 @router.get("/consent/history", response_model=APIEnvelope[ConsentHistoryResponse])
 def consent_history(
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[ConsentHistoryResponse] | Response:
     try:
-        data = ConsentService(session).history()
+        data = ConsentService(session).history(user=context.user)
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
@@ -141,9 +173,10 @@ def consent_history(
 def disable_external_llm(
     payload: DisableExternalLLMRequest,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[ConsentRecordResponse] | Response:
     try:
-        data = ConsentService(session).disable_external_llm(payload)
+        data = ConsentService(session).disable_external_llm(payload, user=context.user)
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
@@ -153,9 +186,10 @@ def disable_external_llm(
 def revoke_consent(
     payload: ConsentRevocationRequest,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[ConsentRecordResponse] | Response:
     try:
-        data = ConsentService(session).revoke(payload)
+        data = ConsentService(session).revoke(payload, user=context.user)
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
@@ -165,9 +199,10 @@ def revoke_consent(
 def delete_all_data(
     session: Annotated[Session, Depends(get_db_session)],
     store: Annotated[LocalExportStore, Depends(get_export_store)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[DataDeleteResponse] | Response:
     try:
-        data = DataDeletionService(session, store).delete_all()
+        data = DataDeletionService(session, store).delete_all(user=context.user)
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
@@ -215,9 +250,10 @@ def delete_memory_summary(
 @router.get("/model-disclosures", response_model=APIEnvelope[ModelDisclosureResponse])
 def model_disclosures(
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[ModelDisclosureResponse] | Response:
     try:
-        data = ModelDisclosureService(session).list_model_payloads()
+        data = ModelDisclosureService(session).list_model_payloads(user=context.user)
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)

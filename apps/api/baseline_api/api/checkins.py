@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
+from baseline_api.api.deps import SingleUserContext, get_single_user_context
 from baseline_api.checkin import (
     AnalysisJobQueue,
     ArqAnalysisJobQueue,
@@ -20,6 +21,7 @@ from baseline_api.checkin import (
 )
 from baseline_api.config import Settings
 from baseline_api.db.session import get_db_session
+from baseline_api.privacy import PrivacyError
 from baseline_api.schemas.api import (
     DailyCheckInDetailResponse,
     DailyCheckInRequest,
@@ -58,16 +60,23 @@ async def submit_daily_checkin(
     session: Annotated[Session, Depends(get_db_session)],
     redaction: Annotated[NoteRedactionService, Depends(get_redaction_service)],
     queue: Annotated[AnalysisJobQueue, Depends(get_analysis_queue)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[DailyCheckInResponse] | JSONResponse:
     service = CheckinService(session, redaction, queue)
     try:
-        data = await service.create_checkin(request)
+        data = await service.create_checkin(request, user=context.user)
     except CheckinError as error:
         return _error_response(
             status_code=error.status_code,
             code=error.code,
             message=error.message,
             details=error.details,
+        )
+    except PrivacyError as error:
+        return _error_response(
+            status_code=error.status_code,
+            code=error.code,
+            message=error.message,
         )
     return APIEnvelope(status="success", data=data)
 
@@ -79,16 +88,23 @@ async def update_daily_checkin(
     session: Annotated[Session, Depends(get_db_session)],
     redaction: Annotated[NoteRedactionService, Depends(get_redaction_service)],
     queue: Annotated[AnalysisJobQueue, Depends(get_analysis_queue)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[DailyCheckInResponse] | JSONResponse:
     service = CheckinService(session, redaction, queue)
     try:
-        data = await service.update_checkin(checkin_id, request)
+        data = await service.update_checkin(checkin_id, request, user=context.user)
     except CheckinError as error:
         return _error_response(
             status_code=error.status_code,
             code=error.code,
             message=error.message,
             details=error.details,
+        )
+    except PrivacyError as error:
+        return _error_response(
+            status_code=error.status_code,
+            code=error.code,
+            message=error.message,
         )
     return APIEnvelope(status="success", data=data)
 
@@ -99,16 +115,23 @@ def get_daily_checkin(
     session: Annotated[Session, Depends(get_db_session)],
     redaction: Annotated[NoteRedactionService, Depends(get_redaction_service)],
     queue: Annotated[AnalysisJobQueue, Depends(get_analysis_queue)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[DailyCheckInDetailResponse] | JSONResponse:
     service = CheckinService(session, redaction, queue)
     try:
-        data = service.get_checkin_for_date(checkin_date)
+        data = service.get_checkin_for_date(checkin_date, user=context.user)
     except CheckinError as error:
         return _error_response(
             status_code=error.status_code,
             code=error.code,
             message=error.message,
             details=error.details,
+        )
+    except PrivacyError as error:
+        return _error_response(
+            status_code=error.status_code,
+            code=error.code,
+            message=error.message,
         )
     return APIEnvelope(status="success", data=data)
 
@@ -123,16 +146,23 @@ async def delete_daily_checkin(
     session: Annotated[Session, Depends(get_db_session)],
     redaction: Annotated[NoteRedactionService, Depends(get_redaction_service)],
     queue: Annotated[AnalysisJobQueue, Depends(get_analysis_queue)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> None | JSONResponse:
     service = CheckinService(session, redaction, queue)
     try:
-        await service.delete_checkin(checkin_id)
+        await service.delete_checkin(checkin_id, user=context.user)
     except CheckinError as error:
         return _error_response(
             status_code=error.status_code,
             code=error.code,
             message=error.message,
             details=error.details,
+        )
+    except PrivacyError as error:
+        return _error_response(
+            status_code=error.status_code,
+            code=error.code,
+            message=error.message,
         )
     return None
 

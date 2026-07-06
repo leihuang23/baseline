@@ -70,6 +70,19 @@ class Settings(BaseSettings):
     export_storage_dir: Path | None = Field(default=None, alias="EXPORT_STORAGE_DIR")
     export_retention_hours: int = Field(default=24, ge=1, alias="EXPORT_RETENTION_HOURS")
     export_cleanup_on_start: bool = Field(default=True, alias="EXPORT_CLEANUP_ON_START")
+    export_key_store_provider: Literal["memory", "redis"] = Field(
+        default="memory",
+        alias="EXPORT_KEY_STORE_PROVIDER",
+    )
+    export_key_redis_prefix: str = Field(
+        default="baseline:export:key:",
+        alias="EXPORT_KEY_REDIS_PREFIX",
+    )
+    export_key_ttl_seconds: int | None = Field(
+        default=None,
+        ge=0,
+        alias="EXPORT_KEY_TTL_SECONDS",
+    )
     knowledge_embedding_provider: Literal["hash", "http"] = Field(
         default="hash",
         alias="KNOWLEDGE_EMBEDDING_PROVIDER",
@@ -121,6 +134,8 @@ class Settings(BaseSettings):
                     "KNOWLEDGE_EMBEDDING_API_URL must use https:// when "
                     "KNOWLEDGE_EMBEDDING_PROVIDER=http in staging/production."
                 )
+        if self.export_key_ttl_seconds is None:
+            self.export_key_ttl_seconds = self.export_retention_hours * 3600
         return self
 
 
