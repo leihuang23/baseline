@@ -2427,7 +2427,9 @@
                 "baseline_sessions": 0,
                 "confidence": "low",
                 "evidence_refs": [
-                  "goal_features.values.goal_indicators.strength"
+                  "goal_features.data_quality.input_counts.strength_workouts",
+                  "goal_features.values.goal_indicators.strength.recent_sessions",
+                  "goal_features.values.goal_indicators.strength.recent_minutes"
                 ],
                 "missing_data": [
                   "strength_baseline_window"
@@ -2972,7 +2974,9 @@
               "baseline_sessions": 0,
               "confidence": "low",
               "evidence_refs": [
-                "goal_features.values.goal_indicators.strength"
+                "goal_features.data_quality.input_counts.strength_workouts",
+                "goal_features.values.goal_indicators.strength.recent_sessions",
+                "goal_features.values.goal_indicators.strength.recent_minutes"
               ],
               "missing_data": [
                 "strength_baseline_window"

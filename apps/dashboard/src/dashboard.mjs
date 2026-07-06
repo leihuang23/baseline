@@ -16,6 +16,7 @@ export function sanitizeDashboardData(data = {}) {
   const recommendationTraces = array(data.recommendationTraces).map(sanitizeTrace);
   const llmRuns = array(data.llmRuns).map(sanitizeModelRun);
   const evalResults = array(data.evalResults).map(sanitizeEvalResult);
+  const operationalAlerts = sanitizeOperationalAlerts(data.operationalAlerts, recommendationTraces);
   return {
     schemaVersion: safeText(data.schemaVersion, "schemaVersion"),
     mode: safeText(data.mode || "demo", "mode"),
@@ -25,7 +26,14 @@ export function sanitizeDashboardData(data = {}) {
     recommendationTraces,
     llmRuns,
     evalResults,
-    safetyEvents: sanitizeSafetyEvents(data, recommendationTraces, llmRuns, evalResults),
+    operationalAlerts,
+    safetyEvents: sanitizeSafetyEvents(
+      data,
+      recommendationTraces,
+      llmRuns,
+      evalResults,
+      operationalAlerts,
+    ),
     demoScenarios: array(data.demoScenarios).map(sanitizeDemoScenario),
   };
 }
@@ -588,7 +596,22 @@ function sanitizeEvalResult(result = {}) {
   };
 }
 
-function sanitizeSafetyEvents(data, recommendationTraces, llmRuns, evalResults) {
+function sanitizeOperationalAlerts(alerts, recommendationTraces) {
+  const latestTraceId = recommendationTraces[0]?.traceId || "";
+  return array(alerts).map((alert) => ({
+    eventId: safeText(alert.alert_type || alert.alertType, "eventId"),
+    source: "operational_alert",
+    severity: safeText(alert.severity, "severity") || "warning",
+    status: "open",
+    category: safeText(alert.alert_type || alert.alertType, "category"),
+    detectedAt: safeDate(alert.detected_at || alert.detectedAt || alert.metadata?.date),
+    traceId: latestTraceId,
+    modelRunId: "",
+    summary: safeText(alert.message, "summary", 140),
+  }));
+}
+
+function sanitizeSafetyEvents(data, recommendationTraces, llmRuns, evalResults, operationalAlerts) {
   const traceByModelRun = traceIdsByModelRun(recommendationTraces);
   const explicit = array(data.safetyEvents).map((event) => ({
     ...sanitizeExplicitSafetyEvent(event, traceByModelRun),
@@ -607,7 +630,7 @@ function sanitizeSafetyEvents(data, recommendationTraces, llmRuns, evalResults) 
       modelRunId: run.id,
       summary: `Model safety result ${run.safetyStatus}`,
     }));
-  return [...explicit, ...evalViolations, ...modelViolations];
+  return [...explicit, ...evalViolations, ...modelViolations, ...operationalAlerts];
 }
 
 function safetyEventFromEvalResult(result) {

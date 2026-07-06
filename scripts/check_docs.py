@@ -193,21 +193,21 @@ def _check_eval_inventory(failures: list[str]) -> None:
     suites = build_default_registry().selected()
     counts = Counter(suite.eval_type.value for suite in suites)
     expected = {
-        "reasoning": 30,
+        "reasoning": 31,
         "safety": 14,
         "privacy": 6,
-        "retrieval": 1,
+        "retrieval": 4,
         "regression": 1,
         "deterministic": 1,
         "llm_property": 1,
     }
-    if len(suites) != 54 or counts != expected:
+    if len(suites) != 58 or counts != expected:
         failures.append(f"eval inventory drifted: total={len(suites)}, counts={dict(counts)}")
 
     report = (ROOT / "docs" / "architecture" / "evaluation.md").read_text(encoding="utf-8")
-    if "54 suites" not in report or "| `reasoning` | 30 |" not in report:
+    if "58 suites" not in report or "| `reasoning` | 31 |" not in report:
         failures.append("evaluation report does not reflect the current default suite inventory")
-    if "Total pass rate: 54/54 suites passed (100%)" not in report:
+    if "Total pass rate: 58/58 suites passed (100%)" not in report:
         failures.append("evaluation report does not include the current eval pass rate")
     if "| `safety` | 14/14 passed |" not in report or "| `privacy` | 6/6 passed |" not in report:
         failures.append("evaluation report does not include current safety/privacy results")

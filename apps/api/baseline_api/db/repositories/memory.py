@@ -127,3 +127,29 @@ class MemorySummaryRepository(BaseRepository[MemorySummary]):
             .limit(limit)
         )
         return list(self.session.exec(statement).all())
+
+    def list_for_user(
+        self,
+        *,
+        user_id: UUID,
+        period_type: PeriodType | None = None,
+        limit: int = 100,
+    ) -> list[MemorySummary]:
+        statement = select(MemorySummary).where(MemorySummary.user_id == user_id)
+        if period_type is not None:
+            statement = statement.where(MemorySummary.period_type == period_type)
+        statement = statement.order_by(
+            col(MemorySummary.period_type),
+            col(MemorySummary.end_date).desc(),
+            col(MemorySummary.created_at).desc(),
+        ).limit(limit)
+        rows = list(self.session.exec(statement).all())
+        seen_periods: set[tuple[PeriodType, dt.date, dt.date]] = set()
+        latest_rows: list[MemorySummary] = []
+        for row in rows:
+            period_key = (row.period_type, row.start_date, row.end_date)
+            if period_key in seen_periods:
+                continue
+            seen_periods.add(period_key)
+            latest_rows.append(row)
+        return latest_rows

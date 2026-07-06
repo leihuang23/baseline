@@ -297,6 +297,7 @@ def test_feedback_rejects_unbounded_text(db_session: Session) -> None:
 
 
 def test_feedback_returns_not_found_for_missing_recommendation(db_session: Session) -> None:
+    _seed_user(db_session)
     client = _client(db_session)
 
     response = client.post(

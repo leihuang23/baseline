@@ -49,7 +49,7 @@ This document covers PRD 20.2 data classification, PRD 20.4 LLM controls, PRD
 | Reasoning | Derived features, goals, memories, evidence refs to readiness assessment | First-party backend worker | Use structured records, maintain confidence and uncertainty, no medical claims. |
 | External LLM explanation or Q&A | Minimized structured features, assessment, safe memory summary, retrieved public knowledge | First-party backend to external provider | Requires external LLM consent, payload minimization, no raw samples, no raw notes, prompt/output hashes only. |
 | Safety evaluation | Generated output plus policy category checks | First-party backend/eval harness | Hard gate after generation; record safety status and redacted result. |
-| Export | User-selected data package | First-party backend to user | Encrypted export file, expiring link, explicit scope. |
+| Export | User-selected data package | First-party backend to user | Encrypted export file, expiring link, explicit scope; decryption key returned once in the create response and not retained server-side. |
 | Observability | Operational metadata | Service to logs/metrics | Redaction, short retention, no secrets, no health data, no raw prompts. |
 
 ## LLM Data-Minimization Rules

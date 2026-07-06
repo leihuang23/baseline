@@ -67,6 +67,22 @@ class Settings(BaseSettings):
         ge=1,
         alias="DELETION_FAILURE_ALERT_THRESHOLD",
     )
+    daily_briefing_max_retries: int = Field(
+        default=2,
+        ge=0,
+        alias="DAILY_BRIEFING_MAX_RETRIES",
+    )
+    daily_briefing_estimate_seconds: int = Field(
+        default=90,
+        ge=5,
+        alias="DAILY_BRIEFING_ESTIMATE_SECONDS",
+    )
+    stale_briefing_alert_hour_utc: int = Field(
+        default=12,
+        ge=0,
+        le=23,
+        alias="STALE_BRIEFING_ALERT_HOUR_UTC",
+    )
     export_storage_dir: Path | None = Field(default=None, alias="EXPORT_STORAGE_DIR")
     export_retention_hours: int = Field(default=24, ge=1, alias="EXPORT_RETENTION_HOURS")
     export_cleanup_on_start: bool = Field(default=True, alias="EXPORT_CLEANUP_ON_START")
@@ -105,6 +121,10 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "EXPORT_STORAGE_DIR is required when APP_ENV is staging or production."
                 )
+            if not self.deepseek_api_url.startswith("https://"):
+                raise ValueError(
+                    "DEEPSEEK_API_URL must use https:// when APP_ENV is staging or production."
+                )
         if self.knowledge_embedding_provider == "http":
             if not (
                 self.knowledge_embedding_api_url
@@ -116,7 +136,10 @@ class Settings(BaseSettings):
                     "KNOWLEDGE_EMBEDDING_MODEL are required when "
                     "KNOWLEDGE_EMBEDDING_PROVIDER=http."
                 )
-            if self.app_env in {"staging", "production"} and not self.knowledge_embedding_api_url.startswith("https://"):
+            if self.app_env in {
+                "staging",
+                "production",
+            } and not self.knowledge_embedding_api_url.startswith("https://"):
                 raise ValueError(
                     "KNOWLEDGE_EMBEDDING_API_URL must use https:// when "
                     "KNOWLEDGE_EMBEDDING_PROVIDER=http in staging/production."

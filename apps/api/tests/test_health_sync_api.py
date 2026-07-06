@@ -89,16 +89,17 @@ def _real_db_client(
 def _seed_user_with_consent(
     db_session: Session,
     *,
+    consent_version: str = "v1",
     categories: list[str] | None = None,
     revoked_at: dt.datetime | None = None,
 ) -> User:
-    user = User(privacy_mode=PrivacyMode.local_only, active_consent_version="v1")
+    user = User(privacy_mode=PrivacyMode.local_only, active_consent_version=consent_version)
     db_session.add(user)
     db_session.flush()
     db_session.add(
         ConsentRecord(
             user_id=user.id,
-            consent_version="v1",
+            consent_version=consent_version,
             health_categories_enabled=categories or ["all"],
             cloud_processing_enabled=True,
             timestamp=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
@@ -378,6 +379,56 @@ def test_invalid_consent_version_returns_typed_error_without_persisting(db_sessi
     body = response.json()
     assert body["status"] == "error"
     assert body["error"]["code"] == "consent_invalid"
+    assert _raw_rows(db_session) == []
+    assert _batch_rows(db_session) == []
+    assert queue.enqueued == []
+
+
+def test_sync_with_active_consent_version_is_accepted(db_session) -> None:
+    _seed_user_with_consent(db_session, consent_version="v2")
+    queue = FakeNormalizationQueue()
+    client = _client(db_session, queue)
+    payload = _payload("sync-active-version", [_sample("hk-1")])
+    payload["consent_version"] = "v2"
+
+    response = client.post("/v1/health/sync", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["accepted_count"] == 1
+    assert len(_raw_rows(db_session)) == 1
+    assert len(_batch_rows(db_session)) == 1
+    assert queue.enqueued == [(UUID(data["sync_id"]), db_session.exec(select(User)).one().id)]
+
+
+def test_sync_with_stale_consent_version_is_rejected(db_session) -> None:
+    _seed_user_with_consent(db_session, consent_version="v2")
+    queue = FakeNormalizationQueue()
+    client = _client(db_session, queue)
+    payload = _payload("sync-stale-version", [_sample("hk-1")])
+    payload["consent_version"] = "v1"
+
+    response = client.post("/v1/health/sync", json=payload)
+
+    assert response.status_code == 403
+    body = response.json()
+    assert body["status"] == "error"
+    assert body["error"]["code"] == "consent_invalid"
+    assert _raw_rows(db_session) == []
+    assert _batch_rows(db_session) == []
+    assert queue.enqueued == []
+
+
+def test_sync_fails_closed_when_multiple_users_exist(db_session) -> None:
+    for consent_version in ("v1", "v2"):
+        _seed_user_with_consent(db_session, consent_version=consent_version)
+    queue = FakeNormalizationQueue()
+    client = _client(db_session, queue)
+
+    response = client.post("/v1/health/sync", json=_payload("sync-ambiguous", [_sample("hk-1")]))
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "ambiguous_user"
     assert _raw_rows(db_session) == []
     assert _batch_rows(db_session) == []
     assert queue.enqueued == []

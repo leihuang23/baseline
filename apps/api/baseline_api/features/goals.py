@@ -211,12 +211,24 @@ def _strength_indicator(target_date: dt.date, workouts: list[WorkoutSessionInput
         trend = "declining"
 
     missing_data = [] if baseline else ["strength_baseline_window"]
+    evidence_refs = [
+        "goal_features.data_quality.input_counts.strength_workouts",
+        "goal_features.values.goal_indicators.strength.recent_sessions",
+        "goal_features.values.goal_indicators.strength.recent_minutes",
+    ]
+    if baseline:
+        evidence_refs.extend(
+            [
+                "goal_features.values.goal_indicators.strength.baseline_sessions",
+                "goal_features.values.goal_indicators.strength.baseline_minutes",
+            ]
+        )
     return _indicator(
         summary=(
             "Strength proxy is based on consistency, duration, and active energy; "
             "it does not measure lifted load."
         ),
-        evidence_refs=["goal_features.values.goal_indicators.strength"],
+        evidence_refs=evidence_refs,
         confidence="medium" if baseline else "low",
         missing_data=missing_data,
         trend=trend,

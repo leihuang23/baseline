@@ -79,3 +79,40 @@ def test_http_embedding_provider_requires_complete_configuration() -> None:
             KNOWLEDGE_EMBEDDING_PROVIDER="http",
             _env_file=None,
         )
+
+
+def test_production_settings_reject_http_deepseek_url() -> None:
+    with pytest.raises(ValidationError, match="DEEPSEEK_API_URL"):
+        Settings(
+            APP_ENV="production",
+            DATABASE_URL="postgresql+psycopg://baseline@localhost:5433/baseline",
+            REDIS_URL="redis://localhost:6379/0",
+            BASELINE_API_AUTH_TOKEN="test-token-with-at-least-32-characters",
+            EXPORT_STORAGE_DIR="/tmp/baseline-test-exports",
+            DEEPSEEK_API_URL="http://api.deepseek.test/chat/completions",
+            _env_file=None,
+        )
+
+
+def test_staging_settings_reject_http_deepseek_url() -> None:
+    with pytest.raises(ValidationError, match="DEEPSEEK_API_URL"):
+        Settings(
+            APP_ENV="staging",
+            DATABASE_URL="postgresql+psycopg://baseline@localhost:5433/baseline",
+            REDIS_URL="redis://localhost:6379/0",
+            BASELINE_API_AUTH_TOKEN="test-token-with-at-least-32-characters",
+            EXPORT_STORAGE_DIR="/tmp/baseline-test-exports",
+            DEEPSEEK_API_URL="http://api.deepseek.test/chat/completions",
+            _env_file=None,
+        )
+
+
+def test_test_settings_allow_http_deepseek_url() -> None:
+    settings = Settings(
+        APP_ENV="test",
+        DATABASE_URL="postgresql+psycopg://baseline@localhost:5433/baseline",
+        REDIS_URL="redis://localhost:6379/0",
+        DEEPSEEK_API_URL="http://api.deepseek.test/chat/completions",
+        _env_file=None,
+    )
+    assert settings.deepseek_api_url == "http://api.deepseek.test/chat/completions"

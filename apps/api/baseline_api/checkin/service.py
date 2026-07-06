@@ -26,6 +26,7 @@ from baseline_api.db.models.user import ConsentRecord, User
 from baseline_api.db.repositories.audit import AuditEventRepository
 from baseline_api.db.repositories.checkin import DailyCheckInRepository
 from baseline_api.observability.logging import log_event
+from baseline_api.privacy.user import resolve_single_user
 from baseline_api.schemas.api import (
     DailyCheckInDetailResponse,
     DailyCheckInFlags,
@@ -60,10 +61,16 @@ class CheckinService:
         self._redaction = redaction
         self._queue = queue
 
-    async def create_checkin(self, request: DailyCheckInRequest) -> DailyCheckInResponse:
-        user = self._get_single_user()
-        consent = self._active_consent(user)
+    async def create_checkin(
+        self,
+        request: DailyCheckInRequest,
+        *,
+        user: User | None = None,
+    ) -> DailyCheckInResponse:
+        resolved_user = self._resolve_user(user)
+        consent = self._active_consent(resolved_user)
         self._assert_policy_consent(consent, request.sensitive_note_policy)
+        user = resolved_user
         redacted = await self._redaction.redact(
             request.free_text_note,
             self._model_policy(request.sensitive_note_policy),
@@ -98,17 +105,20 @@ class CheckinService:
         self,
         checkin_id: UUID,
         request: DailyCheckInRequest,
+        *,
+        user: User | None = None,
     ) -> DailyCheckInResponse:
-        user = self._get_single_user()
+        resolved_user = self._resolve_user(user)
         checkin = self._session.get(DailyCheckIn, checkin_id)
-        if checkin is None or checkin.user_id != user.id:
+        if checkin is None or checkin.user_id != resolved_user.id:
             raise CheckinError(
                 code="checkin_not_found",
                 message="Check-in not found.",
                 status_code=404,
             )
 
-        consent = self._active_consent(user)
+        consent = self._active_consent(resolved_user)
+        user = resolved_user
         self._assert_policy_consent(consent, request.sensitive_note_policy)
         preserve_existing_note = self._should_preserve_existing_note(checkin, request)
         if preserve_existing_note:
@@ -148,10 +158,15 @@ class CheckinService:
         )
         return self._to_response(checkin, request)
 
-    async def delete_checkin(self, checkin_id: UUID) -> None:
-        user = self._get_single_user()
+    async def delete_checkin(
+        self,
+        checkin_id: UUID,
+        *,
+        user: User | None = None,
+    ) -> None:
+        resolved_user = self._resolve_user(user)
         checkin = self._session.get(DailyCheckIn, checkin_id)
-        if checkin is None or checkin.user_id != user.id:
+        if checkin is None or checkin.user_id != resolved_user.id:
             raise CheckinError(
                 code="checkin_not_found",
                 message="Check-in not found.",
@@ -162,7 +177,7 @@ class CheckinService:
         self._session.delete(checkin)
         self._emit_raw_audit(
             AuditEventType.checkin_deleted,
-            user.id,
+            resolved_user.id,
             checkin_id,
             checkin_date,
         )
@@ -176,11 +191,16 @@ class CheckinService:
             },
         )
 
-    def get_checkin_for_date(self, checkin_date: date) -> DailyCheckInDetailResponse:
-        user = self._get_single_user()
+    def get_checkin_for_date(
+        self,
+        checkin_date: date,
+        *,
+        user: User | None = None,
+    ) -> DailyCheckInDetailResponse:
+        resolved_user = self._resolve_user(user)
         checkin = self._session.exec(
             select(DailyCheckIn).where(
-                DailyCheckIn.user_id == user.id,
+                DailyCheckIn.user_id == resolved_user.id,
                 DailyCheckIn.date == checkin_date,
             )
         ).first()
@@ -199,21 +219,22 @@ class CheckinService:
             ),
         )
 
-    def _get_single_user(self) -> User:
-        users = list(self._session.exec(select(User).order_by(col(User.created_at)).limit(2)).all())
-        if not users:
-            raise CheckinError(
+    def _resolve_user(self, user: User | None = None) -> User:
+        if user is not None:
+            return user
+        return resolve_single_user(
+            self._session,
+            empty_error_factory=lambda: CheckinError(
                 code="user_not_initialized",
                 message="No Baseline user is available for check-in.",
                 status_code=409,
-            )
-        if len(users) > 1:
-            raise CheckinError(
+            ),
+            ambiguous_error_factory=lambda: CheckinError(
                 code="ambiguous_user",
                 message="Check-in requires an authenticated user context.",
                 status_code=409,
-            )
-        return users[0]
+            ),
+        )
 
     def _active_consent(self, user: User) -> ConsentRecord:
         statement = (

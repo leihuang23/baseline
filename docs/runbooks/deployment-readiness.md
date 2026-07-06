@@ -32,8 +32,9 @@ API is reachable from any untrusted network.
   networks/devices; do not expose the API to the public internet with only that
   embedded token.
 - Keep `.env` and provider keys out of source control and logs.
-- Export download keys are returned only in the create response. Do not persist
-  response bodies that contain `encryption.key_base64` in logs or dashboards.
+- Export download keys are returned only in the create response; the server does
+  not retain decryption keys. Do not persist response bodies that contain
+  `encryption.key_base64` in logs or dashboards.
 - Monitor `/health`, `/v1/health/ping`, sync failures, briefing failures, model
   provider failures, schema validation failures, deletion failures, and cost
   budget alerts.
@@ -41,10 +42,13 @@ API is reachable from any untrusted network.
 ## First-User Bootstrap
 
 The iOS onboarding flow records consent with `/v1/data/consent`. On an empty
-single-user deployment this creates the Baseline user and active consent record.
-Subsequent HealthKit syncs use that active consent version. If more than one
-user exists, single-user privacy controls fail closed until an authenticated
-multi-user resolver is implemented.
+single-user deployment, the first consent request atomically creates the
+Baseline `User` and an active `ConsentRecord`, and returns the active consent
+version. The iOS client persists that server-returned version before the first
+HealthKit sync, and subsequent sync requests must use the current active version.
+If more than one user exists, single-user privacy controls (consent and health
+sync) fail closed with `409 ambiguous_user` until an authenticated multi-user
+resolver is implemented.
 
 ## Known Non-Goals
 

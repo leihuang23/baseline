@@ -7,6 +7,7 @@ from baseline_api.retrieval.knowledge import (
     KnowledgeRetrievalResult,
     KnowledgeRetrievalService,
     bind_external_claims,
+    build_external_knowledge_query,
     create_embedder,
     has_external_knowledge_consent,
 )
@@ -18,6 +19,7 @@ __all__ = [
     "KnowledgeRetrievalResult",
     "KnowledgeRetrievalService",
     "bind_external_claims",
+    "build_external_knowledge_query",
     "create_embedder",
     "has_external_knowledge_consent",
 ]

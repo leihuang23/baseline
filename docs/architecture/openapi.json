@@ -1,9 +1,1742 @@
 {
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Baseline",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/health/ping": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Ping",
+        "operationId": "ping_v1_health_ping_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Ping V1 Health Ping Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/health/sync": {
+      "post": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Sync Health",
+        "operationId": "sync_health_v1_health_sync_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HealthSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_HealthSyncResponse_"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Consent is missing, revoked, invalid, or does not allow a sample category.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The sync request conflicts with idempotency or ingestion state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Raw samples were persisted, but normalization could not be queued.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/observability/alerts": {
+      "get": {
+        "tags": [
+          "observability"
+        ],
+        "summary": "Get Operational Alerts",
+        "operationId": "get_operational_alerts_v1_observability_alerts_get",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_list_dict_str__Any___"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/assistant/query": {
+      "post": {
+        "tags": [
+          "assistant"
+        ],
+        "summary": "Ask Assistant",
+        "operationId": "ask_assistant_v1_assistant_query_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_AssistantQueryResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/analysis/daily": {
+      "post": {
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Generate Daily Analysis",
+        "operationId": "generate_daily_analysis_v1_analysis_daily_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyAnalysisResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/analysis/daily/{job_id}": {
+      "get": {
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Get Daily Analysis Job",
+        "operationId": "get_daily_analysis_job_v1_analysis_daily__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyAnalysisResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/analysis/traces/{trace_id}": {
+      "get": {
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Get Analysis Trace",
+        "operationId": "get_analysis_trace_v1_analysis_traces__trace_id__get",
+        "parameters": [
+          {
+            "name": "trace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Trace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_BriefingTraceInspection_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/briefings/{date}": {
+      "get": {
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Get Daily Briefing",
+        "operationId": "get_daily_briefing_v1_briefings__date__get",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Date"
+            }
+          },
+          {
+            "name": "offline_last",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Offline Last"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyBriefingResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/recommendations/{id}/feedback": {
+      "post": {
+        "tags": [
+          "contracts"
+        ],
+        "summary": "Submit Recommendation Feedback",
+        "operationId": "submit_recommendation_feedback_v1_recommendations__id__feedback_post",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendationFeedbackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_RecommendationFeedbackResponse_"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recommendation was not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/checkins/daily": {
+      "post": {
+        "tags": [
+          "checkins"
+        ],
+        "summary": "Submit Daily Checkin",
+        "operationId": "submit_daily_checkin_v1_checkins_daily_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyCheckInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/checkins/daily/{checkin_id}": {
+      "put": {
+        "tags": [
+          "checkins"
+        ],
+        "summary": "Update Daily Checkin",
+        "operationId": "update_daily_checkin_v1_checkins_daily__checkin_id__put",
+        "parameters": [
+          {
+            "name": "checkin_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checkin Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DailyCheckInRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "checkins"
+        ],
+        "summary": "Delete Daily Checkin",
+        "operationId": "delete_daily_checkin_v1_checkins_daily__checkin_id__delete",
+        "parameters": [
+          {
+            "name": "checkin_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checkin Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/checkins/daily/by-date/{checkin_date}": {
+      "get": {
+        "tags": [
+          "checkins"
+        ],
+        "summary": "Get Daily Checkin",
+        "operationId": "get_daily_checkin_v1_checkins_daily_by_date__checkin_date__get",
+        "parameters": [
+          {
+            "name": "checkin_date",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Checkin Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInDetailResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/export": {
+      "post": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Export Data",
+        "operationId": "export_data_v1_data_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DataExportResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/export/{export_job_id}/file": {
+      "get": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Download Export",
+        "operationId": "download_export_v1_data_export__export_job_id__file_get",
+        "parameters": [
+          {
+            "name": "export_job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Export Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Encrypted export file.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/consent": {
+      "post": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Record Consent",
+        "operationId": "record_consent_v1_data_consent_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentRecordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_ConsentRecordResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/consent/history": {
+      "get": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Consent History",
+        "operationId": "consent_history_v1_data_consent_history_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_ConsentHistoryResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/consent/disable-external-llm": {
+      "post": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Disable External Llm",
+        "operationId": "disable_external_llm_v1_data_consent_disable_external_llm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisableExternalLLMRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_ConsentRecordResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/consent/revoke": {
+      "post": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Revoke Consent",
+        "operationId": "revoke_consent_v1_data_consent_revoke_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentRevocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_ConsentRecordResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/all": {
+      "delete": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Delete All Data",
+        "operationId": "delete_all_data_v1_data_all_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DataDeleteResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/checkins/{checkin_id}": {
+      "delete": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Delete Checkin",
+        "operationId": "delete_checkin_v1_data_checkins__checkin_id__delete",
+        "parameters": [
+          {
+            "name": "checkin_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checkin Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DataDeleteResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/checkins/{checkin_id}/note": {
+      "delete": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Delete Checkin Note",
+        "operationId": "delete_checkin_note_v1_data_checkins__checkin_id__note_delete",
+        "parameters": [
+          {
+            "name": "checkin_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checkin Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DataDeleteResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/memory-summaries": {
+      "get": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "List Memory Summaries",
+        "operationId": "list_memory_summaries_v1_data_memory_summaries_get",
+        "parameters": [
+          {
+            "name": "period_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/PeriodType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Period Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_MemorySummaryListResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/memory-summaries/{memory_summary_id}": {
+      "delete": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Delete Memory Summary",
+        "operationId": "delete_memory_summary_v1_data_memory_summaries__memory_summary_id__delete",
+        "parameters": [
+          {
+            "name": "memory_summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Memory Summary Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_DataDeleteResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/model-disclosures": {
+      "get": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Model Disclosures",
+        "operationId": "model_disclosures_v1_data_model_disclosures_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_ModelDisclosureResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/data/llm-settings": {
+      "get": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Llm Settings",
+        "operationId": "llm_settings_v1_data_llm_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_LLMSettingsResponse_"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/goals": {
+      "get": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "List Goals",
+        "operationId": "list_goals_v1_goals_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_list_GoalResponse__"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Create Goal",
+        "operationId": "create_goal_v1_goals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/goals/{goal_id}": {
+      "get": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Get Goal",
+        "operationId": "get_goal_v1_goals__goal_id__get",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Goal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Update Goal",
+        "operationId": "update_goal_v1_goals__goal_id__put",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Goal Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Delete Goal",
+        "operationId": "delete_goal_v1_goals__goal_id__delete",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Goal Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/goals/{goal_id}/pause": {
+      "post": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Pause Goal",
+        "operationId": "pause_goal_v1_goals__goal_id__pause_post",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Goal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/goals/{goal_id}/resume": {
+      "post": {
+        "tags": [
+          "goals"
+        ],
+        "summary": "Resume Goal",
+        "operationId": "resume_goal_v1_goals__goal_id__resume_post",
+        "parameters": [
+          {
+            "name": "goal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Goal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    }
+  },
   "components": {
     "schemas": {
       "APIEnvelope_AssistantQueryResponse_": {
-        "additionalProperties": false,
         "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -26,25 +1759,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[AssistantQueryResponse]"
+      },
+      "APIEnvelope_BriefingTraceInspection_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[AssistantQueryResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_BriefingTraceInspection_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -67,25 +1800,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[BriefingTraceInspection]"
+      },
+      "APIEnvelope_ConsentHistoryResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[BriefingTraceInspection]",
-        "type": "object"
-      },
-      "APIEnvelope_ConsentHistoryResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -108,25 +1841,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[ConsentHistoryResponse]"
+      },
+      "APIEnvelope_ConsentRecordResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[ConsentHistoryResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_ConsentRecordResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -149,25 +1882,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[ConsentRecordResponse]"
+      },
+      "APIEnvelope_DailyAnalysisResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[ConsentRecordResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_DailyAnalysisResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -190,25 +1923,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DailyAnalysisResponse]"
+      },
+      "APIEnvelope_DailyBriefingResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[DailyAnalysisResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_DailyBriefingResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -231,25 +1964,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DailyBriefingResponse]"
+      },
+      "APIEnvelope_DailyCheckInDetailResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[DailyBriefingResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_DailyCheckInDetailResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -272,25 +2005,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DailyCheckInDetailResponse]"
+      },
+      "APIEnvelope_DailyCheckInResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[DailyCheckInDetailResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_DailyCheckInResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -313,25 +2046,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DailyCheckInResponse]"
+      },
+      "APIEnvelope_DataDeleteResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[DailyCheckInResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_DataDeleteResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -354,25 +2087,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DataDeleteResponse]"
+      },
+      "APIEnvelope_DataExportResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[DataDeleteResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_DataExportResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -395,25 +2128,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[DataExportResponse]"
+      },
+      "APIEnvelope_GoalResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[DataExportResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_GoalResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -436,25 +2169,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[GoalResponse]"
+      },
+      "APIEnvelope_HealthSyncResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[GoalResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_HealthSyncResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -477,25 +2210,107 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[HealthSyncResponse]"
+      },
+      "APIEnvelope_LLMSettingsResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
+            "title": "Status"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LLMSettingsResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/APIResponseMeta"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "status"
         ],
-        "title": "APIEnvelope[HealthSyncResponse]",
-        "type": "object"
+        "title": "APIEnvelope[LLMSettingsResponse]"
+      },
+      "APIEnvelope_MemorySummaryListResponse_": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemorySummaryListResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/APIResponseMeta"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[MemorySummaryListResponse]"
       },
       "APIEnvelope_ModelDisclosureResponse_": {
-        "additionalProperties": false,
         "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -518,28 +2333,28 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[ModelDisclosureResponse]"
+      },
+      "APIEnvelope_NoneType_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[ModelDisclosureResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_NoneType_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
-            "title": "Data",
-            "type": "null"
+            "type": "null",
+            "title": "Data"
           },
           "error": {
             "anyOf": [
@@ -553,25 +2368,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[NoneType]"
+      },
+      "APIEnvelope_RecommendationFeedbackResponse_": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[NoneType]",
-        "type": "object"
-      },
-      "APIEnvelope_RecommendationFeedbackResponse_": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -594,25 +2409,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[RecommendationFeedbackResponse]"
+      },
+      "APIEnvelope_list_GoalResponse__": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[RecommendationFeedbackResponse]",
-        "type": "object"
-      },
-      "APIEnvelope_list_GoalResponse__": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -639,25 +2454,25 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[list[GoalResponse]]"
+      },
+      "APIEnvelope_list_dict_str__Any___": {
+        "properties": {
           "status": {
+            "type": "string",
             "enum": [
               "success",
               "error"
             ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "APIEnvelope[list[GoalResponse]]",
-        "type": "object"
-      },
-      "APIEnvelope_list_dict_str__Any___": {
-        "additionalProperties": false,
-        "properties": {
+            "title": "Status"
+          },
           "data": {
             "anyOf": [
               {
@@ -685,29 +2500,26 @@
           },
           "meta": {
             "$ref": "#/components/schemas/APIResponseMeta"
-          },
-          "status": {
-            "enum": [
-              "success",
-              "error"
-            ],
-            "title": "Status",
-            "type": "string"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "status"
         ],
-        "title": "APIEnvelope[list[dict[str, Any]]]",
-        "type": "object"
+        "title": "APIEnvelope[list[dict[str, Any]]]"
       },
       "APIError": {
-        "additionalProperties": false,
         "properties": {
           "code": {
+            "type": "string",
             "minLength": 1,
-            "title": "Code",
-            "type": "string"
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Message"
           },
           "details": {
             "anyOf": [
@@ -720,34 +2532,22 @@
               }
             ],
             "title": "Details"
-          },
-          "message": {
-            "minLength": 1,
-            "title": "Message",
-            "type": "string"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "code",
           "message"
         ],
-        "title": "APIError",
-        "type": "object"
+        "title": "APIError"
       },
       "APIResponseMeta": {
-        "additionalProperties": false,
         "properties": {
-          "generated_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Generated At"
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "default": "v1"
           },
           "request_id": {
             "anyOf": [
@@ -760,11 +2560,6 @@
             ],
             "title": "Request Id"
           },
-          "schema_version": {
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
-          },
           "trace_id": {
             "anyOf": [
               {
@@ -775,37 +2570,52 @@
               }
             ],
             "title": "Trace Id"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
           }
         },
-        "title": "APIResponseMeta",
-        "type": "object"
+        "additionalProperties": false,
+        "type": "object",
+        "title": "APIResponseMeta"
       },
       "AnalysisJobStatus": {
+        "type": "string",
         "enum": [
           "queued",
           "running",
           "completed",
           "failed"
         ],
-        "title": "AnalysisJobStatus",
-        "type": "string"
+        "title": "AnalysisJobStatus"
       },
       "AssistantQueryRequest": {
-        "additionalProperties": false,
         "properties": {
-          "allowed_data_scope": {
-            "items": {
-              "$ref": "#/components/schemas/DataScope"
-            },
-            "minItems": 1,
-            "title": "Allowed Data Scope",
-            "type": "array"
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Question"
           },
           "date_context": {
             "anyOf": [
               {
-                "format": "date",
-                "type": "string"
+                "type": "string",
+                "format": "date"
               },
               {
                 "type": "null"
@@ -813,83 +2623,82 @@
             ],
             "title": "Date Context"
           },
+          "allowed_data_scope": {
+            "items": {
+              "$ref": "#/components/schemas/DataScope"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Allowed Data Scope"
+          },
           "include_external_knowledge": {
-            "default": false,
+            "type": "boolean",
             "title": "Include External Knowledge",
-            "type": "boolean"
+            "default": false
           },
           "privacy_mode": {
             "$ref": "#/components/schemas/PrivacyMode"
-          },
-          "question": {
-            "minLength": 1,
-            "title": "Question",
-            "type": "string"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "question",
           "allowed_data_scope",
           "privacy_mode"
         ],
-        "title": "AssistantQueryRequest",
-        "type": "object"
+        "title": "AssistantQueryRequest"
       },
       "AssistantQueryResponse": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
           "answer": {
+            "type": "string",
             "minLength": 1,
-            "title": "Answer",
-            "type": "string"
-          },
-          "confidence": {
-            "$ref": "#/components/schemas/ConfidenceLevel"
-          },
-          "external_sources": {
-            "items": {
-              "$ref": "#/components/schemas/ExternalCitation"
-            },
-            "title": "External Sources",
-            "type": "array"
+            "title": "Answer"
           },
           "personal_evidence": {
             "items": {
               "$ref": "#/components/schemas/PersonalEvidence"
             },
+            "type": "array",
             "minItems": 1,
-            "title": "Personal Evidence",
-            "type": "array"
+            "title": "Personal Evidence"
           },
-          "safety_status": {
-            "$ref": "#/components/schemas/SafetyStatus"
+          "external_sources": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalCitation"
+            },
+            "type": "array",
+            "title": "External Sources"
           },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
-          },
-          "trace_id": {
-            "format": "uuid",
-            "title": "Trace Id",
-            "type": "string"
+          "confidence": {
+            "$ref": "#/components/schemas/ConfidenceLevel"
           },
           "uncertainty": {
             "items": {
               "type": "string"
             },
+            "type": "array",
             "minItems": 1,
-            "title": "Uncertainty",
-            "type": "array"
+            "title": "Uncertainty"
+          },
+          "safety_status": {
+            "$ref": "#/components/schemas/SafetyStatus"
+          },
+          "trace_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Trace Id"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "answer",
           "personal_evidence",
@@ -898,12 +2707,21 @@
           "safety_status",
           "trace_id"
         ],
-        "title": "AssistantQueryResponse",
-        "type": "object"
+        "title": "AssistantQueryResponse"
       },
       "BriefingTraceInspection": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "trace_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Trace Id"
+          },
           "data_freshness": {
             "anyOf": [
               {
@@ -914,144 +2732,144 @@
               }
             ]
           },
-          "external_sources": {
-            "items": {
-              "$ref": "#/components/schemas/ExternalCitation"
-            },
-            "title": "External Sources",
-            "type": "array"
-          },
           "feature_values": {
             "items": {
               "$ref": "#/components/schemas/PersonalEvidence"
             },
-            "title": "Feature Values",
-            "type": "array"
-          },
-          "model_metadata": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "title": "Model Metadata",
-            "type": "object"
-          },
-          "retrieved_memory": {
-            "items": {
-              "$ref": "#/components/schemas/MemoryObservation"
-            },
-            "title": "Retrieved Memory",
-            "type": "array"
+            "type": "array",
+            "title": "Feature Values"
           },
           "rules_fired": {
             "items": {
               "type": "string"
             },
-            "title": "Rules Fired",
-            "type": "array"
+            "type": "array",
+            "title": "Rules Fired"
           },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
+          "retrieved_memory": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryObservation"
+            },
+            "type": "array",
+            "title": "Retrieved Memory"
           },
-          "trace_id": {
-            "format": "uuid",
-            "title": "Trace Id",
-            "type": "string"
+          "external_sources": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalCitation"
+            },
+            "type": "array",
+            "title": "External Sources"
+          },
+          "model_metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Model Metadata"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "trace_id"
         ],
-        "title": "BriefingTraceInspection",
-        "type": "object"
+        "title": "BriefingTraceInspection"
       },
       "CandidateOption": {
-        "additionalProperties": false,
         "properties": {
           "label": {
+            "type": "string",
             "minLength": 1,
-            "title": "Label",
-            "type": "string"
-          },
-          "rationale": {
-            "minLength": 1,
-            "title": "Rationale",
-            "type": "string"
+            "title": "Label"
           },
           "recommendation_band": {
             "$ref": "#/components/schemas/RecommendationBand"
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Rationale"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "label",
           "recommendation_band",
           "rationale"
         ],
-        "title": "CandidateOption",
-        "type": "object"
+        "title": "CandidateOption"
       },
       "ConfidenceLevel": {
+        "type": "string",
         "enum": [
           "low",
           "medium",
           "high"
         ],
-        "title": "ConfidenceLevel",
-        "type": "string"
+        "title": "ConfidenceLevel"
       },
       "ConsentHistoryResponse": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
           "active_consent_version": {
-            "title": "Active Consent Version",
-            "type": "string"
+            "type": "string",
+            "title": "Active Consent Version"
           },
           "records": {
             "items": {
               "$ref": "#/components/schemas/ConsentRecordResponse"
             },
-            "title": "Records",
-            "type": "array"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
+            "type": "array",
+            "title": "Records"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "active_consent_version"
         ],
-        "title": "ConsentHistoryResponse",
-        "type": "object"
+        "title": "ConsentHistoryResponse"
       },
       "ConsentRecordRequest": {
-        "additionalProperties": false,
         "properties": {
-          "cloud_processing_enabled": {
-            "default": false,
-            "title": "Cloud Processing Enabled",
-            "type": "boolean"
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
           },
           "consent_version": {
+            "type": "string",
             "minLength": 1,
-            "title": "Consent Version",
-            "type": "string"
-          },
-          "external_llm_enabled": {
-            "default": false,
-            "title": "External Llm Enabled",
-            "type": "boolean"
+            "title": "Consent Version"
           },
           "health_categories_enabled": {
             "items": {
               "$ref": "#/components/schemas/HealthConsentCategory"
             },
-            "title": "Health Categories Enabled",
-            "type": "array"
+            "type": "array",
+            "title": "Health Categories Enabled"
+          },
+          "cloud_processing_enabled": {
+            "type": "boolean",
+            "title": "Cloud Processing Enabled",
+            "default": false
+          },
+          "external_llm_enabled": {
+            "type": "boolean",
+            "title": "External Llm Enabled",
+            "default": false
+          },
+          "raw_note_processing_enabled": {
+            "type": "boolean",
+            "title": "Raw Note Processing Enabled",
+            "default": false
           },
           "privacy_mode": {
             "anyOf": [
@@ -1062,85 +2880,76 @@
                 "type": "null"
               }
             ]
-          },
-          "raw_note_processing_enabled": {
-            "default": false,
-            "title": "Raw Note Processing Enabled",
-            "type": "boolean"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "consent_version"
         ],
-        "title": "ConsentRecordRequest",
-        "type": "object"
+        "title": "ConsentRecordRequest"
       },
       "ConsentRecordResponse": {
-        "additionalProperties": false,
         "properties": {
-          "cloud_processing_enabled": {
-            "title": "Cloud Processing Enabled",
-            "type": "boolean"
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
           },
           "consent_version": {
-            "title": "Consent Version",
-            "type": "string"
-          },
-          "external_llm_enabled": {
-            "title": "External Llm Enabled",
-            "type": "boolean"
+            "type": "string",
+            "title": "Consent Version"
           },
           "health_categories_enabled": {
             "items": {
               "$ref": "#/components/schemas/HealthConsentCategory"
             },
-            "title": "Health Categories Enabled",
-            "type": "array"
+            "type": "array",
+            "title": "Health Categories Enabled"
           },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
+          "cloud_processing_enabled": {
+            "type": "boolean",
+            "title": "Cloud Processing Enabled"
+          },
+          "external_llm_enabled": {
+            "type": "boolean",
+            "title": "External Llm Enabled"
           },
           "raw_note_processing_enabled": {
-            "title": "Raw Note Processing Enabled",
-            "type": "boolean"
+            "type": "boolean",
+            "title": "Raw Note Processing Enabled"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
           },
           "revoked_at": {
             "anyOf": [
               {
-                "format": "date-time",
-                "type": "string"
+                "type": "string",
+                "format": "date-time"
               },
               {
                 "type": "null"
               }
             ],
             "title": "Revoked At"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
-          },
-          "timestamp": {
-            "format": "date-time",
-            "title": "Timestamp",
-            "type": "string"
-          },
-          "user_id": {
-            "format": "uuid",
-            "title": "User Id",
-            "type": "string"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "id",
           "user_id",
@@ -1150,17 +2959,21 @@
           "raw_note_processing_enabled",
           "timestamp"
         ],
-        "title": "ConsentRecordResponse",
-        "type": "object"
+        "title": "ConsentRecordResponse"
       },
       "ConsentRevocationRequest": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
           "consent_version": {
             "anyOf": [
               {
-                "minLength": 1,
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -1169,14 +2982,19 @@
             "title": "Consent Version"
           },
           "revoke_cloud_processing": {
-            "default": true,
+            "type": "boolean",
             "title": "Revoke Cloud Processing",
-            "type": "boolean"
+            "default": true
           },
           "revoke_external_llm": {
-            "default": true,
+            "type": "boolean",
             "title": "Revoke External Llm",
-            "type": "boolean"
+            "default": true
+          },
+          "revoke_raw_note_processing": {
+            "type": "boolean",
+            "title": "Revoke Raw Note Processing",
+            "default": true
           },
           "revoke_health_categories": {
             "anyOf": [
@@ -1191,104 +3009,93 @@
               }
             ],
             "title": "Revoke Health Categories"
-          },
-          "revoke_raw_note_processing": {
-            "default": true,
-            "title": "Revoke Raw Note Processing",
-            "type": "boolean"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
           }
         },
-        "title": "ConsentRevocationRequest",
-        "type": "object"
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ConsentRevocationRequest"
       },
       "DailyAnalysisRequest": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
           "date": {
+            "type": "string",
             "format": "date",
-            "title": "Date",
-            "type": "string"
+            "title": "Date"
           },
           "force_recompute": {
-            "default": false,
+            "type": "boolean",
             "title": "Force Recompute",
-            "type": "boolean"
+            "default": false
           },
           "include_external_knowledge": {
-            "default": false,
+            "type": "boolean",
             "title": "Include External Knowledge",
-            "type": "boolean"
+            "default": false
           },
           "privacy_mode": {
             "$ref": "#/components/schemas/PrivacyMode"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "date",
           "privacy_mode"
         ],
-        "title": "DailyAnalysisRequest",
-        "type": "object"
+        "title": "DailyAnalysisRequest"
       },
       "DailyAnalysisResponse": {
-        "additionalProperties": false,
         "properties": {
-          "analysis_job_id": {
-            "format": "uuid",
-            "title": "Analysis Job Id",
-            "type": "string"
-          },
-          "estimated_completion_seconds": {
-            "minimum": 0.0,
-            "title": "Estimated Completion Seconds",
-            "type": "integer"
-          },
           "schema_version": {
+            "type": "string",
             "const": "v1",
-            "default": "v1",
             "title": "Schema Version",
-            "type": "string"
+            "default": "v1"
+          },
+          "analysis_job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Analysis Job Id"
           },
           "status": {
             "$ref": "#/components/schemas/AnalysisJobStatus"
+          },
+          "estimated_completion_seconds": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Estimated Completion Seconds"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "analysis_job_id",
           "status",
           "estimated_completion_seconds"
         ],
-        "title": "DailyAnalysisResponse",
-        "type": "object"
+        "title": "DailyAnalysisResponse"
       },
       "DailyBriefingResponse": {
-        "additionalProperties": false,
         "properties": {
-          "alternatives": {
-            "items": {
-              "$ref": "#/components/schemas/RecommendationAlternative"
-            },
-            "title": "Alternatives",
-            "type": "array"
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
           },
-          "candidate_options": {
-            "items": {
-              "$ref": "#/components/schemas/CandidateOption"
-            },
-            "title": "Candidate Options",
-            "type": "array"
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "readiness_state": {
+            "$ref": "#/components/schemas/ReadinessState"
           },
           "confidence": {
             "$ref": "#/components/schemas/ConfidenceLevel"
@@ -1296,32 +3103,83 @@
           "data_freshness": {
             "$ref": "#/components/schemas/DataFreshness"
           },
-          "data_quality_notes": {
-            "items": {
-              "$ref": "#/components/schemas/DataQualityNote"
-            },
-            "title": "Data Quality Notes",
-            "type": "array"
-          },
-          "date": {
-            "format": "date",
-            "title": "Date",
-            "type": "string"
-          },
           "evidence": {
             "items": {
               "$ref": "#/components/schemas/PersonalEvidence"
             },
+            "type": "array",
             "minItems": 1,
-            "title": "Evidence",
-            "type": "array"
+            "title": "Evidence"
+          },
+          "memory_observations": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryObservation"
+            },
+            "type": "array",
+            "title": "Memory Observations"
           },
           "external_citations": {
             "items": {
               "$ref": "#/components/schemas/ExternalCitation"
             },
-            "title": "External Citations",
-            "type": "array"
+            "type": "array",
+            "title": "External Citations"
+          },
+          "risk_flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Risk Flags"
+          },
+          "recommendation": {
+            "$ref": "#/components/schemas/RecommendationSummary"
+          },
+          "recommendation_band": {
+            "$ref": "#/components/schemas/RecommendationBand"
+          },
+          "candidate_options": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateOption"
+            },
+            "type": "array",
+            "title": "Candidate Options"
+          },
+          "goal_tradeoffs": {
+            "items": {
+              "$ref": "#/components/schemas/GoalTradeoff"
+            },
+            "type": "array",
+            "title": "Goal Tradeoffs"
+          },
+          "uncertainty": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Uncertainty"
+          },
+          "data_quality_notes": {
+            "items": {
+              "$ref": "#/components/schemas/DataQualityNote"
+            },
+            "type": "array",
+            "title": "Data Quality Notes"
+          },
+          "what_would_change_my_mind": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "What Would Change My Mind"
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/RecommendationAlternative"
+            },
+            "type": "array",
+            "title": "Alternatives"
           },
           "follow_up": {
             "anyOf": [
@@ -1333,80 +3191,43 @@
               }
             ]
           },
-          "generated_at": {
-            "format": "date-time",
-            "title": "Generated At",
-            "type": "string"
-          },
-          "goal_tradeoffs": {
-            "items": {
-              "$ref": "#/components/schemas/GoalTradeoff"
-            },
-            "title": "Goal Tradeoffs",
-            "type": "array"
-          },
-          "memory_observations": {
-            "items": {
-              "$ref": "#/components/schemas/MemoryObservation"
-            },
-            "title": "Memory Observations",
-            "type": "array"
-          },
-          "readiness_state": {
-            "$ref": "#/components/schemas/ReadinessState"
-          },
-          "recommendation": {
-            "$ref": "#/components/schemas/RecommendationSummary"
-          },
-          "recommendation_band": {
-            "$ref": "#/components/schemas/RecommendationBand"
-          },
-          "risk_flags": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Risk Flags",
-            "type": "array"
+          "safety_status": {
+            "$ref": "#/components/schemas/SafetyStatus",
+            "default": "passed"
           },
           "safety_notes": {
             "items": {
               "type": "string"
             },
+            "type": "array",
             "minItems": 1,
-            "title": "Safety Notes",
-            "type": "array"
-          },
-          "safety_status": {
-            "$ref": "#/components/schemas/SafetyStatus",
-            "default": "passed"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
+            "title": "Safety Notes"
           },
           "trace_id": {
+            "type": "string",
             "format": "uuid",
-            "title": "Trace Id",
-            "type": "string"
+            "title": "Trace Id"
           },
-          "uncertainty": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Uncertainty",
-            "type": "array"
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
           },
-          "what_would_change_my_mind": {
-            "items": {
-              "type": "string"
-            },
-            "title": "What Would Change My Mind",
-            "type": "array"
+          "recommendation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendation Id"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "date",
           "readiness_state",
@@ -1419,52 +3240,50 @@
           "trace_id",
           "generated_at"
         ],
-        "title": "DailyBriefingResponse",
-        "type": "object"
+        "title": "DailyBriefingResponse"
       },
       "DailyCheckInDetailResponse": {
-        "additionalProperties": false,
         "properties": {
-          "checkin_id": {
-            "format": "uuid",
-            "title": "Checkin Id",
-            "type": "string"
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
           },
-          "has_free_text_note": {
-            "default": false,
-            "title": "Has Free Text Note",
-            "type": "boolean"
+          "checkin_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Checkin Id"
           },
           "request": {
             "$ref": "#/components/schemas/DailyCheckInRequest"
           },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
+          "has_free_text_note": {
+            "type": "boolean",
+            "title": "Has Free Text Note",
+            "default": false
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "checkin_id",
           "request"
         ],
-        "title": "DailyCheckInDetailResponse",
-        "type": "object"
+        "title": "DailyCheckInDetailResponse"
       },
       "DailyCheckInFlags": {
-        "additionalProperties": false,
         "properties": {
           "alcohol": {
-            "default": false,
+            "type": "boolean",
             "title": "Alcohol",
-            "type": "boolean"
+            "default": false
           },
           "caffeine_notes": {
             "anyOf": [
               {
-                "maxLength": 80,
-                "type": "string"
+                "type": "string",
+                "maxLength": 80
               },
               {
                 "type": "null"
@@ -1473,38 +3292,44 @@
             "title": "Caffeine Notes"
           },
           "illness": {
-            "default": false,
+            "type": "boolean",
             "title": "Illness",
-            "type": "boolean"
+            "default": false
           },
           "injury": {
-            "default": false,
+            "type": "boolean",
             "title": "Injury",
-            "type": "boolean"
+            "default": false
           },
           "travel": {
-            "default": false,
+            "type": "boolean",
             "title": "Travel",
-            "type": "boolean"
+            "default": false
           }
         },
-        "title": "DailyCheckInFlags",
-        "type": "object"
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DailyCheckInFlags"
       },
       "DailyCheckInRequest": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
           "date": {
+            "type": "string",
             "format": "date",
-            "title": "Date",
-            "type": "string"
+            "title": "Date"
           },
           "energy_score": {
             "anyOf": [
               {
+                "type": "integer",
                 "maximum": 10.0,
-                "minimum": 1.0,
-                "type": "integer"
+                "minimum": 1.0
               },
               {
                 "type": "null"
@@ -1512,39 +3337,12 @@
             ],
             "title": "Energy Score"
           },
-          "flags": {
-            "$ref": "#/components/schemas/DailyCheckInFlags"
-          },
-          "food_quality_score": {
-            "anyOf": [
-              {
-                "maximum": 10.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Food Quality Score"
-          },
-          "free_text_note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Free Text Note"
-          },
           "mood_score": {
             "anyOf": [
               {
+                "type": "integer",
                 "maximum": 10.0,
-                "minimum": 1.0,
-                "type": "integer"
+                "minimum": 1.0
               },
               {
                 "type": "null"
@@ -1552,35 +3350,12 @@
             ],
             "title": "Mood Score"
           },
-          "perceived_recovery_score": {
-            "anyOf": [
-              {
-                "maximum": 10.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Perceived Recovery Score"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
-          },
-          "sensitive_note_policy": {
-            "$ref": "#/components/schemas/SensitiveNotePolicy",
-            "default": "exclude_from_external_llm"
-          },
           "soreness_score": {
             "anyOf": [
               {
+                "type": "integer",
                 "maximum": 10.0,
-                "minimum": 1.0,
-                "type": "integer"
+                "minimum": 1.0
               },
               {
                 "type": "null"
@@ -1591,15 +3366,44 @@
           "stress_score": {
             "anyOf": [
               {
+                "type": "integer",
                 "maximum": 10.0,
-                "minimum": 1.0,
-                "type": "integer"
+                "minimum": 1.0
               },
               {
                 "type": "null"
               }
             ],
             "title": "Stress Score"
+          },
+          "perceived_recovery_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Perceived Recovery Score"
+          },
+          "food_quality_score": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Food Quality Score"
+          },
+          "flags": {
+            "$ref": "#/components/schemas/DailyCheckInFlags"
           },
           "structured_notes": {
             "additionalProperties": {
@@ -1621,125 +3425,159 @@
                 }
               ]
             },
-            "title": "Structured Notes",
-            "type": "object"
-          }
-        },
-        "required": [
-          "date"
-        ],
-        "title": "DailyCheckInRequest",
-        "type": "object"
-      },
-      "DailyCheckInResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "accepted_fields": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Accepted Fields",
-            "type": "array"
+            "type": "object",
+            "title": "Structured Notes"
           },
-          "analysis_job_id": {
+          "free_text_note": {
             "anyOf": [
               {
-                "format": "uuid",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Analysis Job Id"
+            "title": "Free Text Note"
+          },
+          "sensitive_note_policy": {
+            "$ref": "#/components/schemas/SensitiveNotePolicy",
+            "default": "exclude_from_external_llm"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "date"
+        ],
+        "title": "DailyCheckInRequest"
+      },
+      "DailyCheckInResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
           },
           "checkin_id": {
+            "type": "string",
             "format": "uuid",
-            "title": "Checkin Id",
-            "type": "string"
+            "title": "Checkin Id"
+          },
+          "accepted_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Accepted Fields"
           },
           "redaction_status": {
             "$ref": "#/components/schemas/RedactionStatus"
           },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
+          "analysis_job_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analysis Job Id"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "checkin_id",
           "accepted_fields",
           "redaction_status"
         ],
-        "title": "DailyCheckInResponse",
-        "type": "object"
+        "title": "DailyCheckInResponse"
       },
       "DataDeleteResponse": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
           "deleted": {
             "additionalProperties": {
               "type": "integer"
             },
-            "title": "Deleted",
-            "type": "object"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
+            "type": "object",
+            "title": "Deleted"
           }
         },
-        "title": "DataDeleteResponse",
-        "type": "object"
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DataDeleteResponse"
       },
       "DataExportFormat": {
+        "type": "string",
         "enum": [
           "json",
           "csv"
         ],
-        "title": "DataExportFormat",
-        "type": "string"
+        "title": "DataExportFormat"
       },
       "DataExportRequest": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
           "export_scope": {
             "$ref": "#/components/schemas/DataExportScope"
           },
           "format": {
             "$ref": "#/components/schemas/DataExportFormat"
           },
-          "include_model_traces": {
-            "default": false,
-            "title": "Include Model Traces",
-            "type": "boolean"
-          },
           "include_raw_data": {
-            "default": false,
+            "type": "boolean",
             "title": "Include Raw Data",
-            "type": "boolean"
+            "default": false
           },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
+          "include_model_traces": {
+            "type": "boolean",
+            "title": "Include Model Traces",
+            "default": false
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "export_scope",
           "format"
         ],
-        "title": "DataExportRequest",
-        "type": "object"
+        "title": "DataExportRequest"
       },
       "DataExportResponse": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "export_job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Export Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DataExportStatus"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
           "download_url": {
             "anyOf": [
               {
@@ -1755,38 +3593,21 @@
             "additionalProperties": {
               "type": "string"
             },
-            "title": "Encryption",
-            "type": "object"
-          },
-          "expires_at": {
-            "format": "date-time",
-            "title": "Expires At",
-            "type": "string"
-          },
-          "export_job_id": {
-            "format": "uuid",
-            "title": "Export Job Id",
-            "type": "string"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
-          },
-          "status": {
-            "$ref": "#/components/schemas/DataExportStatus"
+            "type": "object",
+            "title": "Encryption"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "export_job_id",
           "status",
           "expires_at"
         ],
-        "title": "DataExportResponse",
-        "type": "object"
+        "title": "DataExportResponse"
       },
       "DataExportScope": {
+        "type": "string",
         "enum": [
           "all",
           "health",
@@ -1796,10 +3617,10 @@
           "memory",
           "consent"
         ],
-        "title": "DataExportScope",
-        "type": "string"
+        "title": "DataExportScope"
       },
       "DataExportStatus": {
+        "type": "string",
         "enum": [
           "queued",
           "running",
@@ -1807,29 +3628,15 @@
           "failed",
           "expired"
         ],
-        "title": "DataExportStatus",
-        "type": "string"
+        "title": "DataExportStatus"
       },
       "DataFreshness": {
-        "additionalProperties": false,
         "properties": {
-          "latest_checkin_date": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Latest Checkin Date"
-          },
           "latest_sample_at": {
             "anyOf": [
               {
-                "format": "date-time",
-                "type": "string"
+                "type": "string",
+                "format": "date-time"
               },
               {
                 "type": "null"
@@ -1837,19 +3644,31 @@
             ],
             "title": "Latest Sample At"
           },
+          "latest_checkin_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Checkin Date"
+          },
           "stale_sources": {
             "items": {
               "type": "string"
             },
-            "title": "Stale Sources",
-            "type": "array"
+            "type": "array",
+            "title": "Stale Sources"
           }
         },
-        "title": "DataFreshness",
-        "type": "object"
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DataFreshness"
       },
       "DataQualityNote": {
-        "additionalProperties": false,
         "properties": {
           "metric": {
             "anyOf": [
@@ -1863,57 +3682,59 @@
             "title": "Metric"
           },
           "note": {
+            "type": "string",
             "minLength": 1,
-            "title": "Note",
-            "type": "string"
+            "title": "Note"
           },
           "severity": {
             "$ref": "#/components/schemas/DataQualitySeverity",
             "default": "info"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "note"
         ],
-        "title": "DataQualityNote",
-        "type": "object"
+        "title": "DataQualityNote"
       },
       "DataQualitySeverity": {
+        "type": "string",
         "enum": [
           "info",
           "warning",
           "degraded"
         ],
-        "title": "DataQualitySeverity",
-        "type": "string"
+        "title": "DataQualitySeverity"
       },
       "DataQualitySummary": {
-        "additionalProperties": false,
         "properties": {
-          "notes": {
-            "items": {
-              "$ref": "#/components/schemas/DataQualityNote"
-            },
-            "title": "Notes",
-            "type": "array"
-          },
           "status": {
+            "type": "string",
             "enum": [
               "ok",
               "degraded",
               "insufficient"
             ],
-            "title": "Status",
-            "type": "string"
+            "title": "Status"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/DataQualityNote"
+            },
+            "type": "array",
+            "title": "Notes"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "status"
         ],
-        "title": "DataQualitySummary",
-        "type": "object"
+        "title": "DataQualitySummary"
       },
       "DataScope": {
+        "type": "string",
         "enum": [
           "briefing_trace",
           "recent_health",
@@ -1922,153 +3743,153 @@
           "goals",
           "external_knowledge"
         ],
-        "title": "DataScope",
-        "type": "string"
+        "title": "DataScope"
       },
       "DisableExternalLLMRequest": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
           "consent_version": {
             "anyOf": [
               {
-                "minLength": 1,
-                "type": "string"
+                "type": "string",
+                "minLength": 1
               },
               {
                 "type": "null"
               }
             ],
             "title": "Consent Version"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
           }
         },
-        "title": "DisableExternalLLMRequest",
-        "type": "object"
+        "additionalProperties": false,
+        "type": "object",
+        "title": "DisableExternalLLMRequest"
       },
       "EvalQueueStatus": {
+        "type": "string",
         "enum": [
           "queued",
           "skipped",
           "failed"
         ],
-        "title": "EvalQueueStatus",
-        "type": "string"
+        "title": "EvalQueueStatus"
       },
       "ExternalCitation": {
-        "additionalProperties": false,
         "properties": {
-          "cited_claim": {
+          "title": {
+            "type": "string",
             "minLength": 1,
-            "title": "Cited Claim",
-            "type": "string"
+            "title": "Title"
           },
           "source": {
+            "type": "string",
             "minLength": 1,
-            "title": "Source",
-            "type": "string"
-          },
-          "title": {
-            "minLength": 1,
-            "title": "Title",
-            "type": "string"
+            "title": "Source"
           },
           "url": {
             "anyOf": [
               {
-                "format": "uri",
+                "type": "string",
                 "maxLength": 2083,
                 "minLength": 1,
-                "type": "string"
+                "format": "uri"
               },
               {
                 "type": "null"
               }
             ],
             "title": "Url"
+          },
+          "cited_claim": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Cited Claim"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "title",
           "source",
           "cited_claim"
         ],
-        "title": "ExternalCitation",
-        "type": "object"
+        "title": "ExternalCitation"
       },
       "FeedbackActionTaken": {
+        "type": "string",
         "enum": [
           "followed",
           "partially_followed",
           "ignored",
           "planned"
         ],
-        "title": "FeedbackActionTaken",
-        "type": "string"
+        "title": "FeedbackActionTaken"
       },
       "FeedbackContradictionAlert": {
-        "additionalProperties": false,
         "properties": {
           "contradiction_key": {
+            "type": "string",
             "minLength": 1,
-            "title": "Contradiction Key",
-            "type": "string"
+            "title": "Contradiction Key"
           },
           "count": {
+            "type": "integer",
             "minimum": 2.0,
-            "title": "Count",
-            "type": "integer"
+            "title": "Count"
           },
           "message": {
+            "type": "string",
             "minLength": 1,
-            "title": "Message",
-            "type": "string"
+            "title": "Message"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "contradiction_key",
           "count",
           "message"
         ],
-        "title": "FeedbackContradictionAlert",
-        "type": "object"
+        "title": "FeedbackContradictionAlert"
       },
       "FeedbackRating": {
+        "type": "string",
         "enum": [
           "useful",
           "somewhat_useful",
           "not_useful",
           "unsafe_or_wrong"
         ],
-        "title": "FeedbackRating",
-        "type": "string"
+        "title": "FeedbackRating"
       },
       "FollowUpPrompt": {
-        "additionalProperties": false,
         "properties": {
           "question": {
+            "type": "string",
             "minLength": 1,
-            "title": "Question",
-            "type": "string"
+            "title": "Question"
           },
           "reason": {
+            "type": "string",
             "minLength": 1,
-            "title": "Reason",
-            "type": "string"
+            "title": "Reason"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "question",
           "reason"
         ],
-        "title": "FollowUpPrompt",
-        "type": "object"
+        "title": "FollowUpPrompt"
       },
       "GoalCategory": {
+        "type": "string",
         "enum": [
           "cognitive_performance",
           "vo2_max",
@@ -2077,95 +3898,95 @@
           "sleep",
           "long_term_wellness"
         ],
-        "title": "GoalCategory",
-        "type": "string"
+        "title": "GoalCategory"
       },
       "GoalRequest": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
           "category": {
             "$ref": "#/components/schemas/GoalCategory"
+          },
+          "priority": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Priority"
+          },
+          "time_horizon": {
+            "$ref": "#/components/schemas/GoalTimeHorizon"
+          },
+          "success_metric": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Success Metric"
           },
           "constraints": {
             "additionalProperties": {
               "type": "string"
             },
-            "title": "Constraints",
-            "type": "object"
-          },
-          "priority": {
-            "maximum": 5.0,
-            "minimum": 1.0,
-            "title": "Priority",
-            "type": "integer"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
-          },
-          "success_metric": {
-            "maxLength": 160,
-            "minLength": 1,
-            "title": "Success Metric",
-            "type": "string"
-          },
-          "time_horizon": {
-            "$ref": "#/components/schemas/GoalTimeHorizon"
+            "type": "object",
+            "title": "Constraints"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "category",
           "priority",
           "time_horizon",
           "success_metric"
         ],
-        "title": "GoalRequest",
-        "type": "object"
+        "title": "GoalRequest"
       },
       "GoalResponse": {
-        "additionalProperties": false,
         "properties": {
-          "active": {
-            "title": "Active",
-            "type": "boolean"
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
           },
           "category": {
             "$ref": "#/components/schemas/GoalCategory"
+          },
+          "priority": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Priority"
+          },
+          "time_horizon": {
+            "$ref": "#/components/schemas/GoalTimeHorizon"
+          },
+          "success_metric": {
+            "type": "string",
+            "title": "Success Metric"
           },
           "constraints": {
             "additionalProperties": {
               "type": "string"
             },
-            "title": "Constraints",
-            "type": "object"
+            "type": "object",
+            "title": "Constraints"
           },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "priority": {
-            "maximum": 5.0,
-            "minimum": 1.0,
-            "title": "Priority",
-            "type": "integer"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
-          },
-          "success_metric": {
-            "title": "Success Metric",
-            "type": "string"
-          },
-          "time_horizon": {
-            "$ref": "#/components/schemas/GoalTimeHorizon"
+          "active": {
+            "type": "boolean",
+            "title": "Active"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "id",
           "category",
@@ -2174,32 +3995,28 @@
           "success_metric",
           "active"
         ],
-        "title": "GoalResponse",
-        "type": "object"
+        "title": "GoalResponse"
       },
       "GoalTimeHorizon": {
+        "type": "string",
         "enum": [
           "short_term",
           "medium_term",
           "long_term"
         ],
-        "title": "GoalTimeHorizon",
-        "type": "string"
+        "title": "GoalTimeHorizon"
       },
       "GoalTradeoff": {
-        "additionalProperties": false,
         "properties": {
-          "evidence_refs": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Evidence Refs",
-            "type": "array"
-          },
           "goal": {
+            "type": "string",
             "minLength": 1,
-            "title": "Goal",
-            "type": "string"
+            "title": "Goal"
+          },
+          "tradeoff": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Tradeoff"
           },
           "indicator_status": {
             "anyOf": [
@@ -2212,25 +4029,28 @@
             ],
             "title": "Indicator Status"
           },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence Refs"
+          },
           "missing_data": {
             "items": {
               "type": "string"
             },
-            "title": "Missing Data",
-            "type": "array"
-          },
-          "tradeoff": {
-            "minLength": 1,
-            "title": "Tradeoff",
-            "type": "string"
+            "type": "array",
+            "title": "Missing Data"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "goal",
           "tradeoff"
         ],
-        "title": "GoalTradeoff",
-        "type": "object"
+        "title": "GoalTradeoff"
       },
       "HTTPValidationError": {
         "properties": {
@@ -2238,14 +4058,15 @@
             "items": {
               "$ref": "#/components/schemas/ValidationError"
             },
-            "title": "Detail",
-            "type": "array"
+            "type": "array",
+            "title": "Detail"
           }
         },
-        "title": "HTTPValidationError",
-        "type": "object"
+        "type": "object",
+        "title": "HTTPValidationError"
       },
       "HealthConsentCategory": {
+        "type": "string",
         "enum": [
           "all",
           "heart_rate",
@@ -2254,17 +4075,28 @@
           "vitals",
           "other"
         ],
-        "title": "HealthConsentCategory",
-        "type": "string"
+        "title": "HealthConsentCategory"
       },
       "HealthSamplePayload": {
-        "additionalProperties": false,
         "properties": {
+          "source_sample_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Source Sample Id"
+          },
+          "sample_type": {
+            "$ref": "#/components/schemas/MetricType"
+          },
+          "start_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start Time"
+          },
           "end_time": {
             "anyOf": [
               {
-                "format": "date-time",
-                "type": "string"
+                "type": "string",
+                "format": "date-time"
               },
               {
                 "type": "null"
@@ -2272,34 +4104,23 @@
             ],
             "title": "End Time"
           },
-          "sample_type": {
-            "$ref": "#/components/schemas/MetricType"
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "unit": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Unit"
           },
           "source_metadata": {
             "additionalProperties": true,
-            "title": "Source Metadata",
-            "type": "object"
-          },
-          "source_sample_id": {
-            "minLength": 1,
-            "title": "Source Sample Id",
-            "type": "string"
-          },
-          "start_time": {
-            "format": "date-time",
-            "title": "Start Time",
-            "type": "string"
-          },
-          "unit": {
-            "minLength": 1,
-            "title": "Unit",
-            "type": "string"
-          },
-          "value": {
-            "title": "Value",
-            "type": "number"
+            "type": "object",
+            "title": "Source Metadata"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "source_sample_id",
           "sample_type",
@@ -2307,26 +4128,37 @@
           "value",
           "unit"
         ],
-        "title": "HealthSamplePayload",
-        "type": "object"
+        "title": "HealthSamplePayload"
       },
       "HealthSyncRequest": {
-        "additionalProperties": false,
         "properties": {
-          "client_sync_id": {
-            "minLength": 1,
-            "title": "Client Sync Id",
-            "type": "string"
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
           },
-          "consent_version": {
+          "client_sync_id": {
+            "type": "string",
             "minLength": 1,
-            "title": "Consent Version",
-            "type": "string"
+            "title": "Client Sync Id"
           },
           "device_id": {
+            "type": "string",
             "minLength": 1,
-            "title": "Device Id",
-            "type": "string"
+            "title": "Device Id"
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Timezone"
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/HealthSamplePayload"
+            },
+            "type": "array",
+            "title": "Samples"
           },
           "last_anchor": {
             "anyOf": [
@@ -2339,25 +4171,14 @@
             ],
             "title": "Last Anchor"
           },
-          "samples": {
-            "items": {
-              "$ref": "#/components/schemas/HealthSamplePayload"
-            },
-            "title": "Samples",
-            "type": "array"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
-          },
-          "timezone": {
+          "consent_version": {
+            "type": "string",
             "minLength": 1,
-            "title": "Timezone",
-            "type": "string"
+            "title": "Consent Version"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "client_sync_id",
           "device_id",
@@ -2365,53 +4186,53 @@
           "samples",
           "consent_version"
         ],
-        "title": "HealthSyncRequest",
-        "type": "object"
+        "title": "HealthSyncRequest"
       },
       "HealthSyncResponse": {
-        "additionalProperties": false,
         "properties": {
-          "accepted_count": {
-            "minimum": 0.0,
-            "title": "Accepted Count",
-            "type": "integer"
-          },
-          "data_quality_summary": {
-            "$ref": "#/components/schemas/DataQualitySummary"
-          },
-          "duplicate_count": {
-            "minimum": 0.0,
-            "title": "Duplicate Count",
-            "type": "integer"
-          },
-          "next_anchor": {
-            "title": "Next Anchor",
-            "type": "string"
-          },
-          "rejected_count": {
-            "minimum": 0.0,
-            "title": "Rejected Count",
-            "type": "integer"
-          },
           "schema_version": {
+            "type": "string",
             "const": "v1",
-            "default": "v1",
             "title": "Schema Version",
-            "type": "string"
+            "default": "v1"
           },
           "sync_id": {
+            "type": "string",
             "format": "uuid",
-            "title": "Sync Id",
-            "type": "string"
+            "title": "Sync Id"
+          },
+          "accepted_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Accepted Count"
+          },
+          "duplicate_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duplicate Count"
+          },
+          "rejected_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Rejected Count"
           },
           "warnings": {
             "items": {
               "type": "string"
             },
-            "title": "Warnings",
-            "type": "array"
+            "type": "array",
+            "title": "Warnings"
+          },
+          "next_anchor": {
+            "type": "string",
+            "title": "Next Anchor"
+          },
+          "data_quality_summary": {
+            "$ref": "#/components/schemas/DataQualitySummary"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "sync_id",
           "accepted_count",
@@ -2420,16 +4241,54 @@
           "next_anchor",
           "data_quality_summary"
         ],
-        "title": "HealthSyncResponse",
-        "type": "object"
+        "title": "HealthSyncResponse"
+      },
+      "LLMSettingsResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "cheap_model": {
+            "type": "string",
+            "title": "Cheap Model"
+          },
+          "strong_model": {
+            "type": "string",
+            "title": "Strong Model"
+          },
+          "fallback_model": {
+            "type": "string",
+            "title": "Fallback Model"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider",
+          "cheap_model",
+          "strong_model",
+          "fallback_model"
+        ],
+        "title": "LLMSettingsResponse"
       },
       "MemoryObservation": {
-        "additionalProperties": false,
         "properties": {
           "observation": {
+            "type": "string",
             "minLength": 1,
-            "title": "Observation",
-            "type": "string"
+            "title": "Observation"
+          },
+          "relevance": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Relevance"
           },
           "period": {
             "anyOf": [
@@ -2441,31 +4300,123 @@
               }
             ],
             "title": "Period"
-          },
-          "relevance": {
-            "minLength": 1,
-            "title": "Relevance",
-            "type": "string"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "observation",
           "relevance"
         ],
-        "title": "MemoryObservation",
-        "type": "object"
+        "title": "MemoryObservation"
+      },
+      "MemorySummaryItem": {
+        "properties": {
+          "memory_summary_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Memory Summary Id"
+          },
+          "period_type": {
+            "type": "string",
+            "title": "Period Type"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "title": "End Date"
+          },
+          "summary_version": {
+            "type": "string",
+            "title": "Summary Version"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "observations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Observations"
+          },
+          "hypotheses": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Hypotheses"
+          },
+          "source_refs": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Source Refs"
+          },
+          "sensitive_fields_excluded": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sensitive Fields Excluded"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "memory_summary_id",
+          "period_type",
+          "start_date",
+          "end_date",
+          "summary_version",
+          "confidence"
+        ],
+        "title": "MemorySummaryItem"
+      },
+      "MemorySummaryListResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "summaries": {
+            "items": {
+              "$ref": "#/components/schemas/MemorySummaryItem"
+            },
+            "type": "array",
+            "title": "Summaries"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MemorySummaryListResponse"
       },
       "MemoryUpdateStatus": {
+        "type": "string",
         "enum": [
           "queued",
           "applied",
           "skipped",
           "failed"
         ],
-        "title": "MemoryUpdateStatus",
-        "type": "string"
+        "title": "MemoryUpdateStatus"
       },
       "MetricType": {
+        "type": "string",
         "enum": [
           "heart_rate_variability",
           "resting_heart_rate",
@@ -2478,52 +4429,52 @@
           "workout",
           "other"
         ],
-        "title": "MetricType",
-        "type": "string"
+        "title": "MetricType"
       },
       "ModelDisclosureRecord": {
-        "additionalProperties": false,
         "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
           },
-          "input_hash": {
-            "title": "Input Hash",
-            "type": "string"
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "run_type": {
+            "type": "string",
+            "title": "Run Type"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
           },
           "model": {
-            "title": "Model",
-            "type": "string"
+            "type": "string",
+            "title": "Model"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "input_hash": {
+            "type": "string",
+            "title": "Input Hash"
           },
           "payload_metadata": {
             "additionalProperties": true,
-            "title": "Payload Metadata",
-            "type": "object"
-          },
-          "prompt_version": {
-            "title": "Prompt Version",
-            "type": "string"
-          },
-          "provider": {
-            "title": "Provider",
-            "type": "string"
-          },
-          "run_id": {
-            "format": "uuid",
-            "title": "Run Id",
-            "type": "string"
-          },
-          "run_type": {
-            "title": "Run Type",
-            "type": "string"
-          },
-          "schema_version": {
-            "title": "Schema Version",
-            "type": "string"
+            "type": "object",
+            "title": "Payload Metadata"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "run_id",
           "created_at",
@@ -2534,52 +4485,44 @@
           "schema_version",
           "input_hash"
         ],
-        "title": "ModelDisclosureRecord",
-        "type": "object"
+        "title": "ModelDisclosureRecord"
       },
       "ModelDisclosureResponse": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
           "runs": {
             "items": {
               "$ref": "#/components/schemas/ModelDisclosureRecord"
             },
-            "title": "Runs",
-            "type": "array"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
+            "type": "array",
+            "title": "Runs"
           }
         },
-        "title": "ModelDisclosureResponse",
-        "type": "object"
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelDisclosureResponse"
+      },
+      "PeriodType": {
+        "type": "string",
+        "enum": [
+          "daily",
+          "weekly",
+          "monthly",
+          "quarterly"
+        ],
+        "title": "PeriodType"
       },
       "PersonalEvidence": {
-        "additionalProperties": false,
         "properties": {
-          "interpretation": {
-            "minLength": 1,
-            "title": "Interpretation",
-            "type": "string"
-          },
           "metric": {
+            "type": "string",
             "minLength": 1,
-            "title": "Metric",
-            "type": "string"
-          },
-          "source": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source"
+            "title": "Metric"
           },
           "value": {
             "anyOf": [
@@ -2597,26 +4540,44 @@
               }
             ],
             "title": "Value"
+          },
+          "interpretation": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Interpretation"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "metric",
           "value",
           "interpretation"
         ],
-        "title": "PersonalEvidence",
-        "type": "object"
+        "title": "PersonalEvidence"
       },
       "PrivacyMode": {
+        "type": "string",
         "enum": [
           "local_only",
           "cloud_assisted",
           "hybrid"
         ],
-        "title": "PrivacyMode",
-        "type": "string"
+        "title": "PrivacyMode"
       },
       "ReadinessState": {
+        "type": "string",
         "enum": [
           "high",
           "moderate",
@@ -2624,31 +4585,31 @@
           "mixed",
           "insufficient_data"
         ],
-        "title": "ReadinessState",
-        "type": "string"
+        "title": "ReadinessState"
       },
       "RecommendationAlternative": {
-        "additionalProperties": false,
         "properties": {
           "label": {
+            "type": "string",
             "minLength": 1,
-            "title": "Label",
-            "type": "string"
+            "title": "Label"
           },
           "rationale": {
+            "type": "string",
             "minLength": 1,
-            "title": "Rationale",
-            "type": "string"
+            "title": "Rationale"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "label",
           "rationale"
         ],
-        "title": "RecommendationAlternative",
-        "type": "object"
+        "title": "RecommendationAlternative"
       },
       "RecommendationBand": {
+        "type": "string",
         "enum": [
           "hard_training_ok",
           "moderate",
@@ -2659,37 +4620,28 @@
           "rest",
           "insufficient_data"
         ],
-        "title": "RecommendationBand",
-        "type": "string"
+        "title": "RecommendationBand"
       },
       "RecommendationFeedbackRequest": {
-        "additionalProperties": false,
         "properties": {
-          "action_taken": {
-            "$ref": "#/components/schemas/FeedbackActionTaken"
-          },
-          "outcome_notes": {
-            "anyOf": [
-              {
-                "maxLength": 240,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Outcome Notes"
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
           },
           "rating": {
             "$ref": "#/components/schemas/FeedbackRating"
           },
+          "action_taken": {
+            "$ref": "#/components/schemas/FeedbackActionTaken"
+          },
           "reason": {
             "anyOf": [
               {
+                "type": "string",
                 "maxLength": 240,
-                "minLength": 1,
-                "type": "string"
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -2697,23 +4649,47 @@
             ],
             "title": "Reason"
           },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
+          "outcome_notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 240,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Notes"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "rating",
           "action_taken"
         ],
-        "title": "RecommendationFeedbackRequest",
-        "type": "object"
+        "title": "RecommendationFeedbackRequest"
       },
       "RecommendationFeedbackResponse": {
-        "additionalProperties": false,
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "feedback_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Feedback Id"
+          },
+          "memory_update_status": {
+            "$ref": "#/components/schemas/MemoryUpdateStatus"
+          },
+          "eval_queue_status": {
+            "$ref": "#/components/schemas/EvalQueueStatus"
+          },
           "contradiction_alert": {
             "anyOf": [
               {
@@ -2723,36 +4699,24 @@
                 "type": "null"
               }
             ]
-          },
-          "eval_queue_status": {
-            "$ref": "#/components/schemas/EvalQueueStatus"
-          },
-          "feedback_id": {
-            "format": "uuid",
-            "title": "Feedback Id",
-            "type": "string"
-          },
-          "memory_update_status": {
-            "$ref": "#/components/schemas/MemoryUpdateStatus"
-          },
-          "schema_version": {
-            "const": "v1",
-            "default": "v1",
-            "title": "Schema Version",
-            "type": "string"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "feedback_id",
           "memory_update_status",
           "eval_queue_status"
         ],
-        "title": "RecommendationFeedbackResponse",
-        "type": "object"
+        "title": "RecommendationFeedbackResponse"
       },
       "RecommendationSummary": {
-        "additionalProperties": false,
         "properties": {
+          "primary": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Primary"
+          },
           "avoid": {
             "anyOf": [
               {
@@ -2763,56 +4727,45 @@
               }
             ],
             "title": "Avoid"
-          },
-          "primary": {
-            "minLength": 1,
-            "title": "Primary",
-            "type": "string"
           }
         },
+        "additionalProperties": false,
+        "type": "object",
         "required": [
           "primary"
         ],
-        "title": "RecommendationSummary",
-        "type": "object"
+        "title": "RecommendationSummary"
       },
       "RedactionStatus": {
+        "type": "string",
         "enum": [
           "redacted",
           "partial",
           "none"
         ],
-        "title": "RedactionStatus",
-        "type": "string"
+        "title": "RedactionStatus"
       },
       "SafetyStatus": {
+        "type": "string",
         "enum": [
           "passed",
           "blocked",
           "rewritten",
           "escalated"
         ],
-        "title": "SafetyStatus",
-        "type": "string"
+        "title": "SafetyStatus"
       },
       "SensitiveNotePolicy": {
+        "type": "string",
         "enum": [
           "exclude_from_external_llm",
           "summarize_before_external_llm",
           "allow_external_llm"
         ],
-        "title": "SensitiveNotePolicy",
-        "type": "string"
+        "title": "SensitiveNotePolicy"
       },
       "ValidationError": {
         "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
           "loc": {
             "items": {
               "anyOf": [
@@ -2824,1672 +4777,45 @@
                 }
               ]
             },
-            "title": "Location",
-            "type": "array"
+            "type": "array",
+            "title": "Location"
           },
           "msg": {
-            "title": "Message",
-            "type": "string"
+            "type": "string",
+            "title": "Message"
           },
           "type": {
-            "title": "Error Type",
-            "type": "string"
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
+        "type": "object",
         "required": [
           "loc",
           "msg",
           "type"
         ],
-        "title": "ValidationError",
-        "type": "object"
+        "title": "ValidationError"
       }
     },
     "securitySchemes": {
+      "BaselineBearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Baseline API token from BASELINE_API_AUTH_TOKEN."
+      },
       "BaselineApiKeyAuth": {
-        "description": "Baseline API token from BASELINE_API_AUTH_TOKEN.",
+        "type": "apiKey",
         "in": "header",
         "name": "X-Baseline-API-Key",
-        "type": "apiKey"
-      },
-      "BaselineBearerAuth": {
-        "description": "Baseline API token from BASELINE_API_AUTH_TOKEN.",
-        "scheme": "bearer",
-        "type": "http"
-      }
-    }
-  },
-  "info": {
-    "title": "Baseline",
-    "version": "0.1.0"
-  },
-  "openapi": "3.1.0",
-  "paths": {
-    "/health": {
-      "get": {
-        "operationId": "health_health_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Health Health Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Health"
-      }
-    },
-    "/v1/analysis/daily": {
-      "post": {
-        "operationId": "generate_daily_analysis_v1_analysis_daily_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DailyAnalysisRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyAnalysisResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Generate Daily Analysis",
-        "tags": [
-          "contracts"
-        ]
-      }
-    },
-    "/v1/analysis/daily/{job_id}": {
-      "get": {
-        "operationId": "get_daily_analysis_job_v1_analysis_daily__job_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "job_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyAnalysisResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Get Daily Analysis Job",
-        "tags": [
-          "contracts"
-        ]
-      }
-    },
-    "/v1/analysis/traces/{trace_id}": {
-      "get": {
-        "operationId": "get_analysis_trace_v1_analysis_traces__trace_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "trace_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Trace Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_BriefingTraceInspection_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Get Analysis Trace",
-        "tags": [
-          "contracts"
-        ]
-      }
-    },
-    "/v1/assistant/query": {
-      "post": {
-        "operationId": "ask_assistant_v1_assistant_query_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssistantQueryRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_AssistantQueryResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Ask Assistant",
-        "tags": [
-          "assistant"
-        ]
-      }
-    },
-    "/v1/briefings/{date}": {
-      "get": {
-        "operationId": "get_daily_briefing_v1_briefings__date__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "date",
-            "required": true,
-            "schema": {
-              "format": "date",
-              "title": "Date",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offline_last",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "Offline Last",
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyBriefingResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Get Daily Briefing",
-        "tags": [
-          "contracts"
-        ]
-      }
-    },
-    "/v1/checkins/daily": {
-      "post": {
-        "operationId": "submit_daily_checkin_v1_checkins_daily_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DailyCheckInRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Submit Daily Checkin",
-        "tags": [
-          "checkins"
-        ]
-      }
-    },
-    "/v1/checkins/daily/by-date/{checkin_date}": {
-      "get": {
-        "operationId": "get_daily_checkin_v1_checkins_daily_by_date__checkin_date__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "checkin_date",
-            "required": true,
-            "schema": {
-              "format": "date",
-              "title": "Checkin Date",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInDetailResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Get Daily Checkin",
-        "tags": [
-          "checkins"
-        ]
-      }
-    },
-    "/v1/checkins/daily/{checkin_id}": {
-      "delete": {
-        "operationId": "delete_daily_checkin_v1_checkins_daily__checkin_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "checkin_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Checkin Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Delete Daily Checkin",
-        "tags": [
-          "checkins"
-        ]
-      },
-      "put": {
-        "operationId": "update_daily_checkin_v1_checkins_daily__checkin_id__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "checkin_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Checkin Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DailyCheckInRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DailyCheckInResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Update Daily Checkin",
-        "tags": [
-          "checkins"
-        ]
-      }
-    },
-    "/v1/data/all": {
-      "delete": {
-        "operationId": "delete_all_data_v1_data_all_delete",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DataDeleteResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Delete All Data",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/data/checkins/{checkin_id}": {
-      "delete": {
-        "operationId": "delete_checkin_v1_data_checkins__checkin_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "checkin_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Checkin Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DataDeleteResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Delete Checkin",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/data/checkins/{checkin_id}/note": {
-      "delete": {
-        "operationId": "delete_checkin_note_v1_data_checkins__checkin_id__note_delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "checkin_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Checkin Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DataDeleteResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Delete Checkin Note",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/data/consent": {
-      "post": {
-        "operationId": "record_consent_v1_data_consent_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConsentRecordRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_ConsentRecordResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Record Consent",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/data/consent/disable-external-llm": {
-      "post": {
-        "operationId": "disable_external_llm_v1_data_consent_disable_external_llm_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DisableExternalLLMRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_ConsentRecordResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Disable External Llm",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/data/consent/history": {
-      "get": {
-        "operationId": "consent_history_v1_data_consent_history_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_ConsentHistoryResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Consent History",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/data/consent/revoke": {
-      "post": {
-        "operationId": "revoke_consent_v1_data_consent_revoke_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConsentRevocationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_ConsentRecordResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Revoke Consent",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/data/export": {
-      "post": {
-        "operationId": "export_data_v1_data_export_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DataExportRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DataExportResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Export Data",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/data/export/{export_job_id}/file": {
-      "get": {
-        "operationId": "download_export_v1_data_export__export_job_id__file_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "export_job_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Export Job Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/octet-stream": {
-                "schema": {
-                  "format": "binary",
-                  "type": "string"
-                }
-              }
-            },
-            "description": "Encrypted export file."
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Download Export",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/data/memory-summaries/{memory_summary_id}": {
-      "delete": {
-        "operationId": "delete_memory_summary_v1_data_memory_summaries__memory_summary_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "memory_summary_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Memory Summary Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_DataDeleteResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Delete Memory Summary",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/data/model-disclosures": {
-      "get": {
-        "operationId": "model_disclosures_v1_data_model_disclosures_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_ModelDisclosureResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Model Disclosures",
-        "tags": [
-          "data-controls"
-        ]
-      }
-    },
-    "/v1/goals": {
-      "get": {
-        "operationId": "list_goals_v1_goals_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_list_GoalResponse__"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "List Goals",
-        "tags": [
-          "goals"
-        ]
-      },
-      "post": {
-        "operationId": "create_goal_v1_goals_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GoalRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Create Goal",
-        "tags": [
-          "goals"
-        ]
-      }
-    },
-    "/v1/goals/{goal_id}": {
-      "delete": {
-        "operationId": "delete_goal_v1_goals__goal_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "goal_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Goal Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Delete Goal",
-        "tags": [
-          "goals"
-        ]
-      },
-      "get": {
-        "operationId": "get_goal_v1_goals__goal_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "goal_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Goal Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Get Goal",
-        "tags": [
-          "goals"
-        ]
-      },
-      "put": {
-        "operationId": "update_goal_v1_goals__goal_id__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "goal_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Goal Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GoalRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Update Goal",
-        "tags": [
-          "goals"
-        ]
-      }
-    },
-    "/v1/goals/{goal_id}/pause": {
-      "post": {
-        "operationId": "pause_goal_v1_goals__goal_id__pause_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "goal_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Goal Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Pause Goal",
-        "tags": [
-          "goals"
-        ]
-      }
-    },
-    "/v1/goals/{goal_id}/resume": {
-      "post": {
-        "operationId": "resume_goal_v1_goals__goal_id__resume_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "goal_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Goal Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_GoalResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Resume Goal",
-        "tags": [
-          "goals"
-        ]
-      }
-    },
-    "/v1/health/ping": {
-      "get": {
-        "operationId": "ping_v1_health_ping_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Ping V1 Health Ping Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Ping",
-        "tags": [
-          "health"
-        ]
-      }
-    },
-    "/v1/health/sync": {
-      "post": {
-        "operationId": "sync_health_v1_health_sync_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HealthSyncRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_HealthSyncResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
-                }
-              }
-            },
-            "description": "Consent is missing, revoked, invalid, or does not allow a sample category."
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
-                }
-              }
-            },
-            "description": "The sync request conflicts with idempotency or ingestion state."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
-                }
-              }
-            },
-            "description": "Raw samples were persisted, but normalization could not be queued."
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Sync Health",
-        "tags": [
-          "health"
-        ]
-      }
-    },
-    "/v1/observability/alerts": {
-      "get": {
-        "operationId": "get_operational_alerts_v1_observability_alerts_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "since",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "date-time",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Since"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_list_dict_str__Any___"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Get Operational Alerts",
-        "tags": [
-          "observability"
-        ]
-      }
-    },
-    "/v1/recommendations/{id}/feedback": {
-      "post": {
-        "operationId": "submit_recommendation_feedback_v1_recommendations__id__feedback_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RecommendationFeedbackRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_RecommendationFeedbackResponse_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "401": {
-            "description": "Authentication required."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/APIEnvelope_NoneType_"
-                }
-              }
-            },
-            "description": "Recommendation was not found."
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "BaselineBearerAuth": []
-          },
-          {
-            "BaselineApiKeyAuth": []
-          }
-        ],
-        "summary": "Submit Recommendation Feedback",
-        "tags": [
-          "contracts"
-        ]
+        "description": "Baseline API token from BASELINE_API_AUTH_TOKEN."
       }
     }
   }

@@ -92,6 +92,16 @@ public enum HealthCategory: String, CaseIterable, Codable, Identifiable, Sendabl
     }
 }
 
+public struct WakeTime: Codable, Equatable, Sendable, Hashable {
+    public var hour: Int
+    public var minute: Int
+
+    public init(hour: Int = 7, minute: Int = 0) {
+        self.hour = hour
+        self.minute = minute
+    }
+}
+
 public struct ConsentRecord: Codable, Equatable, Sendable {
     public static let currentVersion = "p1-04-v1"
 
@@ -100,19 +110,22 @@ public struct ConsentRecord: Codable, Equatable, Sendable {
     public var enabledCategories: [HealthCategory]
     public var deniedCategories: [HealthCategory]
     public var processingMode: PrivacyMode
+    public var wakeTime: WakeTime
 
     public init(
         consentVersion: String = ConsentRecord.currentVersion,
         grantedAt: Date = Date(),
         enabledCategories: [HealthCategory],
         deniedCategories: [HealthCategory] = [],
-        processingMode: PrivacyMode
+        processingMode: PrivacyMode,
+        wakeTime: WakeTime = WakeTime()
     ) {
         self.consentVersion = consentVersion
         self.grantedAt = grantedAt
         self.enabledCategories = enabledCategories
         self.deniedCategories = deniedCategories
         self.processingMode = processingMode
+        self.wakeTime = wakeTime
     }
 
     enum CodingKeys: String, CodingKey {
@@ -121,6 +134,7 @@ public struct ConsentRecord: Codable, Equatable, Sendable {
         case enabledCategories
         case deniedCategories
         case processingMode
+        case wakeTime
     }
 
     public init(from decoder: any Decoder) throws {
@@ -130,6 +144,7 @@ public struct ConsentRecord: Codable, Equatable, Sendable {
         enabledCategories = try container.decode([HealthCategory].self, forKey: .enabledCategories)
         deniedCategories = try container.decodeIfPresent([HealthCategory].self, forKey: .deniedCategories) ?? []
         processingMode = try container.decode(PrivacyMode.self, forKey: .processingMode)
+        wakeTime = try container.decodeIfPresent(WakeTime.self, forKey: .wakeTime) ?? WakeTime()
     }
 }
 
@@ -383,7 +398,8 @@ public enum PrivacyJSONValue: Codable, Equatable, Sendable {
     }
 }
 
-public enum DataExportScope: String, Codable, Sendable {
+public enum DataExportScope: String, Codable, CaseIterable, Identifiable, Sendable {
+    public var id: String { rawValue }
     case all
     case health
     case checkins
@@ -393,7 +409,8 @@ public enum DataExportScope: String, Codable, Sendable {
     case consent
 }
 
-public enum DataExportFormat: String, Codable, Sendable {
+public enum DataExportFormat: String, Codable, CaseIterable, Identifiable, Sendable {
+    public var id: String { rawValue }
     case json
     case csv
 }
@@ -551,6 +568,122 @@ public struct DataDeleteResponse: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
         case deleted
+    }
+}
+
+public enum FeedbackRating: String, Codable, CaseIterable, Identifiable, Sendable {
+    case useful
+    case somewhatUseful = "somewhat_useful"
+    case notUseful = "not_useful"
+    case unsafeOrWrong = "unsafe_or_wrong"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .useful:
+            "Useful"
+        case .somewhatUseful:
+            "Somewhat useful"
+        case .notUseful:
+            "Not useful"
+        case .unsafeOrWrong:
+            "Unsafe or wrong"
+        }
+    }
+}
+
+public enum FeedbackActionTaken: String, Codable, CaseIterable, Identifiable, Sendable {
+    case followed
+    case partiallyFollowed = "partially_followed"
+    case ignored
+    case planned
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .followed:
+            "Followed"
+        case .partiallyFollowed:
+            "Partially followed"
+        case .ignored:
+            "Ignored"
+        case .planned:
+            "Planned"
+        }
+    }
+}
+
+public struct RecommendationFeedbackRequest: Codable, Equatable, Sendable {
+    public var schemaVersion = "v1"
+    public var rating: FeedbackRating
+    public var actionTaken: FeedbackActionTaken
+    public var reason: String?
+    public var outcomeNotes: String?
+
+    public init(
+        rating: FeedbackRating,
+        actionTaken: FeedbackActionTaken,
+        reason: String? = nil,
+        outcomeNotes: String? = nil
+    ) {
+        self.rating = rating
+        self.actionTaken = actionTaken
+        self.reason = reason
+        self.outcomeNotes = outcomeNotes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case rating
+        case actionTaken = "action_taken"
+        case reason
+        case outcomeNotes = "outcome_notes"
+    }
+}
+
+public struct FeedbackContradictionAlert: Codable, Equatable, Sendable {
+    public var contradictionKey: String
+    public var count: Int
+    public var message: String
+
+    enum CodingKeys: String, CodingKey {
+        case contradictionKey = "contradiction_key"
+        case count
+        case message
+    }
+}
+
+public struct RecommendationFeedbackResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var feedbackID: UUID
+    public var memoryUpdateStatus: String
+    public var evalQueueStatus: String
+    public var contradictionAlert: FeedbackContradictionAlert?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case feedbackID = "feedback_id"
+        case memoryUpdateStatus = "memory_update_status"
+        case evalQueueStatus = "eval_queue_status"
+        case contradictionAlert = "contradiction_alert"
+    }
+}
+
+public struct LLMSettingsResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var provider: String
+    public var cheapModel: String
+    public var strongModel: String
+    public var fallbackModel: String
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case provider
+        case cheapModel = "cheap_model"
+        case strongModel = "strong_model"
+        case fallbackModel = "fallback_model"
     }
 }
 
@@ -851,6 +984,21 @@ public struct DataQualityNote: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public struct DataQualitySummary: Codable, Equatable, Sendable {
+    public var status: String
+    public var notes: [DataQualityNote]
+
+    public init(status: String, notes: [DataQualityNote] = []) {
+        self.status = status
+        self.notes = notes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case notes
+    }
+}
+
 public struct RecommendationAlternative: Codable, Equatable, Identifiable, Sendable {
     public var id: String { "\(label)-\(rationale)" }
     public var label: String
@@ -937,6 +1085,7 @@ public struct DailyBriefingResponse: Codable, Equatable, Sendable {
     public var safetyNotes: [String]
     public var traceID: UUID
     public var generatedAt: String
+    public var recommendationID: UUID?
     public var trace: BriefingTraceInspection?
 
     public init(
@@ -962,6 +1111,7 @@ public struct DailyBriefingResponse: Codable, Equatable, Sendable {
         safetyNotes: [String],
         traceID: UUID,
         generatedAt: String,
+        recommendationID: UUID? = nil,
         trace: BriefingTraceInspection? = nil
     ) {
         self.schemaVersion = schemaVersion
@@ -986,6 +1136,7 @@ public struct DailyBriefingResponse: Codable, Equatable, Sendable {
         self.safetyNotes = safetyNotes
         self.traceID = traceID
         self.generatedAt = generatedAt
+        self.recommendationID = recommendationID
         self.trace = trace
     }
 
@@ -1012,6 +1163,7 @@ public struct DailyBriefingResponse: Codable, Equatable, Sendable {
         case safetyNotes = "safety_notes"
         case traceID = "trace_id"
         case generatedAt = "generated_at"
+        case recommendationID = "recommendation_id"
         case trace
     }
 
@@ -1481,6 +1633,7 @@ public struct HealthSyncResponse: Codable, Equatable, Sendable {
     public var rejectedCount: Int
     public var warnings: [String]
     public var nextAnchor: String
+    public var dataQualitySummary: DataQualitySummary
 
     public init(
         schemaVersion: String = "v1",
@@ -1489,7 +1642,8 @@ public struct HealthSyncResponse: Codable, Equatable, Sendable {
         duplicateCount: Int,
         rejectedCount: Int,
         warnings: [String],
-        nextAnchor: String
+        nextAnchor: String,
+        dataQualitySummary: DataQualitySummary
     ) {
         self.schemaVersion = schemaVersion
         self.syncID = syncID
@@ -1498,6 +1652,7 @@ public struct HealthSyncResponse: Codable, Equatable, Sendable {
         self.rejectedCount = rejectedCount
         self.warnings = warnings
         self.nextAnchor = nextAnchor
+        self.dataQualitySummary = dataQualitySummary
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1508,5 +1663,128 @@ public struct HealthSyncResponse: Codable, Equatable, Sendable {
         case rejectedCount = "rejected_count"
         case warnings
         case nextAnchor = "next_anchor"
+        case dataQualitySummary = "data_quality_summary"
+    }
+}
+
+public enum MemoryPeriodType: String, Codable, CaseIterable, Identifiable, Sendable {
+    case daily
+    case weekly
+    case monthly
+    case quarterly
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .daily:
+            "Daily"
+        case .weekly:
+            "Weekly"
+        case .monthly:
+            "Monthly"
+        case .quarterly:
+            "Quarterly"
+        }
+    }
+}
+
+public struct MemorySummaryItem: Codable, Equatable, Identifiable, Sendable {
+    public var id: UUID { memorySummaryID }
+    public var memorySummaryID: UUID
+    public var periodType: MemoryPeriodType
+    public var startDate: String
+    public var endDate: String
+    public var summaryVersion: String
+    public var confidence: Double
+    public var observations: [MemorySummaryEntry]
+    public var hypotheses: [MemorySummaryEntry]
+    public var sourceRefs: [MemorySourceRef]
+    public var sensitiveFieldsExcluded: [String]
+
+    public init(
+        memorySummaryID: UUID,
+        periodType: MemoryPeriodType,
+        startDate: String,
+        endDate: String,
+        summaryVersion: String,
+        confidence: Double,
+        observations: [MemorySummaryEntry] = [],
+        hypotheses: [MemorySummaryEntry] = [],
+        sourceRefs: [MemorySourceRef] = [],
+        sensitiveFieldsExcluded: [String] = []
+    ) {
+        self.memorySummaryID = memorySummaryID
+        self.periodType = periodType
+        self.startDate = startDate
+        self.endDate = endDate
+        self.summaryVersion = summaryVersion
+        self.confidence = confidence
+        self.observations = observations
+        self.hypotheses = hypotheses
+        self.sourceRefs = sourceRefs
+        self.sensitiveFieldsExcluded = sensitiveFieldsExcluded
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case memorySummaryID = "memory_summary_id"
+        case periodType = "period_type"
+        case startDate = "start_date"
+        case endDate = "end_date"
+        case summaryVersion = "summary_version"
+        case confidence
+        case observations
+        case hypotheses
+        case sourceRefs = "source_refs"
+        case sensitiveFieldsExcluded = "sensitive_fields_excluded"
+    }
+}
+
+public struct MemorySummaryEntry: Codable, Equatable, Sendable {
+    public var text: String?
+    public var metric: String?
+    public var summary: String?
+    public var confidence: Double?
+    public var sourceRefs: [MemorySourceRef]?
+
+    public init(
+        text: String? = nil,
+        metric: String? = nil,
+        summary: String? = nil,
+        confidence: Double? = nil,
+        sourceRefs: [MemorySourceRef]? = nil
+    ) {
+        self.text = text
+        self.metric = metric
+        self.summary = summary
+        self.confidence = confidence
+        self.sourceRefs = sourceRefs
+    }
+}
+
+public struct MemorySourceRef: Codable, Equatable, Sendable {
+    public var table: String?
+    public var id: String?
+    public var field: String?
+
+    public init(table: String? = nil, id: String? = nil, field: String? = nil) {
+        self.table = table
+        self.id = id
+        self.field = field
+    }
+}
+
+public struct MemorySummaryListResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var summaries: [MemorySummaryItem]
+
+    public init(schemaVersion: String = "v1", summaries: [MemorySummaryItem] = []) {
+        self.schemaVersion = schemaVersion
+        self.summaries = summaries
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case summaries
     }
 }

@@ -15,6 +15,7 @@ apps/ios/.build/
 .DS_Store
 .omx/
 .task-runs/
+.worktrees/
 
 # Generated local agent/editor surfaces.
 .claude/

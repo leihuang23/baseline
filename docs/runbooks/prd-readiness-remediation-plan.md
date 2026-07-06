@@ -9,7 +9,8 @@ Baseline is functionally strong as a private, portfolio-grade single-user system
 3. Replace goal-module placeholders with deterministic, evidence-backed goal indicators and reasoning tradeoffs.
 4. Upgrade external knowledge retrieval from demo-grade plumbing to a more production credible curated retrieval path.
 5. Harden export storage/key custody and document the real single-user production boundary.
-6. Verify the whole system with targeted tests plus full gates.
+6. Add iOS Trends and Memory views so users can browse structured memory summaries and compare weeks.
+7. Verify the whole system with targeted tests plus full gates.
 
 ## Context And Goals
 
@@ -69,6 +70,16 @@ Non-goal: build full closed-beta multi-user authentication. That belongs to a se
 - Centralize single-user resolution for privacy, ingestion, goals, check-ins, and briefing services.
 - Update deployment docs to state private single-user deployments are supported, multiple users fail closed, and closed beta requires account-level auth/user resolution before launch.
 
+### 6. iOS Trends And Memory Views
+
+- Add `GET /v1/data/memory-summaries` to return the single user's structured memory summaries, optionally filtered by `period_type`.
+- Return summary fields: id, period_type, start/end dates, observations, hypotheses, confidence, summary_version, source_refs, and redaction hints.
+- Add iOS `MemoryAPIClient` protocol and `URLSessionHealthSyncAPIClient` implementation.
+- Add an iOS "Memory" tab that lists daily, weekly, monthly, and quarterly summaries, distinguishes observations from hypotheses, and shows confidence/source refs.
+- Add an iOS "Trends" section within the Memory tab that surfaces week-over-week comparisons (e.g., latest weekly summary vs. prior weekly summary) and answers "how was this week different from last week?" using structured memory only.
+- Wire deletion of an individual memory summary through the existing data-controls endpoint and update the list optimistically.
+- Keep deterministic backend memory as the source of truth; the iOS layer only renders and deletes, never computes trends.
+
 ## Test Plan
 
 ### Targeted Backend Tests
@@ -94,6 +105,11 @@ Non-goal: build full closed-beta multi-user authentication. That belongs to a se
 - Consent failure keeps cloud/hybrid onboarding retryable.
 - Briefing polling respects backend estimates and does not timeout after roughly 1.5 seconds.
 - Timed-out jobs show retryable state and preserve latest cached briefing.
+- `GET /v1/data/memory-summaries` returns only the single user's summaries and respects `period_type` filter.
+- Memory summary list excludes raw sensitive notes when consent forbids them.
+- iOS Memory view renders observations, hypotheses, confidence, and period labels.
+- iOS Trends view renders a week-over-week comparison when at least two weekly summaries exist.
+- Deleting a memory summary from iOS updates the list and calls the backend delete endpoint.
 
 ### Full Verification Gates
 
@@ -122,6 +138,8 @@ If local DB or Swift cache sandboxing blocks verification, rerun the same comman
 - iOS briefing generation waits according to the backend async job contract and does not prematurely show offline fallback.
 - Export storage is configurable, production-safe by default, expiry-cleaned, and key material is not persisted server-side.
 - Single-user limitations are centralized, tested, and documented as a private-deployment boundary.
+- iOS users can browse structured memory summaries and delete individual summaries.
+- iOS Trends surfaces a week-over-week comparison from backend memory without local computation.
 - Full verification gates pass.
 - Worktree is clean after implementation except for intentional committed changes.
 

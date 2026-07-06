@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlmodel import Session, col, select
 
 from baseline_api.db.models.modelrun import ModelRun
+from baseline_api.db.models.user import User
 from baseline_api.privacy.model_runs import sanitize_model_input_metadata
 from baseline_api.privacy.user import get_single_user
 from baseline_api.schemas.api import ModelDisclosureRecord, ModelDisclosureResponse
@@ -16,12 +17,12 @@ class ModelDisclosureService:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def list_model_payloads(self) -> ModelDisclosureResponse:
-        user = get_single_user(self._session)
+    def list_model_payloads(self, *, user: User | None = None) -> ModelDisclosureResponse:
+        resolved_user = user or get_single_user(self._session)
         rows = list(
             self._session.exec(
                 select(ModelRun)
-                .where(ModelRun.user_id == user.id)
+                .where(ModelRun.user_id == resolved_user.id)
                 .order_by(col(ModelRun.created_at).desc())
             ).all()
         )

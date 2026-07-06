@@ -49,11 +49,66 @@ def create_embedder(settings: Settings | None = None) -> EmbeddingProvider:
         )
     return HashEmbeddingProvider()
 
+
 DEFAULT_LIMIT = 3
 DEFAULT_MIN_RELEVANCE = 0.08
 LEXICAL_FALLBACK_MIN_OVERLAP = 0.2
 MIN_CLAIM_SUPPORT_SCORE = 0.35
 GENERAL_RESEARCH_LABEL = "General research (non-personalized): "
+
+QUERY_TOPIC_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "aerobic",
+        "cardio",
+        "cardiorespiratory",
+        "cognitive",
+        "consistency",
+        "fitness",
+        "heart rate variability",
+        "hrv",
+        "hydration",
+        "lifestyle",
+        "load",
+        "moderate",
+        "nutrition",
+        "performance",
+        "physical activity",
+        "progression",
+        "rhr",
+        "recovery",
+        "rest",
+        "resting heart rate",
+        "sleep",
+        "sleep consistency",
+        "sleep debt",
+        "strength",
+        "stress",
+        "training",
+        "training load",
+        "vo2",
+        "wellness",
+        "wellness boundaries",
+    }
+)
+
+RECOMMENDATION_BAND_TOPICS: dict[str, tuple[str, ...]] = {
+    "rest": ("rest", "recovery", "conservative training"),
+    "easy": ("easy training", "recovery", "aerobic"),
+    "easy_or_recovery": ("easy training", "recovery"),
+    "moderate": ("moderate training", "progression"),
+    "moderate_or_upper_body": ("moderate training", "progression"),
+    "hard_training_ok": ("hard training", "performance", "aerobic"),
+    "insufficient_data": ("insufficient data", "conservative training"),
+}
+
+GOAL_CATEGORY_TOPICS: dict[str, tuple[str, ...]] = {
+    "vo2_max": ("cardiorespiratory fitness", "aerobic training"),
+    "strength": ("strength training", "resistance training", "progression"),
+    "sleep": ("sleep debt", "sleep consistency"),
+    "recovery": ("recovery", "training load"),
+    "cognitive_performance": ("sleep", "stress", "attention", "cognitive readiness"),
+    "long_term_wellness": ("physical activity", "wellness boundaries", "lifestyle consistency"),
+}
 
 TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 STOPWORDS = frozenset(
@@ -170,13 +225,14 @@ class KnowledgeRetrievalService:
         normalized_query = " ".join(query.split())
         if not normalized_query:
             return _empty_result("External retrieval skipped because the query was empty.")
+        pairs = self._active_chunk_pairs(require_embedding=False)
         try:
             resolved_embedding = (
                 query_embedding
                 if query_embedding is not None
                 else self._embedder.embed(normalized_query)
             )
-            hits = self._rank_hits(normalized_query, resolved_embedding, limit=limit)
+            hits = self._rank_hits(normalized_query, resolved_embedding, pairs, limit=limit)
         except SQLAlchemyError as exc:
             return KnowledgeRetrievalResult(
                 hits=[],
@@ -190,7 +246,7 @@ class KnowledgeRetrievalService:
             )
         except Exception as exc:
             try:
-                hits = self._rank_lexical_hits(normalized_query, limit=limit)
+                hits = self._rank_lexical_hits(normalized_query, pairs, limit=limit)
             except Exception:
                 hits = []
             if hits:
@@ -224,7 +280,7 @@ class KnowledgeRetrievalService:
                 degrade_reason=type(exc).__name__,
             )
         if not hits:
-            hits = self._rank_lexical_hits(normalized_query, limit=limit)
+            hits = self._rank_lexical_hits(normalized_query, pairs, limit=limit)
         if not hits:
             return _empty_result("No relevant curated external source met the retrieval threshold.")
 
@@ -245,8 +301,9 @@ class KnowledgeRetrievalService:
         normalized_query = " ".join(query.split())
         if not normalized_query:
             return _empty_result("External retrieval skipped because the query was empty.")
+        pairs = self._active_chunk_pairs(require_embedding=False)
         try:
-            hits = self._rank_lexical_hits(normalized_query, limit=limit)
+            hits = self._rank_lexical_hits(normalized_query, pairs, limit=limit)
         except Exception:
             hits = []
         if hits:
@@ -284,16 +341,13 @@ class KnowledgeRetrievalService:
         self,
         query: str,
         query_embedding: Sequence[float],
+        pairs: Sequence[tuple[KnowledgeChunk, KnowledgeSource]],
         *,
         limit: int,
     ) -> list[KnowledgeChunkHit]:
-        chunks = self._session.exec(
-            select(KnowledgeChunk).order_by(col(KnowledgeChunk.chunk_index))
-        ).all()
         hits: list[KnowledgeChunkHit] = []
-        for chunk in chunks:
-            source = self._session.get(KnowledgeSource, chunk.source_id)
-            if source is None or source.superseded_at is not None or source.removed_at is not None:
+        for chunk, source in pairs:
+            if chunk.embedding is None:
                 continue
             trust_level = _trust_level_value(source.trust_level)
             if trust_level is None:
@@ -322,15 +376,15 @@ class KnowledgeRetrievalService:
             )
         return sorted(hits, key=lambda hit: hit.relevance_score, reverse=True)[:limit]
 
-    def _rank_lexical_hits(self, query: str, *, limit: int) -> list[KnowledgeChunkHit]:
-        chunks = self._session.exec(
-            select(KnowledgeChunk).order_by(col(KnowledgeChunk.chunk_index))
-        ).all()
+    def _rank_lexical_hits(
+        self,
+        query: str,
+        pairs: Sequence[tuple[KnowledgeChunk, KnowledgeSource]],
+        *,
+        limit: int,
+    ) -> list[KnowledgeChunkHit]:
         hits: list[KnowledgeChunkHit] = []
-        for chunk in chunks:
-            source = self._session.get(KnowledgeSource, chunk.source_id)
-            if source is None or source.superseded_at is not None or source.removed_at is not None:
-                continue
+        for chunk, source in pairs:
             trust_level = _trust_level_value(source.trust_level)
             if trust_level is None:
                 continue
@@ -357,6 +411,47 @@ class KnowledgeRetrievalService:
                 )
             )
         return sorted(hits, key=lambda hit: hit.relevance_score, reverse=True)[:limit]
+
+    def _active_chunk_pairs(
+        self,
+        *,
+        require_embedding: bool,
+    ) -> list[tuple[KnowledgeChunk, KnowledgeSource]]:
+        """Return active chunks paired with their sources.
+
+        Uses a joined, database-filtered query against real SQLModel sessions to avoid
+        loading the whole corpus and N+1 source lookups. Falls back to the previous
+        chunked lookup for test fakes that do not implement joins.
+        """
+
+        if isinstance(self._session, Session):
+            statement = (
+                select(KnowledgeChunk, KnowledgeSource)
+                .join(KnowledgeSource, KnowledgeSource.id == KnowledgeChunk.source_id)  # type: ignore[arg-type]
+                .where(
+                    col(KnowledgeSource.superseded_at).is_(None),
+                    col(KnowledgeSource.removed_at).is_(None),
+                    col(KnowledgeSource.trust_level).isnot(None),
+                )
+                .order_by(col(KnowledgeChunk.chunk_index))
+            )
+            if require_embedding:
+                statement = statement.where(col(KnowledgeChunk.embedding).isnot(None))
+            return list(self._session.exec(statement).all())
+
+        # Fallback for unit-test fake sessions: load chunks and resolve sources one by one.
+        chunks = self._session.exec(
+            select(KnowledgeChunk).order_by(col(KnowledgeChunk.chunk_index))
+        ).all()
+        pairs: list[tuple[KnowledgeChunk, KnowledgeSource]] = []
+        for chunk in chunks:
+            source = self._session.get(KnowledgeSource, chunk.source_id)
+            if source is None or source.superseded_at is not None or source.removed_at is not None:
+                continue
+            if require_embedding and chunk.embedding is None:
+                continue
+            pairs.append((chunk, source))
+        return pairs
 
 
 def bind_external_claims(
@@ -407,6 +502,44 @@ def has_external_knowledge_consent(session: Session, user_id: UUID) -> bool:
     return bool(
         record is not None and record.cloud_processing_enabled and record.external_llm_enabled
     )
+
+
+def build_external_knowledge_query(
+    *,
+    active_goals: Sequence[Mapping[str, Any]],
+    recommendation_band: str | None = None,
+    question: str | None = None,
+    requested_scope: str = "daily briefing",
+) -> str:
+    """Construct a non-personalized external-knowledge query.
+
+    Only high-level signals are embedded: active goal categories, a recommendation
+    band, and a small keyword allow-list derived from an optional question. Raw
+    feature values, HRV/RHR numbers, free-text notes, or any personal identifiers
+    must never be passed through this boundary.
+    """
+
+    tokens: list[str] = [requested_scope, "general research", "non personalized"]
+    for goal in active_goals:
+        category = goal.get("category") if isinstance(goal, Mapping) else None
+        if not category:
+            continue
+        tokens.extend(GOAL_CATEGORY_TOPICS.get(str(category), (str(category),)))
+    if recommendation_band:
+        tokens.extend(RECOMMENDATION_BAND_TOPICS.get(recommendation_band, (recommendation_band,)))
+    tokens.extend(_allowed_question_topics(question))
+    return " ".join(token for token in tokens if token).strip()
+
+
+def _allowed_question_topics(question: str | None) -> list[str]:
+    if not question:
+        return []
+    normalized = " ".join(question.split()).casefold()
+    found: list[str] = []
+    for topic in QUERY_TOPIC_ALLOWLIST:
+        if topic in normalized:
+            found.append(topic)
+    return found
 
 
 def _empty_result(uncertainty: str) -> KnowledgeRetrievalResult:
