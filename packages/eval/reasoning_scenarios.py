@@ -149,6 +149,15 @@ def _observed_output(
         "uncertainty": result.uncertainty,
         "follow_up_questions": result.follow_up_questions,
         "goal_tradeoff_goals": [item.get("goal") for item in result.goal_tradeoffs],
+        "goal_tradeoffs": [
+            {
+                "goal": item.get("goal"),
+                "indicator_status": item.get("indicator_status"),
+                "evidence_refs": item.get("evidence_refs", []),
+                "missing_data": item.get("missing_data", []),
+            }
+            for item in result.goal_tradeoffs
+        ],
         "candidate_option_bands": [
             item.get("recommendation_band") for item in result.candidate_options
         ],
@@ -232,6 +241,7 @@ def _expected_property_failures(
         "required_goal_tradeoff_goals",
         "goal_tradeoff_goals",
     )
+    failures.extend(_goal_tradeoff_detail_failures(expected, observed))
     _expect_subset(
         failures,
         expected,
@@ -308,6 +318,39 @@ def _expect_subset(
     missing = required - actual
     if missing:
         failures.append(f"{observed_key} missing {sorted(missing)}")
+
+
+def _goal_tradeoff_detail_failures(
+    expected: Mapping[str, Any], observed: Mapping[str, Any]
+) -> list[str]:
+    failures: list[str] = []
+    required_details = expected.get("required_goal_tradeoff_details")
+    if not isinstance(required_details, Sequence) or isinstance(required_details, str):
+        return failures
+    tradeoffs = {
+        str(item.get("goal")): item
+        for item in observed.get("goal_tradeoffs", [])
+        if isinstance(item, Mapping) and item.get("goal") is not None
+    }
+    for required in required_details:
+        if not isinstance(required, Mapping):
+            continue
+        goal = str(required.get("goal"))
+        tradeoff = tradeoffs.get(goal)
+        if tradeoff is None:
+            failures.append(f"goal tradeoff for {goal} missing")
+            continue
+        expected_status = required.get("indicator_status")
+        if isinstance(expected_status, str) and tradeoff.get("indicator_status") != expected_status:
+            failures.append(
+                f"goal tradeoff for {goal} expected indicator_status {expected_status}, "
+                f"got {tradeoff.get('indicator_status')}"
+            )
+        if required.get("requires_evidence_refs") and not tradeoff.get("evidence_refs"):
+            failures.append(f"goal tradeoff for {goal} must include evidence_refs")
+        if required.get("requires_missing_data") and not tradeoff.get("missing_data"):
+            failures.append(f"goal tradeoff for {goal} must disclose missing_data")
+    return failures
 
 
 def _mapping_property(expected: Mapping[str, Any], key: str) -> Mapping[str, Any]:
@@ -455,6 +498,26 @@ REASONING_NAMED_SCENARIO_CASES: tuple[ReasoningScenarioCase, ...] = (
         ],
         user_constraints={"intended_intensity": "hard"},
         required_goal_tradeoff_goals=["cognitive_performance", "vo2_max"],
+        required_goal_tradeoff_details=[
+            {
+                "goal": "cognitive_performance",
+                "indicator_status": "computed",
+                "requires_evidence_refs": True,
+            }
+        ],
+    ),
+    _case(
+        "missing_strength_data",
+        active_goals=[{"category": "strength", "priority": 1}],
+        required_goal_tradeoff_goals=["strength"],
+        required_goal_tradeoff_details=[
+            {
+                "goal": "strength",
+                "indicator_status": "unavailable",
+                "requires_missing_data": True,
+            }
+        ],
+        max_recommendation_band="moderate",
     ),
     _case(
         "medical_diagnosis_request",
