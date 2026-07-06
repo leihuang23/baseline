@@ -9,6 +9,7 @@ final class DailyBriefingViewModel: ObservableObject {
     @Published private(set) var isAskingFollowUp = false
     @Published private(set) var isLoadingTrace = false
     @Published private(set) var isOfflineFallback = false
+    @Published private(set) var isRetryable = false
     @Published private(set) var statusMessage = "Latest briefing will appear here after morning sync."
     @Published var followUpQuestion = ""
     @Published var errorMessage: String?
@@ -64,6 +65,14 @@ final class DailyBriefingViewModel: ObservableObject {
         syncBeforeGenerate = action
     }
 
+    func retryAnalysis() async {
+        guard isRetryable else {
+            return
+        }
+        isRetryable = false
+        await generateBriefing()
+    }
+
     func generateBriefing() async {
         guard !isGenerating else {
             return
@@ -71,6 +80,7 @@ final class DailyBriefingViewModel: ObservableObject {
         isGenerating = true
         errorMessage = nil
         followUpAnswer = nil
+        isRetryable = false
         statusMessage = "Syncing health data..."
         defer { isGenerating = false }
 
@@ -91,7 +101,10 @@ final class DailyBriefingViewModel: ObservableObject {
             }
             try await fetchGeneratedBriefing(date: targetDate)
         } catch BriefingViewModelError.generationTimedOut {
-            loadOfflineFallback(message: "Analysis is still running. Showing latest saved briefing.")
+            loadOfflineFallback(
+                message: "Analysis is still running. Showing latest saved briefing.",
+                retryable: true
+            )
         } catch BriefingViewModelError.generationFailed {
             loadOfflineFallback(message: "Generation failed. Showing latest saved briefing.")
         } catch {
@@ -165,7 +178,7 @@ final class DailyBriefingViewModel: ObservableObject {
         }
     }
 
-    private func pollingAttemptLimit(for job: DailyAnalysisResponse) -> Int {
+    func pollingAttemptLimit(for job: DailyAnalysisResponse) -> Int {
         let estimatedDeadline = max(minimumPollingSeconds, job.estimatedCompletionSeconds * 2)
         let cappedDeadline = min(maximumPollingSeconds, estimatedDeadline)
         let intervalSeconds = max(1, Int(ceil(Double(pollIntervalNanoseconds) / 1_000_000_000)))
@@ -186,14 +199,16 @@ final class DailyBriefingViewModel: ObservableObject {
         }
     }
 
-    private func loadOfflineFallback(message: String) {
+    private func loadOfflineFallback(message: String, retryable: Bool = false) {
         if let cached = try? briefingStore.loadLatestBriefing() {
             briefing = cached
             isOfflineFallback = true
+            isRetryable = retryable
             statusMessage = message
             errorMessage = nil
         } else {
             isOfflineFallback = false
+            isRetryable = retryable
             statusMessage = "Briefing unavailable."
             errorMessage = "No saved briefing is available offline."
         }
@@ -249,6 +264,14 @@ struct DailyBriefingView: View {
                 Text(viewModel.statusMessage)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                if viewModel.isRetryable {
+                    Button {
+                        Task { await viewModel.retryAnalysis() }
+                    } label: {
+                        Label("Retry analysis", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(.bordered)
+                }
                 if let errorMessage = viewModel.errorMessage {
                     Text(errorMessage)
                         .font(.footnote)

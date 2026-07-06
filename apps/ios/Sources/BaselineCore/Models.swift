@@ -92,6 +92,16 @@ public enum HealthCategory: String, CaseIterable, Codable, Identifiable, Sendabl
     }
 }
 
+public struct WakeTime: Codable, Equatable, Sendable, Hashable {
+    public var hour: Int
+    public var minute: Int
+
+    public init(hour: Int = 7, minute: Int = 0) {
+        self.hour = hour
+        self.minute = minute
+    }
+}
+
 public struct ConsentRecord: Codable, Equatable, Sendable {
     public static let currentVersion = "p1-04-v1"
 
@@ -100,19 +110,22 @@ public struct ConsentRecord: Codable, Equatable, Sendable {
     public var enabledCategories: [HealthCategory]
     public var deniedCategories: [HealthCategory]
     public var processingMode: PrivacyMode
+    public var wakeTime: WakeTime
 
     public init(
         consentVersion: String = ConsentRecord.currentVersion,
         grantedAt: Date = Date(),
         enabledCategories: [HealthCategory],
         deniedCategories: [HealthCategory] = [],
-        processingMode: PrivacyMode
+        processingMode: PrivacyMode,
+        wakeTime: WakeTime = WakeTime()
     ) {
         self.consentVersion = consentVersion
         self.grantedAt = grantedAt
         self.enabledCategories = enabledCategories
         self.deniedCategories = deniedCategories
         self.processingMode = processingMode
+        self.wakeTime = wakeTime
     }
 
     enum CodingKeys: String, CodingKey {
@@ -121,6 +134,7 @@ public struct ConsentRecord: Codable, Equatable, Sendable {
         case enabledCategories
         case deniedCategories
         case processingMode
+        case wakeTime
     }
 
     public init(from decoder: any Decoder) throws {
@@ -130,6 +144,7 @@ public struct ConsentRecord: Codable, Equatable, Sendable {
         enabledCategories = try container.decode([HealthCategory].self, forKey: .enabledCategories)
         deniedCategories = try container.decodeIfPresent([HealthCategory].self, forKey: .deniedCategories) ?? []
         processingMode = try container.decode(PrivacyMode.self, forKey: .processingMode)
+        wakeTime = try container.decodeIfPresent(WakeTime.self, forKey: .wakeTime) ?? WakeTime()
     }
 }
 

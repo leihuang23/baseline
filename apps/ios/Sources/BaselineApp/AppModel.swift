@@ -11,6 +11,7 @@ final class BaselineAppModel: ObservableObject {
     @Published var enabledCategories = Set(HealthCategory.allCases)
     @Published var grantedCategories: Set<HealthCategory> = []
     @Published var deniedCategories: Set<HealthCategory> = []
+    @Published var wakeTime: WakeTime = WakeTime()
     @Published var demoSamples: [HealthSample] = []
     @Published var lastSyncedAt: Date?
     @Published var syncMessage = "Not synced yet"
@@ -79,16 +80,26 @@ final class BaselineAppModel: ObservableObject {
             grantedCategories = Set(restored.consent.enabledCategories)
             deniedCategories = Set(restored.consent.deniedCategories)
             enabledCategories = grantedCategories.union(deniedCategories)
+            wakeTime = restored.consent.wakeTime
             onboardingComplete = true
             lastSyncedAt = restored.lastSyncedAt
             syncMessage = restored.lastSyncedAt == nil
                 ? "Ready to sync selected HealthKit categories."
                 : "Last sync restored from saved anchors."
         }
-        BackgroundRefreshScheduler.register { [weak self] in
-            await self?.syncInBackground() ?? false
+        Task {
+            await BackgroundRefreshScheduler.register(
+                syncHandler: { [weak self] in
+                    await self?.syncInBackground() ?? false
+                },
+                wakeTimeProvider: { [weak self] in
+                    self?.wakeTime ?? WakeTime()
+                }
+            )
+            BackgroundRefreshScheduler.schedule()
+            _ = await BackgroundRefreshScheduler.requestNotificationAuthorization()
+            await BackgroundRefreshScheduler.scheduleMorningReminder()
         }
-        BackgroundRefreshScheduler.schedule()
     }
 
     var consentRecord: ConsentRecord {
@@ -99,7 +110,8 @@ final class BaselineAppModel: ObservableObject {
         ConsentRecord(
             enabledCategories: Array(syncableCategories).sorted { $0.rawValue < $1.rawValue },
             deniedCategories: Array(deniedCategories).sorted { $0.rawValue < $1.rawValue },
-            processingMode: privacyMode
+            processingMode: privacyMode,
+            wakeTime: wakeTime
         )
     }
 
