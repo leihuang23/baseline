@@ -415,8 +415,9 @@ class _OfflineDemoBriefingService(DailyBriefingService):
         include_external_knowledge: bool,
         privacy_mode: PrivacyMode,
         active_goals: Sequence[Mapping[str, Any]],
+        recommendation_band: str | None = None,
     ) -> KnowledgeRetrievalResult:
-        _ = (user_id, include_external_knowledge, privacy_mode, active_goals)
+        _ = (user_id, include_external_knowledge, privacy_mode, active_goals, recommendation_band)
         return KnowledgeRetrievalResult(
             hits=[],
             citations=[],

@@ -60,6 +60,7 @@ from baseline_api.retrieval import (
     KnowledgeRetrievalResult,
     KnowledgeRetrievalService,
     bind_external_claims,
+    build_external_knowledge_query,
     create_embedder,
     has_external_knowledge_consent,
 )
@@ -322,6 +323,7 @@ class DailyBriefingService:
                     include_external_knowledge=request.include_external_knowledge,
                     privacy_mode=request.privacy_mode,
                     active_goals=active_goals,
+                    recommendation_band=assessment.recommendation_band.value,
                 )
                 retrieval = _combine_retrieval(personal_retrieval, external_retrieval)
                 if external_retrieval.degraded:
@@ -748,6 +750,7 @@ class DailyBriefingService:
         include_external_knowledge: bool,
         privacy_mode: PrivacyMode,
         active_goals: Sequence[Mapping[str, Any]],
+        recommendation_band: str | None = None,
     ) -> KnowledgeRetrievalResult:
         if not include_external_knowledge:
             return KnowledgeRetrievalResult(
@@ -772,8 +775,9 @@ class DailyBriefingService:
                 external_knowledge=[],
                 uncertainty=["External knowledge was requested but consent is not active."],
             )
-        query = _external_knowledge_query(
+        query = build_external_knowledge_query(
             active_goals=active_goals,
+            recommendation_band=recommendation_band,
             requested_scope="daily briefing training recovery sleep general research",
         )
         try:
@@ -1168,39 +1172,15 @@ def _external_knowledge_query(
     *,
     active_goals: Sequence[Mapping[str, Any]],
     requested_scope: str,
+    recommendation_band: str | None = None,
 ) -> str:
-    # Keep the external retrieval query non-personalized. Goal categories are mapped
-    # to general research topics; no readiness state, recommendation band, risk flags,
-    # or assessment uncertainty is sent outside the trusted boundary.
-    tokens = [
-        requested_scope,
-        "general research",
-        "non personalized",
-        *_goal_query_terms(active_goals),
-    ]
-    return " ".join(token for token in tokens if token).strip()
+    """Backward-compatible wrapper around the canonical external-knowledge query builder."""
 
-
-def _goal_query_terms(active_goals: Sequence[Mapping[str, Any]]) -> list[str]:
-    terms: list[str] = []
-    for goal in active_goals:
-        category = goal.get("category")
-        if not category:
-            continue
-        terms.append(str(category))
-        if category == "vo2_max":
-            terms.extend(["cardiorespiratory fitness", "aerobic training"])
-        elif category == "strength":
-            terms.extend(["strength training", "resistance training", "progression"])
-        elif category == "sleep":
-            terms.extend(["sleep debt", "sleep consistency"])
-        elif category == "recovery":
-            terms.extend(["recovery", "training load"])
-        elif category == "cognitive_performance":
-            terms.extend(["sleep", "stress", "attention", "cognitive readiness"])
-        elif category == "long_term_wellness":
-            terms.extend(["physical activity", "wellness boundaries", "lifestyle consistency"])
-    return terms
+    return build_external_knowledge_query(
+        active_goals=active_goals,
+        recommendation_band=recommendation_band,
+        requested_scope=requested_scope,
+    )
 
 
 def _external_retrieval_degraded_result(

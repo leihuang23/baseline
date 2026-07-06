@@ -26,6 +26,7 @@ from baseline_api.db.models.enums import Modality
 from baseline_api.retrieval import (
     KnowledgeRetrievalResult,
     KnowledgeRetrievalService,
+    build_external_knowledge_query,
     create_embedder,
     has_external_knowledge_consent,
 )
@@ -116,7 +117,10 @@ class AssistantQueryService:
             external_knowledge = _external_knowledge_context(
                 self._session,
                 user.id,
-                _external_knowledge_query(plan),
+                _external_knowledge_query(
+                    active_goals=self._active_goals(),
+                    question=request.question,
+                ),
                 request,
                 settings=self._settings,
             )
@@ -818,6 +822,12 @@ class AssistantQueryService:
             )
         return users[0]
 
+    def _active_goals(self) -> list[dict[str, Any]]:
+        from baseline_api.goals import GoalService
+
+        goal_set = GoalService(self._session).get_active_goal_set()
+        return [goal.model_dump(mode="json") for goal in goal_set.goals]
+
 
 def _plan_query(question: str) -> QueryPlan:
     normalized = question.casefold()
@@ -1021,25 +1031,16 @@ def _external_knowledge_context(
         )
 
 
-def _external_knowledge_query(plan: QueryPlan) -> str:
-    tokens = ["assistant wellness question", "general research", "non personalized"]
-    if plan.metric == "sleep_debt_hours":
-        tokens.extend(["sleep", "sleep debt", "recovery"])
-    elif plan.metric == "hrv_deviation_pct":
-        tokens.extend(["heart rate variability", "recovery"])
-    elif plan.metric == "rhr_deviation_pct":
-        tokens.extend(["resting heart rate", "recovery"])
-    elif plan.metric == "acute_chronic_ratio":
-        tokens.extend(["training load", "recovery"])
-    elif plan.metric == "recovery_level":
-        tokens.extend(["recovery", "training readiness"])
-    if plan.modality:
-        tokens.extend([plan.modality, "training"])
-    if plan.intent == "candidate_plan":
-        tokens.extend(["training plan", "progression"])
-    elif plan.intent == "briefing_follow_up":
-        tokens.extend(["daily readiness", "training recommendation"])
-    return " ".join(tokens)
+def _external_knowledge_query(
+    *,
+    active_goals: list[dict[str, Any]],
+    question: str | None = None,
+) -> str:
+    return build_external_knowledge_query(
+        active_goals=active_goals,
+        question=question,
+        requested_scope="assistant wellness question general research",
+    )
 
 
 def _contract_uncertainty(uncertainty: list[str]) -> list[str]:
