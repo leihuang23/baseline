@@ -101,7 +101,9 @@ struct BaselineHomeView: View {
     @StateObject private var briefingModel: DailyBriefingViewModel
     @StateObject private var checkInModel: DailyCheckInViewModel
     @StateObject private var goalsModel: GoalsViewModel
+    @StateObject private var settingsModel: SettingsViewModel
     private let privacyMode: () -> PrivacyMode
+    private let apiClient: URLSessionHealthSyncAPIClient
 
     init(apiBaseURL: URL, apiAuthToken: String?, privacyMode: @escaping () -> PrivacyMode) {
         let apiClient = URLSessionHealthSyncAPIClient(
@@ -113,6 +115,7 @@ struct BaselineHomeView: View {
             in: .userDomainMask
         )[0].appendingPathComponent("Baseline", isDirectory: true)
         self.privacyMode = privacyMode
+        self.apiClient = apiClient
         _briefingModel = StateObject(
             wrappedValue: DailyBriefingViewModel(
                 apiClient: apiClient,
@@ -124,6 +127,7 @@ struct BaselineHomeView: View {
             wrappedValue: DailyCheckInViewModel(apiClient: apiClient, privacyMode: privacyMode)
         )
         _goalsModel = StateObject(wrappedValue: GoalsViewModel(apiClient: apiClient))
+        _settingsModel = StateObject(wrappedValue: SettingsViewModel(apiClient: apiClient))
     }
 
     var body: some View {
@@ -144,7 +148,7 @@ struct BaselineHomeView: View {
                 .tabItem {
                     Label("Sync", systemImage: "arrow.triangle.2.circlepath")
                 }
-            SettingsView(apiClient: apiClient, appModel: appModel)
+            SettingsView(viewModel: settingsModel, appModel: appModel)
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }

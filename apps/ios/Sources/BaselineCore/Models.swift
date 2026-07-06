@@ -398,7 +398,8 @@ public enum PrivacyJSONValue: Codable, Equatable, Sendable {
     }
 }
 
-public enum DataExportScope: String, Codable, Sendable {
+public enum DataExportScope: String, Codable, CaseIterable, Identifiable, Sendable {
+    public var id: String { rawValue }
     case all
     case health
     case checkins
@@ -408,7 +409,8 @@ public enum DataExportScope: String, Codable, Sendable {
     case consent
 }
 
-public enum DataExportFormat: String, Codable, Sendable {
+public enum DataExportFormat: String, Codable, CaseIterable, Identifiable, Sendable {
+    public var id: String { rawValue }
     case json
     case csv
 }
