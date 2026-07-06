@@ -456,6 +456,55 @@ final class BaselineCoreTests: XCTestCase {
         )
     }
 
+    func testAPIClientOmitsBearerTokenOverHTTPToRemoteHost() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BinaryExportURLProtocol.self]
+        BinaryExportURLProtocol.handler = { request in
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            XCTAssertEqual(request.url?.absoluteString, "http://api.example.test/base/v1/health/sync")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )
+            let data = try JSONSerialization.data(withJSONObject: [
+                "status": "success",
+                "data": [
+                    "schema_version": "v1",
+                    "sync_id": "00000000-0000-0000-0000-000000000001",
+                    "accepted_count": 0,
+                    "duplicate_count": 0,
+                    "rejected_count": 0,
+                    "warnings": [],
+                    "next_anchor": "anchor-1",
+                    "data_quality_summary": [
+                        "status": "ok",
+                        "notes": [],
+                    ],
+                ],
+            ])
+            return (try XCTUnwrap(response), data)
+        }
+        defer { BinaryExportURLProtocol.handler = nil }
+        let client = URLSessionHealthSyncAPIClient(
+            baseURL: try XCTUnwrap(URL(string: "http://api.example.test/base")),
+            session: URLSession(configuration: configuration),
+            apiAuthToken: "test-token"
+        )
+
+        _ = try await client.postHealthSync(
+            HealthSyncRequest(
+                clientSyncID: "sync-1",
+                deviceID: "device-1",
+                timezone: "UTC",
+                samples: [],
+                lastAnchor: nil,
+                consentVersion: "consent-v1"
+            )
+        )
+    }
+
     func testDataControlPayloadsEncodeAndDecode() throws {
         let encoder = JSONEncoder()
         let exportRequest = DataExportRequest(

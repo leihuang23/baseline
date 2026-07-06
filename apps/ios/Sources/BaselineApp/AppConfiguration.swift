@@ -8,7 +8,6 @@ struct BaselineAppConfiguration: Equatable {
     static let environmentKey = "BASELINE_API_BASE_URL"
     static let apiAuthTokenEnvironmentKey = "BASELINE_API_AUTH_TOKEN"
     static let infoPlistKey = "BaselineAPIBaseURL"
-    static let apiAuthTokenInfoPlistKey = "BaselineAPIAuthToken"
     static let localDevelopmentAPIBaseURL: URL = {
         var components = URLComponents()
         components.scheme = "http"
@@ -31,7 +30,6 @@ struct BaselineAppConfiguration: Equatable {
             throw BaselineAppConfigurationError.invalidAPIBaseURL(rawValue)
         }
         let token = environment[apiAuthTokenEnvironmentKey]
-            ?? infoDictionary[apiAuthTokenInfoPlistKey] as? String
         return BaselineAppConfiguration(apiBaseURL: url, apiAuthToken: token)
     }
 

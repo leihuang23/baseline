@@ -96,8 +96,10 @@ def _install_openapi_auth_contract(app: FastAPI) -> None:
             {"BaselineBearerAuth": []},
             {"BaselineApiKeyAuth": []},
         ]
+        app_env = getattr(getattr(app, "state", None), "settings", None)
+        app_env = app_env.app_env if app_env is not None else "production"
         for path, operations in schema.get("paths", {}).items():
-            if is_public_api_path(path):
+            if is_public_api_path(path, app_env=app_env):
                 continue
             for method, operation in operations.items():
                 if method not in {"get", "put", "post", "delete", "patch", "options", "head"}:
