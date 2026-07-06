@@ -15,6 +15,13 @@ class ProviderError(Exception):
     """Raised when a provider cannot complete a generation request."""
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Disable automatic redirects so bearer tokens cannot be leaked to a new host."""
+
+    def redirect_request(self, *args: object, **kwargs: object) -> None:
+        return None
+
+
 @dataclass(frozen=True)
 class ProviderRequest:
     """Provider-neutral generation request."""
@@ -89,8 +96,9 @@ class DeepSeekProvider:
             },
             method="POST",
         )
+        opener = urllib.request.build_opener(_NoRedirectHandler)
         try:
-            with urllib.request.urlopen(http_request, timeout=30) as response:
+            with opener.open(http_request, timeout=30) as response:
                 body = json.loads(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise ProviderError(f"DeepSeek request failed: {exc}") from exc

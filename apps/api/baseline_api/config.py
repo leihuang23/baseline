@@ -121,6 +121,10 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "EXPORT_STORAGE_DIR is required when APP_ENV is staging or production."
                 )
+            if not self.deepseek_api_url.startswith("https://"):
+                raise ValueError(
+                    "DEEPSEEK_API_URL must use https:// when APP_ENV is staging or production."
+                )
         if self.knowledge_embedding_provider == "http":
             if not (
                 self.knowledge_embedding_api_url
