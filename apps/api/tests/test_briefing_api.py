@@ -266,23 +266,30 @@ def test_external_retrieval_db_error_does_not_fallback_to_lexical(
 ) -> None:
     service = KnowledgeRetrievalService(cast(Session, object()))
 
+    def fake_chunk_pairs(*, require_embedding: bool) -> list[tuple[KnowledgeChunk, KnowledgeSource]]:
+        _ = require_embedding
+        return []
+
     def fail_vector_query(
         query: str,
         query_embedding: Sequence[float],
+        pairs: Sequence[tuple[KnowledgeChunk, KnowledgeSource]],
         *,
         limit: int,
     ) -> list[KnowledgeChunkHit]:
-        _ = (query, query_embedding, limit)
+        _ = (query, query_embedding, pairs, limit)
         raise SQLAlchemyError("external corpus database unavailable")
 
     def fail_if_lexical_fallback_runs(
         query: str,
+        pairs: Sequence[tuple[KnowledgeChunk, KnowledgeSource]],
         *,
         limit: int,
     ) -> list[KnowledgeChunkHit]:
-        _ = (query, limit)
+        _ = (query, pairs, limit)
         raise AssertionError("database failures must not be relabeled as lexical fallback")
 
+    monkeypatch.setattr(service, "_active_chunk_pairs", fake_chunk_pairs)
     monkeypatch.setattr(service, "_rank_hits", fail_vector_query)
     monkeypatch.setattr(service, "_rank_lexical_hits", fail_if_lexical_fallback_runs)
 
@@ -1288,11 +1295,12 @@ def test_external_retrieval_db_error_degrades_without_wrong_history_label(
         service: KnowledgeRetrievalService,
         query: str,
         query_embedding: Sequence[float],
+        pairs: Sequence[tuple[KnowledgeChunk, KnowledgeSource]],
         *,
         limit: int,
     ) -> list[KnowledgeChunkHit]:
         nonlocal retrieval_failed
-        _ = (service, query, query_embedding, limit)
+        _ = (service, query, query_embedding, pairs, limit)
         retrieval_failed = True
         raise SQLAlchemyError("external corpus database unavailable")
 

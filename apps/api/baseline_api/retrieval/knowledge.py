@@ -225,13 +225,14 @@ class KnowledgeRetrievalService:
         normalized_query = " ".join(query.split())
         if not normalized_query:
             return _empty_result("External retrieval skipped because the query was empty.")
+        pairs = self._active_chunk_pairs(require_embedding=False)
         try:
             resolved_embedding = (
                 query_embedding
                 if query_embedding is not None
                 else self._embedder.embed(normalized_query)
             )
-            hits = self._rank_hits(normalized_query, resolved_embedding, limit=limit)
+            hits = self._rank_hits(normalized_query, resolved_embedding, pairs, limit=limit)
         except SQLAlchemyError as exc:
             return KnowledgeRetrievalResult(
                 hits=[],
@@ -245,7 +246,7 @@ class KnowledgeRetrievalService:
             )
         except Exception as exc:
             try:
-                hits = self._rank_lexical_hits(normalized_query, limit=limit)
+                hits = self._rank_lexical_hits(normalized_query, pairs, limit=limit)
             except Exception:
                 hits = []
             if hits:
@@ -279,7 +280,7 @@ class KnowledgeRetrievalService:
                 degrade_reason=type(exc).__name__,
             )
         if not hits:
-            hits = self._rank_lexical_hits(normalized_query, limit=limit)
+            hits = self._rank_lexical_hits(normalized_query, pairs, limit=limit)
         if not hits:
             return _empty_result("No relevant curated external source met the retrieval threshold.")
 
@@ -300,8 +301,9 @@ class KnowledgeRetrievalService:
         normalized_query = " ".join(query.split())
         if not normalized_query:
             return _empty_result("External retrieval skipped because the query was empty.")
+        pairs = self._active_chunk_pairs(require_embedding=False)
         try:
-            hits = self._rank_lexical_hits(normalized_query, limit=limit)
+            hits = self._rank_lexical_hits(normalized_query, pairs, limit=limit)
         except Exception:
             hits = []
         if hits:
@@ -339,11 +341,14 @@ class KnowledgeRetrievalService:
         self,
         query: str,
         query_embedding: Sequence[float],
+        pairs: Sequence[tuple[KnowledgeChunk, KnowledgeSource]],
         *,
         limit: int,
     ) -> list[KnowledgeChunkHit]:
         hits: list[KnowledgeChunkHit] = []
-        for chunk, source in self._active_chunk_pairs(require_embedding=True):
+        for chunk, source in pairs:
+            if chunk.embedding is None:
+                continue
             trust_level = _trust_level_value(source.trust_level)
             if trust_level is None:
                 continue
@@ -371,9 +376,15 @@ class KnowledgeRetrievalService:
             )
         return sorted(hits, key=lambda hit: hit.relevance_score, reverse=True)[:limit]
 
-    def _rank_lexical_hits(self, query: str, *, limit: int) -> list[KnowledgeChunkHit]:
+    def _rank_lexical_hits(
+        self,
+        query: str,
+        pairs: Sequence[tuple[KnowledgeChunk, KnowledgeSource]],
+        *,
+        limit: int,
+    ) -> list[KnowledgeChunkHit]:
         hits: list[KnowledgeChunkHit] = []
-        for chunk, source in self._active_chunk_pairs(require_embedding=False):
+        for chunk, source in pairs:
             trust_level = _trust_level_value(source.trust_level)
             if trust_level is None:
                 continue

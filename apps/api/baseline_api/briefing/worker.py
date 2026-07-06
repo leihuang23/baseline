@@ -14,7 +14,7 @@ from baseline_api.config import get_settings
 from baseline_api.llm.factory import build_default_router
 from baseline_api.llm.orchestrator import LLMOrchestrator
 from baseline_api.observability.alerts import stale_briefing_alert
-from baseline_api.schemas.enums import PrivacyMode
+from baseline_api.schemas.enums import AnalysisJobStatus, PrivacyMode
 
 
 async def daily_briefing(ctx: dict[str, Any], job_id: str) -> dict[str, Any]:
@@ -57,6 +57,14 @@ async def daily_briefing_cron(ctx: dict[str, Any]) -> dict[str, Any]:
             include_external_knowledge=False,
             force_recompute=False,
         )
+        if AnalysisJobStatus(job.status) != AnalysisJobStatus.queued:
+            return {
+                "status": "skipped",
+                "date": today.isoformat(),
+                "analysis_job_id": str(job.id),
+                "job_status": job.status,
+                "alerts": [],
+            }
         result = await service.run_daily_job(job.id)
         alerts = stale_briefing_alert(
             session,
