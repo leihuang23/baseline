@@ -22,11 +22,15 @@ public struct PermissionFlowResult: Equatable, Sendable {
         !denied.isEmpty
     }
 
-    public func consentRecord(processingMode: PrivacyMode) -> ConsentRecord {
+    public func consentRecord(
+        processingMode: PrivacyMode,
+        wakeTime: WakeTime = WakeTime()
+    ) -> ConsentRecord {
         ConsentRecord(
             enabledCategories: granted,
             deniedCategories: denied,
-            processingMode: processingMode
+            processingMode: processingMode,
+            wakeTime: wakeTime
         )
     }
 }

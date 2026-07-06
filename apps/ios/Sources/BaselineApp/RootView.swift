@@ -68,6 +68,13 @@ struct OnboardingView: View {
                 }
             }
 
+            Section("Morning routine") {
+                WakeTimePicker(wakeTime: $model.wakeTime)
+                Text("Background refresh and the optional morning reminder are scheduled near this time.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Section {
                 Button {
                     Task { await model.completeOnboarding() }
@@ -80,6 +87,12 @@ struct OnboardingView: View {
             }
         }
         .navigationTitle("Baseline")
+        .onChange(of: model.wakeTime) { _, _ in
+            BackgroundRefreshScheduler.schedule()
+            Task {
+                await BackgroundRefreshScheduler.scheduleMorningReminder()
+            }
+        }
     }
 }
 
@@ -266,6 +279,13 @@ struct SyncSettingsView: View {
                 }
             }
 
+            Section("Morning routine") {
+                WakeTimePicker(wakeTime: $model.wakeTime)
+                Text("Background refresh and the optional morning reminder are scheduled near this time.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             if model.isDemoMode {
                 Section("Demo data") {
                     Text("\(model.demoSamples.count) synthetic sample(s)")
@@ -284,6 +304,12 @@ struct SyncSettingsView: View {
             }
         }
         .navigationTitle(model.isDemoMode ? "Demo Baseline" : "Baseline Sync")
+        .onChange(of: model.wakeTime) { _, _ in
+            BackgroundRefreshScheduler.schedule()
+            Task {
+                await BackgroundRefreshScheduler.scheduleMorningReminder()
+            }
+        }
     }
 
     private var lastSyncedText: String {
@@ -291,6 +317,35 @@ struct SyncSettingsView: View {
             return "Never"
         }
         return lastSyncedAt.formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
+private struct WakeTimePicker: View {
+    @Binding var wakeTime: WakeTime
+
+    var body: some View {
+        DatePicker(
+            "Wake time",
+            selection: Binding(
+                get: { wakeTime.date() },
+                set: { wakeTime = WakeTime(date: $0) }
+            ),
+            displayedComponents: .hourAndMinute
+        )
+    }
+}
+
+private extension WakeTime {
+    func date(calendar: Calendar = .current) -> Date {
+        var components = DateComponents()
+        components.hour = hour
+        components.minute = minute
+        return calendar.date(from: components) ?? Date()
+    }
+
+    init(date: Date, calendar: Calendar = .current) {
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        self.init(hour: components.hour ?? 7, minute: components.minute ?? 0)
     }
 }
 #endif

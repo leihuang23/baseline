@@ -43,7 +43,8 @@ final class BaselineAppModel: ObservableObject {
         apiClient: (any HealthSyncAPIClient)? = nil,
         anchorStore: (any AnchorPersisting)? = nil,
         consentStore: (any ConsentPersisting)? = nil,
-        healthKitReader: (any HealthKitReading)? = nil
+        healthKitReader: (any HealthKitReading)? = nil,
+        enableBackgroundRefreshAndNotifications: Bool = true
     ) {
         self.apiBaseURL = apiBaseURL
         self.apiAuthToken = apiAuthToken
@@ -87,18 +88,20 @@ final class BaselineAppModel: ObservableObject {
                 ? "Ready to sync selected HealthKit categories."
                 : "Last sync restored from saved anchors."
         }
-        Task {
-            await BackgroundRefreshScheduler.register(
-                syncHandler: { [weak self] in
-                    await self?.syncInBackground() ?? false
-                },
-                wakeTimeProvider: { [weak self] in
-                    self?.wakeTime ?? WakeTime()
-                }
-            )
-            BackgroundRefreshScheduler.schedule()
-            _ = await BackgroundRefreshScheduler.requestNotificationAuthorization()
-            await BackgroundRefreshScheduler.scheduleMorningReminder()
+        if enableBackgroundRefreshAndNotifications {
+            Task {
+                BackgroundRefreshScheduler.register(
+                    syncHandler: { [weak self] in
+                        await self?.syncInBackground() ?? false
+                    },
+                    wakeTimeProvider: { [weak self] in
+                        self?.wakeTime ?? WakeTime()
+                    }
+                )
+                BackgroundRefreshScheduler.schedule()
+                _ = await BackgroundRefreshScheduler.requestNotificationAuthorization()
+                await BackgroundRefreshScheduler.scheduleMorningReminder()
+            }
         }
     }
 
@@ -107,7 +110,7 @@ final class BaselineAppModel: ObservableObject {
         let syncableCategories = hasPermissionDecision
             ? grantedCategories.intersection(enabledCategories)
             : enabledCategories
-        ConsentRecord(
+        return ConsentRecord(
             enabledCategories: Array(syncableCategories).sorted { $0.rawValue < $1.rawValue },
             deniedCategories: Array(deniedCategories).sorted { $0.rawValue < $1.rawValue },
             processingMode: privacyMode,
@@ -133,7 +136,7 @@ final class BaselineAppModel: ObservableObject {
             )
             grantedCategories = Set(result.granted)
             deniedCategories = Set(result.denied)
-            let localConsent = result.consentRecord(processingMode: privacyMode)
+            let localConsent = result.consentRecord(processingMode: privacyMode, wakeTime: wakeTime)
             let successMessage = result.isDegraded
                 ? "Some HealthKit categories are unavailable; Baseline will sync the rest."
                 : "HealthKit permissions are ready."
@@ -144,7 +147,8 @@ final class BaselineAppModel: ObservableObject {
             let localConsent = ConsentRecord(
                 enabledCategories: [],
                 deniedCategories: Array(enabledCategories).sorted { $0.rawValue < $1.rawValue },
-                processingMode: privacyMode
+                processingMode: privacyMode,
+                wakeTime: wakeTime
             )
             await persistOnboardingConsent(
                 localConsent,
@@ -224,7 +228,8 @@ final class BaselineAppModel: ObservableObject {
             grantedAt: consent.grantedAt,
             enabledCategories: consent.enabledCategories,
             deniedCategories: consent.deniedCategories,
-            processingMode: consent.processingMode
+            processingMode: consent.processingMode,
+            wakeTime: consent.wakeTime
         )
     }
 

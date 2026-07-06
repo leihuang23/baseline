@@ -9,6 +9,20 @@ import UserNotifications
 @testable import BaselineApp
 
 final class BaselineAppTests: XCTestCase {
+    #if os(iOS)
+        @MainActor
+        override func setUp() {
+            super.setUp()
+            BackgroundRefreshScheduler.resetForTesting()
+        }
+
+        @MainActor
+        override func tearDown() {
+            BackgroundRefreshScheduler.resetForTesting()
+            super.tearDown()
+        }
+    #endif
+
     func testAPIBaseURLUsesEnvironmentFirst() throws {
         let configuration = try BaselineAppConfiguration.current(
             environment: [
@@ -58,7 +72,8 @@ final class BaselineAppTests: XCTestCase {
                 authorizationClient: MockAuthorizationClient(granted: [.sleep, .workouts]),
                 apiClient: api,
                 anchorStore: InMemoryAnchorStore(),
-                consentStore: consentStore
+                consentStore: consentStore,
+                enableBackgroundRefreshAndNotifications: false
             )
             model.enabledCategories = [.sleep, .workouts]
             model.privacyMode = .hybrid
@@ -79,7 +94,8 @@ final class BaselineAppTests: XCTestCase {
                 authorizationClient: MockAuthorizationClient(granted: [.sleep]),
                 apiClient: api,
                 anchorStore: InMemoryAnchorStore(),
-                consentStore: consentStore
+                consentStore: consentStore,
+                enableBackgroundRefreshAndNotifications: false
             )
             model.enabledCategories = [.sleep]
             model.privacyMode = .localOnly
@@ -99,7 +115,8 @@ final class BaselineAppTests: XCTestCase {
                 authorizationClient: MockAuthorizationClient(granted: [.sleep]),
                 apiClient: MockOnboardingAPIClient(consentError: TestError.failed),
                 anchorStore: InMemoryAnchorStore(),
-                consentStore: consentStore
+                consentStore: consentStore,
+                enableBackgroundRefreshAndNotifications: false
             )
             model.enabledCategories = [.sleep]
             model.privacyMode = .cloudAssisted
@@ -127,7 +144,8 @@ final class BaselineAppTests: XCTestCase {
                 apiClient: api,
                 anchorStore: InMemoryAnchorStore(),
                 consentStore: consentStore,
-                healthKitReader: reader
+                healthKitReader: reader,
+                enableBackgroundRefreshAndNotifications: false
             )
             model.enabledCategories = [.steps]
             model.privacyMode = .hybrid
@@ -891,12 +909,27 @@ final class BaselineAppTests: XCTestCase {
         XCTAssertEqual(components.minute, 30)
     }
 
+    func testNextWakeDateFallsBackToOneHourWhenCalendarDateIsNil() {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let wake = WakeTime(hour: 7, minute: 0)
+
+        let result = nextWakeDate(
+            for: wake,
+            now: now,
+            calendar: calendar,
+            dateFromComponents: { _ in nil }
+        )
+
+        XCTAssertEqual(result.timeIntervalSince(now), 60 * 60, accuracy: 0.001)
+    }
+
     #if os(iOS)
         @MainActor
         func testBackgroundRefreshSchedulingUsesWakeTime() async {
             let scheduler = MockBackgroundTaskScheduler()
             let notifications = MockUserNotificationCenter()
-            await BackgroundRefreshScheduler.register(
+            BackgroundRefreshScheduler.register(
                 taskScheduler: scheduler,
                 notificationCenter: notifications,
                 syncHandler: { true },
@@ -919,7 +952,7 @@ final class BaselineAppTests: XCTestCase {
         func testNotificationAuthorizationRequestedAndMorningReminderScheduled() async {
             let scheduler = MockBackgroundTaskScheduler()
             let notifications = MockUserNotificationCenter()
-            await BackgroundRefreshScheduler.register(
+            BackgroundRefreshScheduler.register(
                 taskScheduler: scheduler,
                 notificationCenter: notifications,
                 syncHandler: { true },
@@ -935,8 +968,8 @@ final class BaselineAppTests: XCTestCase {
             let request = notifications.addedRequests.first
             XCTAssertEqual(request?.identifier, BackgroundRefreshScheduler.morningReminderIdentifier)
             let trigger = request?.trigger as? UNCalendarNotificationTrigger
-            XCTAssertEqual(trigger?.dateMatchingComponents.hour, 7)
-            XCTAssertEqual(trigger?.dateMatchingComponents.minute, 15)
+            XCTAssertEqual(trigger?.dateComponents.hour, 7)
+            XCTAssertEqual(trigger?.dateComponents.minute, 15)
             XCTAssertTrue(trigger?.repeats ?? false)
         }
     #endif
