@@ -526,6 +526,9 @@ class DailyBriefingService:
                     assessment=assessment_data,
                     explanation=explanation,
                 )
+                briefing.recommendation_id = recommendation.id
+                recommendation.briefing_payload = briefing.model_dump(mode="json")
+                self._session.add(recommendation)
                 memory_summary_ids = self._persist_memory_summaries(
                     user_id=user_id,
                     target_date=request.date,

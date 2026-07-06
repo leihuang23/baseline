@@ -13,6 +13,12 @@ final class DailyBriefingViewModel: ObservableObject {
     @Published private(set) var statusMessage = "Latest briefing will appear here after morning sync."
     @Published var followUpQuestion = ""
     @Published var errorMessage: String?
+    @Published var feedbackRating: FeedbackRating?
+    @Published var feedbackAction: FeedbackActionTaken?
+    @Published var feedbackReason = ""
+    @Published var feedbackOutcomeNotes = ""
+    @Published private(set) var isSubmittingFeedback = false
+    @Published private(set) var feedbackStatusMessage: String?
 
     private let apiClient: any DailyBriefingAPIClient
     private let briefingStore: any BriefingPersisting
@@ -134,6 +140,40 @@ final class DailyBriefingViewModel: ObservableObject {
             statusMessage = "Follow-up answered from trace-backed evidence."
         } catch {
             errorMessage = "Follow-up could not be answered right now."
+        }
+    }
+
+    func submitFeedback() async {
+        guard let recommendationID = briefing?.recommendationID else {
+            feedbackStatusMessage = "No recommendation ID available for feedback."
+            return
+        }
+        guard let rating = feedbackRating, let action = feedbackAction else {
+            feedbackStatusMessage = "Select a rating and the action you took."
+            return
+        }
+        guard !isSubmittingFeedback else { return }
+        isSubmittingFeedback = true
+        feedbackStatusMessage = nil
+        defer { isSubmittingFeedback = false }
+
+        let reason = feedbackReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let outcome = feedbackOutcomeNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            _ = try await apiClient.submitRecommendationFeedback(
+                recommendationID: recommendationID,
+                request: RecommendationFeedbackRequest(
+                    rating: rating,
+                    actionTaken: action,
+                    reason: reason.isEmpty ? nil : reason,
+                    outcomeNotes: outcome.isEmpty ? nil : outcome
+                )
+            )
+            feedbackStatusMessage = "Feedback recorded."
+            feedbackReason = ""
+            feedbackOutcomeNotes = ""
+        } catch {
+            feedbackStatusMessage = "Feedback could not be submitted. Try again."
         }
     }
 
@@ -359,6 +399,41 @@ struct DailyBriefingView: View {
                         .font(.caption)
                     if viewModel.isLoadingTrace {
                         ProgressView("Loading trace")
+                    }
+                }
+
+                if briefing.recommendationID != nil {
+                    Section("How did this recommendation work out?") {
+                        Picker("Rating", selection: $viewModel.feedbackRating) {
+                            Text("Select").tag(nil as FeedbackRating?)
+                            ForEach(FeedbackRating.allCases) { rating in
+                                Text(rating.title).tag(Optional(rating))
+                            }
+                        }
+                        Picker("Action taken", selection: $viewModel.feedbackAction) {
+                            Text("Select").tag(nil as FeedbackActionTaken?)
+                            ForEach(FeedbackActionTaken.allCases) { action in
+                                Text(action.title).tag(Optional(action))
+                            }
+                        }
+                        TextField("Reason (optional)", text: $viewModel.feedbackReason)
+                        TextField("Outcome notes (optional)", text: $viewModel.feedbackOutcomeNotes, axis: .vertical)
+                            .lineLimit(1...3)
+                        Button {
+                            Task { await viewModel.submitFeedback() }
+                        } label: {
+                            if viewModel.isSubmittingFeedback {
+                                ProgressView()
+                            } else {
+                                Text("Submit feedback")
+                            }
+                        }
+                        .disabled(viewModel.feedbackRating == nil || viewModel.feedbackAction == nil || viewModel.isSubmittingFeedback)
+                        if let status = viewModel.feedbackStatusMessage {
+                            Text(status)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 

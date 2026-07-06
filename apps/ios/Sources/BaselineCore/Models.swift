@@ -569,6 +569,122 @@ public struct DataDeleteResponse: Codable, Equatable, Sendable {
     }
 }
 
+public enum FeedbackRating: String, Codable, CaseIterable, Identifiable, Sendable {
+    case useful
+    case somewhatUseful = "somewhat_useful"
+    case notUseful = "not_useful"
+    case unsafeOrWrong = "unsafe_or_wrong"
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .useful:
+            "Useful"
+        case .somewhatUseful:
+            "Somewhat useful"
+        case .notUseful:
+            "Not useful"
+        case .unsafeOrWrong:
+            "Unsafe or wrong"
+        }
+    }
+}
+
+public enum FeedbackActionTaken: String, Codable, CaseIterable, Identifiable, Sendable {
+    case followed
+    case partiallyFollowed = "partially_followed"
+    case ignored
+    case planned
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .followed:
+            "Followed"
+        case .partiallyFollowed:
+            "Partially followed"
+        case .ignored:
+            "Ignored"
+        case .planned:
+            "Planned"
+        }
+    }
+}
+
+public struct RecommendationFeedbackRequest: Codable, Equatable, Sendable {
+    public var schemaVersion = "v1"
+    public var rating: FeedbackRating
+    public var actionTaken: FeedbackActionTaken
+    public var reason: String?
+    public var outcomeNotes: String?
+
+    public init(
+        rating: FeedbackRating,
+        actionTaken: FeedbackActionTaken,
+        reason: String? = nil,
+        outcomeNotes: String? = nil
+    ) {
+        self.rating = rating
+        self.actionTaken = actionTaken
+        self.reason = reason
+        self.outcomeNotes = outcomeNotes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case rating
+        case actionTaken = "action_taken"
+        case reason
+        case outcomeNotes = "outcome_notes"
+    }
+}
+
+public struct FeedbackContradictionAlert: Codable, Equatable, Sendable {
+    public var contradictionKey: String
+    public var count: Int
+    public var message: String
+
+    enum CodingKeys: String, CodingKey {
+        case contradictionKey = "contradiction_key"
+        case count
+        case message
+    }
+}
+
+public struct RecommendationFeedbackResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var feedbackID: UUID
+    public var memoryUpdateStatus: String
+    public var evalQueueStatus: String
+    public var contradictionAlert: FeedbackContradictionAlert?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case feedbackID = "feedback_id"
+        case memoryUpdateStatus = "memory_update_status"
+        case evalQueueStatus = "eval_queue_status"
+        case contradictionAlert = "contradiction_alert"
+    }
+}
+
+public struct LLMSettingsResponse: Codable, Equatable, Sendable {
+    public var schemaVersion: String
+    public var provider: String
+    public var cheapModel: String
+    public var strongModel: String
+    public var fallbackModel: String
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case provider
+        case cheapModel = "cheap_model"
+        case strongModel = "strong_model"
+        case fallbackModel = "fallback_model"
+    }
+}
+
 public struct ModelDisclosureRecord: Codable, Equatable, Sendable {
     public var runID: UUID
     public var createdAt: String
@@ -952,6 +1068,7 @@ public struct DailyBriefingResponse: Codable, Equatable, Sendable {
     public var safetyNotes: [String]
     public var traceID: UUID
     public var generatedAt: String
+    public var recommendationID: UUID?
     public var trace: BriefingTraceInspection?
 
     public init(
@@ -977,6 +1094,7 @@ public struct DailyBriefingResponse: Codable, Equatable, Sendable {
         safetyNotes: [String],
         traceID: UUID,
         generatedAt: String,
+        recommendationID: UUID? = nil,
         trace: BriefingTraceInspection? = nil
     ) {
         self.schemaVersion = schemaVersion
@@ -1001,6 +1119,7 @@ public struct DailyBriefingResponse: Codable, Equatable, Sendable {
         self.safetyNotes = safetyNotes
         self.traceID = traceID
         self.generatedAt = generatedAt
+        self.recommendationID = recommendationID
         self.trace = trace
     }
 
@@ -1027,6 +1146,7 @@ public struct DailyBriefingResponse: Codable, Equatable, Sendable {
         case safetyNotes = "safety_notes"
         case traceID = "trace_id"
         case generatedAt = "generated_at"
+        case recommendationID = "recommendation_id"
         case trace
     }
 

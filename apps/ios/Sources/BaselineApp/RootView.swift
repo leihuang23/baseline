@@ -144,6 +144,10 @@ struct BaselineHomeView: View {
                 .tabItem {
                     Label("Sync", systemImage: "arrow.triangle.2.circlepath")
                 }
+            SettingsView(apiClient: apiClient, appModel: appModel)
+                .tabItem {
+                    Label("Settings", systemImage: "gear")
+                }
         }
         .task {
             briefingModel.setSyncAction {
