@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from typing import Any
 
 from sqlalchemy.orm import sessionmaker
-from sqlmodel import Session, col, select
+from sqlmodel import Session
 
 from baseline_api.db.models.memory import MemorySummary
 from baseline_api.db.models.user import User
 from baseline_api.memory.service import MemoryService
+from baseline_api.privacy.user import list_single_user_candidates
 
 
 def _utc_now() -> dt.datetime:
@@ -19,7 +21,10 @@ def _utc_now() -> dt.datetime:
 
 
 def _single_user(session: Session) -> User | None:
-    return session.exec(select(User).order_by(col(User.created_at)).limit(1)).first()
+    users = list_single_user_candidates(session)
+    if len(users) != 1:
+        return None
+    return users[0]
 
 
 def _previous_week_bounds(today: dt.date) -> tuple[dt.date, dt.date]:
@@ -109,7 +114,9 @@ async def compact_weekly_memory(ctx: dict[str, Any]) -> dict[str, Any]:
     session_maker: sessionmaker[Session] = ctx["session_maker"]
     today = _utc_now().date()
     start_date, end_date = _previous_week_bounds(today)
-    return _compact_period(session_maker, today, start_date, end_date, "weekly")
+    return await asyncio.to_thread(
+        _compact_period, session_maker, today, start_date, end_date, "weekly"
+    )
 
 
 async def compact_monthly_memory(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -118,7 +125,9 @@ async def compact_monthly_memory(ctx: dict[str, Any]) -> dict[str, Any]:
     session_maker: sessionmaker[Session] = ctx["session_maker"]
     today = _utc_now().date()
     start_date, end_date = _previous_month_bounds(today)
-    return _compact_period(session_maker, today, start_date, end_date, "monthly")
+    return await asyncio.to_thread(
+        _compact_period, session_maker, today, start_date, end_date, "monthly"
+    )
 
 
 async def compact_quarterly_memory(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -127,4 +136,6 @@ async def compact_quarterly_memory(ctx: dict[str, Any]) -> dict[str, Any]:
     session_maker: sessionmaker[Session] = ctx["session_maker"]
     today = _utc_now().date()
     start_date, end_date = _previous_quarter_bounds(today)
-    return _compact_period(session_maker, today, start_date, end_date, "quarterly")
+    return await asyncio.to_thread(
+        _compact_period, session_maker, today, start_date, end_date, "quarterly"
+    )

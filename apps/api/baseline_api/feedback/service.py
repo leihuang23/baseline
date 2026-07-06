@@ -24,6 +24,7 @@ from baseline_api.db.models.enums import (
 )
 from baseline_api.db.models.evaluation import EvaluationCase
 from baseline_api.db.models.memory import MemorySummary
+from baseline_api.db.models.user import User
 from baseline_api.db.repositories.assessment import RecommendationRepository
 from baseline_api.db.repositories.audit import AuditEventRepository
 from baseline_api.db.repositories.evaluation import EvaluationCaseRepository
@@ -90,9 +91,17 @@ class FeedbackService:
         self,
         recommendation_id: UUID,
         request: RecommendationFeedbackRequest,
+        *,
+        user: User | None = None,
     ) -> RecommendationFeedbackResponse:
         recommendation = self._recommendations.get_by_id(recommendation_id)
         if recommendation is None:
+            raise FeedbackError(
+                code="recommendation_not_found",
+                message="Recommendation was not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        if user is not None and recommendation.user_id != user.id:
             raise FeedbackError(
                 code="recommendation_not_found",
                 message="Recommendation was not found.",

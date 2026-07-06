@@ -138,14 +138,11 @@ class MemorySummaryRepository(BaseRepository[MemorySummary]):
         statement = select(MemorySummary).where(MemorySummary.user_id == user_id)
         if period_type is not None:
             statement = statement.where(MemorySummary.period_type == period_type)
-        statement = (
-            statement.order_by(
-                col(MemorySummary.period_type),
-                col(MemorySummary.end_date).desc(),
-                col(MemorySummary.created_at).desc(),
-            )
-            .limit(limit)
-        )
+        statement = statement.order_by(
+            col(MemorySummary.period_type),
+            col(MemorySummary.end_date).desc(),
+            col(MemorySummary.created_at).desc(),
+        ).limit(limit)
         rows = list(self.session.exec(statement).all())
         seen_periods: set[tuple[PeriodType, dt.date, dt.date]] = set()
         latest_rows: list[MemorySummary] = []

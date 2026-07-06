@@ -1210,7 +1210,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/PeriodType"
                 },
                 {
                   "type": "null"
@@ -4506,6 +4506,16 @@
         "additionalProperties": false,
         "type": "object",
         "title": "ModelDisclosureResponse"
+      },
+      "PeriodType": {
+        "type": "string",
+        "enum": [
+          "daily",
+          "weekly",
+          "monthly",
+          "quarterly"
+        ],
+        "title": "PeriodType"
       },
       "PersonalEvidence": {
         "properties": {

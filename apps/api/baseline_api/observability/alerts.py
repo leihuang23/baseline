@@ -262,23 +262,23 @@ def stale_briefing_alert(
     *,
     settings: Settings | None = None,
     since: dt.datetime | None = None,
+    now: dt.datetime | None = None,
 ) -> list[OperationalAlert]:
     """Alert when the current UTC day has no completed briefing by the alert hour."""
 
-    now = since or dt.datetime.now(dt.UTC)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=dt.UTC)
+    resolved_now = now or dt.datetime.now(dt.UTC)
     alert_hour = settings.stale_briefing_alert_hour_utc if settings is not None else 12
-    if now.hour < alert_hour:
+    if resolved_now.hour < alert_hour:
         return []
-    today = now.date()
-    completed = session.exec(
-        select(DailyAnalysisJob).where(
-            DailyAnalysisJob.date == today,
-            DailyAnalysisJob.status == AnalysisJobStatus.completed.value,
-            col(DailyAnalysisJob.recommendation_id).is_not(None),
-        )
-    ).first()
+    today = resolved_now.date()
+    statement = select(DailyAnalysisJob).where(
+        DailyAnalysisJob.date == today,
+        DailyAnalysisJob.status == AnalysisJobStatus.completed.value,
+        col(DailyAnalysisJob.recommendation_id).is_not(None),
+    )
+    if since is not None:
+        statement = statement.where(DailyAnalysisJob.created_at >= since)
+    completed = session.exec(statement).first()
     if completed is not None:
         return []
     return [
