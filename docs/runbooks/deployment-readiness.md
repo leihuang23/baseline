@@ -41,10 +41,13 @@ API is reachable from any untrusted network.
 ## First-User Bootstrap
 
 The iOS onboarding flow records consent with `/v1/data/consent`. On an empty
-single-user deployment this creates the Baseline user and active consent record.
-Subsequent HealthKit syncs use that active consent version. If more than one
-user exists, single-user privacy controls fail closed until an authenticated
-multi-user resolver is implemented.
+single-user deployment, the first consent request atomically creates the
+Baseline `User` and an active `ConsentRecord`, and returns the active consent
+version. The iOS client persists that server-returned version before the first
+HealthKit sync, and subsequent sync requests must use the current active version.
+If more than one user exists, single-user privacy controls (consent and health
+sync) fail closed with `409 ambiguous_user` until an authenticated multi-user
+resolver is implemented.
 
 ## Known Non-Goals
 

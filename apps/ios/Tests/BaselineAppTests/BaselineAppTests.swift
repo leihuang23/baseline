@@ -106,6 +106,38 @@ final class BaselineAppTests: XCTestCase {
             XCTAssertNil(consentStore.consent)
             XCTAssertTrue(model.syncMessage.contains("Consent could not be recorded"))
         }
+
+        @MainActor
+        func testOnboardingPersistsServerConsentVersionAndUsesItForSync() async throws {
+            let consentStore = InMemoryConsentStore()
+            let api = MockOnboardingAPIClient(serverConsentVersion: "server-consent-v2")
+            let reader = MockHealthKitReader(reads: [
+                .steps: HealthKitReadResult(
+                    category: .steps,
+                    samples: [sample("steps-1", category: .steps)],
+                    newAnchorData: Data("steps-next".utf8)
+                ),
+            ])
+            let model = BaselineAppModel(
+                authorizationClient: MockAuthorizationClient(granted: [.steps]),
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: consentStore,
+                healthKitReader: reader
+            )
+            model.enabledCategories = [.steps]
+            model.privacyMode = .hybrid
+
+            await model.completeOnboarding()
+            await model.syncNow()
+
+            XCTAssertTrue(model.onboardingComplete)
+            XCTAssertEqual(api.consentRequests.single?.consentVersion, ConsentRecord.currentVersion)
+            XCTAssertEqual(consentStore.consent?.consentVersion, "server-consent-v2")
+            XCTAssertEqual(api.syncRequests.single?.consentVersion, "server-consent-v2")
+            XCTAssertEqual(api.syncRequests.single?.samples.map(\.sourceSampleID), ["steps-1"])
+            XCTAssertTrue(model.syncMessage.contains("Synced 1 sample"))
+        }
     #endif
 
     func testAPIBaseURLRejectsInvalidValue() {
@@ -797,6 +829,40 @@ final class BaselineAppTests: XCTestCase {
 
 private enum TestError: Error {
     case failed
+}
+
+private final class MockHealthKitReader: HealthKitReading, @unchecked Sendable {
+    private let reads: [HealthCategory: HealthKitReadResult]
+    private(set) var readCount = 0
+
+    init(reads: [HealthCategory: HealthKitReadResult]) {
+        self.reads = reads
+    }
+
+    func readSamples(for category: HealthCategory, anchorData: Data?) async throws -> HealthKitReadResult {
+        readCount += 1
+        return reads[category] ?? HealthKitReadResult(
+            category: category,
+            samples: [],
+            newAnchorData: anchorData
+        )
+    }
+}
+
+private func sample(
+    _ id: String,
+    category: HealthCategory,
+    start: Date = Date(timeIntervalSince1970: 1_000)
+) -> HealthSample {
+    HealthSample(
+        sourceSampleID: id,
+        sampleType: category.apiSampleType,
+        startTime: start,
+        endTime: start.addingTimeInterval(60),
+        value: 1,
+        unit: "count",
+        sourceMetadata: ["source": "unit-test"]
+    )
 }
 
 private final class MockCheckInAPIClient: CheckInAPIClient, @unchecked Sendable {

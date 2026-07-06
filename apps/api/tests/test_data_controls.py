@@ -1148,6 +1148,70 @@ def test_health_sync_rejects_stale_bootstrapped_consent(db_session: Session) -> 
     assert response.json()["error"]["code"] == "consent_invalid"
 
 
+def test_consent_endpoint_creates_exactly_one_user_and_active_record(db_session: Session) -> None:
+    client = _client(db_session)
+
+    response = client.post(
+        "/v1/data/consent",
+        json={
+            "consent_version": "bootstrap-v1",
+            "health_categories_enabled": ["all"],
+            "cloud_processing_enabled": True,
+            "external_llm_enabled": False,
+            "raw_note_processing_enabled": False,
+        },
+    )
+
+    assert response.status_code == 200
+    users = list(db_session.exec(select(User)).all())
+    assert len(users) == 1
+    assert users[0].active_consent_version == "bootstrap-v1"
+    records = list(db_session.exec(select(ConsentRecord)).all())
+    assert len(records) == 1
+    assert records[0].consent_version == "bootstrap-v1"
+    assert records[0].revoked_at is None
+
+
+def test_consent_endpoint_fails_closed_when_multiple_users_exist(db_session: Session) -> None:
+    for consent_version in ("user-a-v1", "user-b-v1"):
+        user = User(
+            privacy_mode=PrivacyMode.hybrid,
+            active_consent_version=consent_version,
+        )
+        db_session.add(user)
+        db_session.flush()
+        db_session.add(
+            ConsentRecord(
+                user_id=user.id,
+                consent_version=consent_version,
+                health_categories_enabled=["all"],
+                cloud_processing_enabled=True,
+                external_llm_enabled=False,
+                raw_note_processing_enabled=False,
+                timestamp=dt.datetime.now(dt.UTC),
+            )
+        )
+        db_session.flush()
+    client = _client(db_session)
+    record_count_before = len(db_session.exec(select(ConsentRecord)).all())
+
+    response = client.post(
+        "/v1/data/consent",
+        json={
+            "consent_version": "new-v1",
+            "health_categories_enabled": ["all"],
+            "cloud_processing_enabled": True,
+            "external_llm_enabled": False,
+            "raw_note_processing_enabled": False,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "ambiguous_user"
+    assert len(db_session.exec(select(User)).all()) == 2
+    assert len(db_session.exec(select(ConsentRecord)).all()) == record_count_before
+
+
 def test_record_consent_rejects_unknown_health_category_without_persisting(
     db_session: Session,
 ) -> None:
