@@ -392,6 +392,12 @@ final class BaselineCoreTests: XCTestCase {
                     "rejected_count": 0,
                     "warnings": [],
                     "next_anchor": "anchor-1",
+                    "data_quality_summary": [
+                        "status": "degraded",
+                        "notes": [
+                            ["metric": "hrv", "note": "Sparse HRV samples.", "severity": "warning"],
+                        ],
+                    ],
                 ],
             ])
             return (try XCTUnwrap(response), data)
@@ -415,6 +421,9 @@ final class BaselineCoreTests: XCTestCase {
         )
 
         XCTAssertEqual(response.nextAnchor, "anchor-1")
+        XCTAssertEqual(response.dataQualitySummary.status, "degraded")
+        XCTAssertEqual(response.dataQualitySummary.notes.count, 1)
+        XCTAssertEqual(response.dataQualitySummary.notes.first?.metric, "hrv")
     }
 
     func testAPIClientAttachesBearerTokenToDeleteRequests() async throws {
@@ -632,7 +641,8 @@ final class BaselineCoreTests: XCTestCase {
             duplicateCount: 0,
             rejectedCount: 0,
             warnings: [],
-            nextAnchor: "server-next"
+            nextAnchor: "server-next",
+            dataQualitySummary: DataQualitySummary(status: "ok", notes: [])
         )
         let api = MockSyncAPIClient(results: [
             .failure(TestError.interrupted),
@@ -690,7 +700,8 @@ final class BaselineCoreTests: XCTestCase {
             duplicateCount: 0,
             rejectedCount: 0,
             warnings: [],
-            nextAnchor: "server-next"
+            nextAnchor: "server-next",
+            dataQualitySummary: DataQualitySummary(status: "ok", notes: [])
         )
         let api = MockSyncAPIClient(results: [.success(response)])
         let engine = HealthSyncEngine(
