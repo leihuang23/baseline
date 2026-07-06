@@ -86,7 +86,13 @@ async def generate_daily_analysis(
         settings=request.app.state.settings,
     )
     try:
-        job = service.create_daily_job(payload, user=context.user)
+        job = service.get_or_create_daily_job_for_date(
+            payload.date,
+            user=context.user,
+            force_recompute=payload.force_recompute,
+            include_external_knowledge=payload.include_external_knowledge,
+            privacy_mode=payload.privacy_mode,
+        )
         if getattr(request.app.state, "briefing_run_inline", False):
             data = await service.run_daily_job(job.id)
         else:

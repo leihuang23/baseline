@@ -33,6 +33,11 @@ from baseline_api.db.models.enums import (
 )
 from baseline_api.memory.compiler import MemoryCompiler
 from baseline_api.memory.service import MemoryService, _validated_items
+from baseline_api.memory.worker import (
+    compact_monthly_memory,
+    compact_quarterly_memory,
+    compact_weekly_memory,
+)
 
 
 def _value(value: Any, unit: str = "unit") -> dict[str, Any]:
@@ -1086,3 +1091,116 @@ def test_recent_summary_accessor_returns_structured_memory_before_target_date(
     assert recent[0]["period_type"] == "weekly"
     assert "Illness disrupted" in recent[0]["observation"]
     assert recent[0]["source_refs"] == older.source_refs
+
+
+class _FakeSessionContext:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def __enter__(self) -> Session:
+        return self._session
+
+    def __exit__(self, *args: object) -> bool:
+        return False
+
+
+def _seed_daily_summaries(
+    db_session: Session,
+    user_id: UUID,
+    start_date: dt.date,
+    days: int,
+) -> None:
+    for offset in range(days):
+        db_session.add(
+            _daily_memory_summary(
+                user_id,
+                start_date + dt.timedelta(days=offset),
+                risk_flags=["high_sleep_debt"] if offset % 3 == 0 else [],
+                readiness_state="low" if offset % 3 == 0 else "high",
+                offset=offset,
+            )
+        )
+    db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_compact_weekly_memory_creates_weekly_summary(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = _user(db_session)
+    fixed_now = dt.datetime(2026, 7, 6, 6, 0, tzinfo=dt.UTC)
+    monkeypatch.setattr(
+        "baseline_api.memory.worker._utc_now",
+        lambda: fixed_now,
+    )
+    _seed_daily_summaries(db_session, user.id, dt.date(2026, 6, 29), 7)
+
+    result = await compact_weekly_memory({"session_maker": lambda: _FakeSessionContext(db_session)})
+
+    assert result["status"] == "success"
+    assert result["period"] == "weekly"
+    assert result["start_date"] == "2026-06-29"
+    assert result["end_date"] == "2026-07-05"
+    summary = db_session.get(MemorySummary, UUID(result["memory_summary_id"]))
+    assert summary is not None
+    assert summary.period_type == PeriodType.weekly
+
+
+@pytest.mark.asyncio
+async def test_compact_monthly_memory_creates_monthly_summary(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = _user(db_session)
+    fixed_now = dt.datetime(2026, 2, 2, 6, 0, tzinfo=dt.UTC)
+    monkeypatch.setattr(
+        "baseline_api.memory.worker._utc_now",
+        lambda: fixed_now,
+    )
+    _seed_daily_summaries(db_session, user.id, dt.date(2026, 1, 1), 31)
+
+    result = await compact_monthly_memory(
+        {"session_maker": lambda: _FakeSessionContext(db_session)}
+    )
+
+    assert result["status"] == "success"
+    assert result["period"] == "monthly"
+    assert result["start_date"] == "2026-01-01"
+    assert result["end_date"] == "2026-01-31"
+    summary = db_session.get(MemorySummary, UUID(result["memory_summary_id"]))
+    assert summary is not None
+    assert summary.period_type == PeriodType.monthly
+
+
+@pytest.mark.asyncio
+async def test_compact_quarterly_memory_creates_quarterly_summary(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = _user(db_session)
+    fixed_now = dt.datetime(2026, 4, 2, 6, 0, tzinfo=dt.UTC)
+    monkeypatch.setattr(
+        "baseline_api.memory.worker._utc_now",
+        lambda: fixed_now,
+    )
+    _seed_daily_summaries(db_session, user.id, dt.date(2026, 1, 1), 90)
+    service = MemoryService(db_session)
+    for start, end in [
+        (dt.date(2026, 1, 1), dt.date(2026, 1, 31)),
+        (dt.date(2026, 2, 1), dt.date(2026, 2, 28)),
+        (dt.date(2026, 3, 1), dt.date(2026, 3, 31)),
+    ]:
+        service.generate_monthly_summary(user_id=user.id, start_date=start, end_date=end)
+
+    result = await compact_quarterly_memory(
+        {"session_maker": lambda: _FakeSessionContext(db_session)}
+    )
+
+    assert result["status"] == "success"
+    assert result["period"] == "quarterly"
+    assert result["start_date"] == "2026-01-01"
+    assert result["end_date"] == "2026-03-31"
+    summary = db_session.get(MemorySummary, UUID(result["memory_summary_id"]))
+    assert summary is not None
+    assert summary.period_type == PeriodType.quarterly

@@ -248,8 +248,7 @@ def _privacy_mode_from_request(request: ConsentRecordRequest) -> PrivacyMode:
             raise PrivacyError(
                 code="consent_inconsistent",
                 message=(
-                    "privacy_mode must match cloud_processing_enabled and "
-                    "external_llm_enabled."
+                    "privacy_mode must match cloud_processing_enabled and external_llm_enabled."
                 ),
                 status_code=400,
             )

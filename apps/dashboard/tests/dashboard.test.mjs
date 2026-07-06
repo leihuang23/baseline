@@ -356,3 +356,37 @@ test("real mode is operator-gated and does not render operational data without a
   assert.doesNotMatch(html, /2d31f8f5-0c96-4b57-a59a-c3e7a3a82501/);
   assert.doesNotMatch(html, /Pipeline health/);
 });
+
+test("operational alerts surface in the safety-events panel", () => {
+  const traceId = "cccccccc-3333-4333-8333-cccccccccccc";
+  const data = {
+    ...demoDashboardData,
+    recommendationTraces: [
+      {
+        ...demoDashboardData.recommendationTraces[0],
+        traceId,
+      },
+    ],
+    llmRuns: [],
+    evalResults: [],
+    operationalAlerts: [
+      {
+        alert_type: "stale_briefing",
+        severity: "warning",
+        message: "No daily briefing has been generated for the current UTC day.",
+        runbook: "docs/runbooks/stale-briefing.md",
+        metadata: { date: "2026-07-05" },
+      },
+    ],
+    safetyEvents: [],
+  };
+  const safe = sanitizeDashboardData(data);
+  const html = renderDashboard(data, { mode: "real", authenticated: true });
+
+  assert.equal(safe.operationalAlerts.length, 1);
+  assert.equal(safe.operationalAlerts[0].source, "operational_alert");
+  assert.equal(safe.operationalAlerts[0].category, "stale_briefing");
+  assert.equal(safe.safetyEvents.length, 1);
+  assert.match(html, /stale_briefing/);
+  assert.match(html, /No daily briefing/);
+});

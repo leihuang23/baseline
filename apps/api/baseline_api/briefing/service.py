@@ -103,7 +103,7 @@ class LLMExplainer(Protocol):
         """Generate or degrade a bounded explanation."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class BriefingError(Exception):
     code: str
     message: str
@@ -197,6 +197,48 @@ class DailyBriefingService:
         self._session.commit()
         return job
 
+    def get_or_create_daily_job_for_date(
+        self,
+        target_date: dt.date,
+        *,
+        user: User | None = None,
+        force_recompute: bool = False,
+        include_external_knowledge: bool = False,
+        privacy_mode: PrivacyMode = PrivacyMode.cloud_assisted,
+    ) -> DailyAnalysisJob:
+        """Return the most recent daily analysis job for ``target_date`` or create one.
+
+        Used by the API route and the fallback cron wrapper to keep the client
+        trigger path idempotent: re-enqueueing the same date returns the existing
+        job instead of spawning duplicate recommendations.
+        """
+
+        resolved_user = user or self._get_single_user()
+        existing = self._session.exec(
+            select(DailyAnalysisJob)
+            .where(DailyAnalysisJob.user_id == resolved_user.id)
+            .where(DailyAnalysisJob.date == target_date)
+            .order_by(col(DailyAnalysisJob.created_at).desc())
+        ).first()
+        if existing is not None:
+            status = AnalysisJobStatus(existing.status)
+            if status in {AnalysisJobStatus.queued, AnalysisJobStatus.running}:
+                return existing
+            if status == AnalysisJobStatus.completed and not force_recompute:
+                return existing
+            # A failed job will be retried by ``run_daily_job``; a forced
+            # recompute for a completed job enqueues a fresh run with the
+            # caller's latest parameters (e.g. external-knowledge opt-in).
+        return self.create_daily_job(
+            DailyAnalysisRequest(
+                date=target_date,
+                force_recompute=force_recompute,
+                include_external_knowledge=include_external_knowledge,
+                privacy_mode=privacy_mode,
+            ),
+            user=resolved_user,
+        )
+
     def get_daily_job(
         self,
         job_id: UUID,
@@ -245,6 +287,53 @@ class DailyBriefingService:
                 message="No Baseline user is available for briefing generation.",
                 status_code=409,
             )
+
+        status = AnalysisJobStatus(job.status)
+        if status == AnalysisJobStatus.running:
+            return DailyAnalysisResponse(
+                analysis_job_id=job.id,
+                status=status,
+                estimated_completion_seconds=5,
+            )
+        if status == AnalysisJobStatus.completed:
+            if not job.force_recompute:
+                return DailyAnalysisResponse(
+                    analysis_job_id=job.id,
+                    status=status,
+                    estimated_completion_seconds=0,
+                )
+            request = DailyAnalysisRequest(
+                date=job.date,
+                force_recompute=True,
+                include_external_knowledge=job.include_external_knowledge,
+                privacy_mode=PrivacyMode(job.privacy_mode),
+            )
+            job = self.create_daily_job(request, user=user)
+        if status == AnalysisJobStatus.failed:
+            max_retries = (
+                self._settings.daily_briefing_max_retries if self._settings is not None else 2
+            )
+            if job.retry_count >= max_retries:
+                return DailyAnalysisResponse(
+                    analysis_job_id=job.id,
+                    status=status,
+                    estimated_completion_seconds=0,
+                )
+            job.retry_count += 1
+            job.status = AnalysisJobStatus.running.value
+            job.started_at = dt.datetime.now(dt.UTC)
+            job.stage_trace = [
+                *job.stage_trace,
+                _stage_event(
+                    "job_retry",
+                    trace_id=job.request_trace_id,
+                    job_id=job.id,
+                    retry_count=job.retry_count,
+                ),
+            ]
+            self._session.add(job)
+            self._session.commit()
+
         job_record_id = job.id
         user_id = user.id
         request = DailyAnalysisRequest(
@@ -483,10 +572,6 @@ class DailyBriefingService:
                     status=AnalysisJobStatus.completed,
                     estimated_completion_seconds=0,
                 )
-            except BriefingError:
-                self._mark_job_failed(job_id, error_code="briefing_error", error_message=None)
-                increment_llm_generation_result(status="failed")
-                raise
             except Exception as exc:
                 self._session.rollback()
                 self._mark_job_failed(
@@ -495,12 +580,11 @@ class DailyBriefingService:
                     error_message="Daily briefing generation failed.",
                 )
                 increment_llm_generation_result(status="failed")
-                raise BriefingError(
-                    code="briefing_generation_failed",
-                    message="Daily briefing generation failed.",
-                    status_code=500,
-                    details={"error_type": type(exc).__name__},
-                ) from exc
+                return DailyAnalysisResponse(
+                    analysis_job_id=job_record_id,
+                    status=AnalysisJobStatus.failed,
+                    estimated_completion_seconds=0,
+                )
 
     def get_briefing(
         self,
@@ -807,9 +891,7 @@ class DailyBriefingService:
             try:
                 nested = self._session.begin_nested()
                 try:
-                    result = KnowledgeRetrievalService(
-                        self._session
-                    ).retrieve_lexical_degraded(
+                    result = KnowledgeRetrievalService(self._session).retrieve_lexical_degraded(
                         query,
                         reason=type(exc).__name__,
                     )
@@ -821,9 +903,9 @@ class DailyBriefingService:
         try:
             nested = self._session.begin_nested()
             try:
-                result = KnowledgeRetrievalService(
-                    self._session, embedder=embedder
-                ).retrieve(query, query_embedding=query_embedding)
+                result = KnowledgeRetrievalService(self._session, embedder=embedder).retrieve(
+                    query, query_embedding=query_embedding
+                )
                 if result.degraded and not (
                     result.hits or result.citations or result.external_knowledge
                 ):

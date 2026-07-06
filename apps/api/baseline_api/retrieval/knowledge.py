@@ -49,6 +49,7 @@ def create_embedder(settings: Settings | None = None) -> EmbeddingProvider:
         )
     return HashEmbeddingProvider()
 
+
 DEFAULT_LIMIT = 3
 DEFAULT_MIN_RELEVANCE = 0.08
 LEXICAL_FALLBACK_MIN_OVERLAP = 0.2

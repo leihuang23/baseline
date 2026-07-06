@@ -52,6 +52,7 @@ from baseline_api.db.session import get_db_session
 from baseline_api.llm.orchestrator import OrchestratorResult
 from baseline_api.llm.schemas import LLMExplanationOutput
 from baseline_api.observability import metrics
+from baseline_api.observability.alerts import stale_briefing_alert
 from baseline_api.retrieval import (
     KnowledgeChunkHit,
     KnowledgeRetrievalResult,
@@ -60,8 +61,9 @@ from baseline_api.retrieval import (
 )
 from baseline_api.safety.engine import SafetyPolicyEngine
 from baseline_api.schemas.api import DailyAnalysisRequest, DailyBriefingResponse
-from baseline_api.schemas.enums import PrivacyMode
+from baseline_api.schemas.enums import AnalysisJobStatus, PrivacyMode
 from baseline_api.schemas.recommendation import RecommendationContract
+from baseline_api.worker import WorkerSettings
 
 TARGET_DATE = dt.date(2026, 7, 4)
 
@@ -662,12 +664,13 @@ def _generate(
     privacy_mode: str = "cloud_assisted",
     date: dt.date = TARGET_DATE,
     include_external_knowledge: bool = False,
+    force_recompute: bool = False,
 ) -> dict[str, Any]:
     response = client.post(
         "/v1/analysis/daily",
         json={
             "date": date.isoformat(),
-            "force_recompute": False,
+            "force_recompute": force_recompute,
             "include_external_knowledge": include_external_knowledge,
             "privacy_mode": privacy_mode,
         },
@@ -1157,7 +1160,7 @@ def test_external_knowledge_opt_in_adds_bound_non_personal_citations(
     _generate(client)
     _seed_external_reference(db_session)
     db_session.commit()
-    _generate(client, include_external_knowledge=True)
+    _generate(client, include_external_knowledge=True, force_recompute=True)
     briefing = client.get(f"/v1/briefings/{TARGET_DATE.isoformat()}").json()["data"]
 
     assert briefing["evidence"]
@@ -1246,9 +1249,7 @@ async def test_external_knowledge_without_consent_does_not_create_embedder(
 
     assert result.hits == []
     assert result.external_knowledge == []
-    assert result.uncertainty == [
-        "External knowledge was requested but consent is not active."
-    ]
+    assert result.uncertainty == ["External knowledge was requested but consent is not active."]
 
 
 def test_external_knowledge_query_includes_goal_topics_only() -> None:
@@ -1381,3 +1382,119 @@ def test_final_safety_gate_covers_side_fields_before_persistence(
     stored_text = json.dumps(recommendation.briefing_payload).lower()
     assert "overtrained" not in stored_text
     assert "diagnosis is" not in stored_text
+
+
+def test_reenqueue_completed_daily_briefing_returns_existing_result(
+    db_session: Session,
+) -> None:
+    _seed_fixture_day(db_session)
+    client = _client(db_session, llm_explainer=FakeLLMExplainer(db_session))
+
+    first = _generate(client)
+    recommendation_count = len(
+        db_session.exec(select(Recommendation).where(Recommendation.date == TARGET_DATE)).all()
+    )
+
+    second = _generate(client)
+
+    assert second["analysis_job_id"] == first["analysis_job_id"]
+    assert second["status"] == "completed"
+    assert (
+        len(db_session.exec(select(Recommendation).where(Recommendation.date == TARGET_DATE)).all())
+        == recommendation_count
+    )
+
+
+def test_force_recompute_creates_new_daily_briefing_run(db_session: Session) -> None:
+    _seed_fixture_day(db_session)
+    client = _client(db_session, llm_explainer=FakeLLMExplainer(db_session))
+
+    first = _generate(client)
+    second = _generate(client, force_recompute=True)
+
+    assert second["analysis_job_id"] != first["analysis_job_id"]
+    assert second["status"] == "completed"
+    jobs = db_session.exec(
+        select(DailyAnalysisJob).where(DailyAnalysisJob.date == TARGET_DATE)
+    ).all()
+    assert len(jobs) == 2
+    assert {job.status for job in jobs} == {"completed"}
+
+
+@pytest.mark.asyncio
+async def test_failed_daily_briefing_job_retries_up_to_max_retries(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = _seed_fixture_day(db_session)
+    service = DailyBriefingService(
+        db_session,
+        llm_explainer=FakeLLMExplainer(db_session),
+        settings=_settings(),
+    )
+    job = service.create_daily_job(
+        DailyAnalysisRequest(
+            date=TARGET_DATE,
+            force_recompute=False,
+            include_external_knowledge=False,
+            privacy_mode="cloud_assisted",
+        ),
+        user=user,
+    )
+    job.status = "failed"
+    db_session.add(job)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        DailyBriefingService,
+        "_load_or_compute_features_with_degraded_mode",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("features down")),
+    )
+
+    for expected_retry in (1, 2):
+        response = await service.run_daily_job(job.id)
+        db_session.refresh(job)
+        assert response.analysis_job_id == job.id
+        assert response.status == AnalysisJobStatus.failed
+        assert job.retry_count == expected_retry
+        assert job.status == "failed"
+
+    # At max retries the job is left failed without another attempt.
+    final = await service.run_daily_job(job.id)
+    db_session.refresh(job)
+    assert final.status == AnalysisJobStatus.failed
+    assert job.retry_count == 2
+
+
+def test_worker_settings_cron_schedule_includes_daily_and_memory_jobs() -> None:
+    cron_names = {job.name.replace("cron:", "") for job in WorkerSettings.cron_jobs}
+
+    assert "daily_briefing_cron" in cron_names
+    assert "compact_weekly_memory" in cron_names
+    assert "compact_monthly_memory" in cron_names
+    assert "compact_quarterly_memory" in cron_names
+
+
+@pytest.mark.asyncio
+async def test_stale_briefing_alert_fires_when_no_briefing_by_alert_hour(
+    db_session: Session,
+) -> None:
+    user = _seed_fixture_day(db_session)
+    settings = _settings()
+    alert_hour = settings.stale_briefing_alert_hour_utc
+    before_alert = dt.datetime(2026, 7, 4, alert_hour - 1, 0, tzinfo=dt.UTC)
+    after_alert = dt.datetime(2026, 7, 4, alert_hour, 0, tzinfo=dt.UTC)
+
+    assert stale_briefing_alert(db_session, settings=settings, since=before_alert) == []
+
+    alerts = stale_briefing_alert(db_session, settings=settings, since=after_alert)
+    assert len(alerts) == 1
+    assert alerts[0].alert_type == "stale_briefing"
+    assert alerts[0].metadata["date"] == "2026-07-04"
+
+    # Completing a briefing for the date clears the alert.
+    service = DailyBriefingService(db_session, llm_explainer=FakeLLMExplainer(db_session))
+    job = service.get_or_create_daily_job_for_date(TARGET_DATE, user=user)
+    db_session.commit()
+    await service.run_daily_job(job.id)
+    assert stale_briefing_alert(db_session, settings=settings, since=after_alert) == []
