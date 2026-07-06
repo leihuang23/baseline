@@ -10,15 +10,21 @@ import UserNotifications
 
 final class BaselineAppTests: XCTestCase {
     #if os(iOS)
-        @MainActor
-        override func setUp() {
+        // XCTest's setUp/tearDown are nonisolated, but XCTest always calls them
+        // on the main thread. Use MainActor.assumeIsolated so the scheduler
+        // reset runs synchronously on the main actor without changing the
+        // override signature.
+        nonisolated override func setUp() {
             super.setUp()
-            BackgroundRefreshScheduler.resetForTesting()
+            MainActor.assumeIsolated {
+                BackgroundRefreshScheduler.resetForTesting()
+            }
         }
 
-        @MainActor
-        override func tearDown() {
-            BackgroundRefreshScheduler.resetForTesting()
+        nonisolated override func tearDown() {
+            MainActor.assumeIsolated {
+                BackgroundRefreshScheduler.resetForTesting()
+            }
             super.tearDown()
         }
     #endif
