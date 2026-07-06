@@ -49,6 +49,7 @@ from baseline_api.db.models.enums import (
     TimeHorizon,
     TrustLevel,
 )
+from baseline_api.db.models.knowledge import KnowledgeChunk, KnowledgeSource
 from baseline_api.db.session import get_db_session
 from baseline_api.llm.orchestrator import OrchestratorResult
 from baseline_api.llm.schemas import LLMExplanationOutput
@@ -266,7 +267,10 @@ def test_external_retrieval_db_error_does_not_fallback_to_lexical(
 ) -> None:
     service = KnowledgeRetrievalService(cast(Session, object()))
 
-    def fake_chunk_pairs(*, require_embedding: bool) -> list[tuple[KnowledgeChunk, KnowledgeSource]]:
+    def fake_chunk_pairs(
+        *,
+        require_embedding: bool,
+    ) -> list[tuple[KnowledgeChunk, KnowledgeSource]]:
         _ = require_embedding
         return []
 
