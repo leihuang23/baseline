@@ -212,9 +212,10 @@ def delete_all_data(
 def delete_checkin(
     checkin_id: UUID,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[DataDeleteResponse] | Response:
     try:
-        data = DataDeletionService(session).delete_checkin(checkin_id)
+        data = DataDeletionService(session).delete_checkin(checkin_id, user=context.user)
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
@@ -224,9 +225,10 @@ def delete_checkin(
 def delete_checkin_note(
     checkin_id: UUID,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[DataDeleteResponse] | Response:
     try:
-        data = DataDeletionService(session).delete_note(checkin_id)
+        data = DataDeletionService(session).delete_note(checkin_id, user=context.user)
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
@@ -239,9 +241,13 @@ def delete_checkin_note(
 def delete_memory_summary(
     memory_summary_id: UUID,
     session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[DataDeleteResponse] | Response:
     try:
-        data = DataDeletionService(session).delete_memory_summary(memory_summary_id)
+        data = DataDeletionService(session).delete_memory_summary(
+            memory_summary_id,
+            user=context.user,
+        )
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)

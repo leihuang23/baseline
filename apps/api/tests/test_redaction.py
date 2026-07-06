@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import datetime as dt
 import json
+import logging
 from collections.abc import Generator
 from uuid import UUID, uuid4
 
@@ -15,7 +16,7 @@ from sqlmodel import Session, select
 from baseline_api.api.v1.health import get_normalization_queue
 from baseline_api.app import create_app
 from baseline_api.config import Settings
-from baseline_api.db.models import User
+from baseline_api.db.models import AuditEvent, User
 from baseline_api.db.models.enums import PrivacyMode
 from baseline_api.db.models.user import ConsentRecord
 from baseline_api.db.session import get_db_session
@@ -102,6 +103,56 @@ def test_export_manifest_does_not_contain_encryption_key(
     rendered_manifest = json.dumps(manifest, sort_keys=True)
     assert key_base64 not in rendered_manifest
     assert "key" not in manifest
+
+
+def test_export_key_material_absent_from_logs_and_audit(
+    db_session: Session,
+    tmp_path,
+    caplog,
+) -> None:
+    caplog.set_level(logging.INFO)
+    user = User(privacy_mode=PrivacyMode.hybrid, active_consent_version="v1")
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(
+        ConsentRecord(
+            user_id=user.id,
+            consent_version="v1",
+            health_categories_enabled=["all"],
+            cloud_processing_enabled=True,
+            external_llm_enabled=False,
+            raw_note_processing_enabled=False,
+            timestamp=dt.datetime.now(dt.UTC),
+        )
+    )
+    db_session.flush()
+
+    export_store = LocalExportStore(tmp_path)
+    client = _client(db_session)
+    client.app.state.export_store = export_store
+
+    response = client.post(
+        "/v1/data/export",
+        json={
+            "export_scope": "consent",
+            "format": "json",
+            "include_raw_data": False,
+            "include_model_traces": False,
+        },
+    )
+
+    assert response.status_code == 200
+    key_base64 = response.json()["data"]["encryption"]["key_base64"]
+
+    assert key_base64 not in caplog.text
+
+    audit_events = list(db_session.exec(select(AuditEvent)).all())
+    rendered_audit = json.dumps(
+        [event.model_dump(mode="json") for event in audit_events],
+        sort_keys=True,
+        default=str,
+    )
+    assert key_base64 not in rendered_audit
 
 
 def test_redis_export_key_store_returns_key_before_expiry_and_none_after() -> None:

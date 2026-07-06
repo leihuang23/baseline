@@ -148,9 +148,14 @@ class DataDeletionService:
         self._session.commit()
         return DataDeleteResponse(deleted=counts)
 
-    def delete_note(self, checkin_id: UUID) -> DataDeleteResponse:
-        user = get_single_user(self._session)
-        checkin = self._checkin(user.id, checkin_id)
+    def delete_note(
+        self,
+        checkin_id: UUID,
+        *,
+        user: User | None = None,
+    ) -> DataDeleteResponse:
+        resolved_user = user or get_single_user(self._session)
+        checkin = self._checkin(resolved_user.id, checkin_id)
         try:
             had_note = int(
                 checkin.free_text_note_reference is not None
@@ -161,13 +166,13 @@ class DataDeletionService:
             checkin.redaction_status = RedactionStatus.none
             self._session.add(checkin)
             derived_counts = self._delete_note_derived_artifacts(
-                user_id=user.id,
+                user_id=resolved_user.id,
                 checkin_id=checkin_id,
             )
             emit_privacy_audit(
                 self._session,
                 event_type=AuditEventType.data_deleted,
-                user_id=user.id,
+                user_id=resolved_user.id,
                 metadata={"target": "checkin_note", "checkin_id": str(checkin_id)},
             )
             self._session.commit()
@@ -177,20 +182,25 @@ class DataDeletionService:
         except Exception as exc:
             self._record_deletion_failure(
                 event_type=AuditEventType.data_deleted,
-                user_id=user.id,
+                user_id=resolved_user.id,
                 target="checkin_note",
                 target_id=checkin_id,
                 exc=exc,
             )
             raise
 
-    def delete_checkin(self, checkin_id: UUID) -> DataDeleteResponse:
-        user = get_single_user(self._session)
-        checkin = self._checkin(user.id, checkin_id)
+    def delete_checkin(
+        self,
+        checkin_id: UUID,
+        *,
+        user: User | None = None,
+    ) -> DataDeleteResponse:
+        resolved_user = user or get_single_user(self._session)
+        checkin = self._checkin(resolved_user.id, checkin_id)
         try:
             with self._session.begin_nested():
                 derived_counts = self._delete_checkin_derived_artifacts(
-                    user_id=user.id,
+                    user_id=resolved_user.id,
                     checkin_id=checkin.id,
                     checkin_date=checkin.date,
                 )
@@ -200,7 +210,7 @@ class DataDeletionService:
         except Exception as exc:
             self._record_deletion_failure(
                 event_type=AuditEventType.data_deleted,
-                user_id=user.id,
+                user_id=resolved_user.id,
                 target="checkin",
                 target_id=checkin_id,
                 exc=exc,
@@ -212,7 +222,7 @@ class DataDeletionService:
             emit_privacy_audit(
                 self._session,
                 event_type=AuditEventType.data_deleted,
-                user_id=user.id,
+                user_id=resolved_user.id,
                 metadata={"target": "checkin", "checkin_id": str(checkin_id)},
             )
             self._session.commit()
@@ -222,17 +232,22 @@ class DataDeletionService:
         except Exception as exc:
             self._record_deletion_failure(
                 event_type=AuditEventType.data_deleted,
-                user_id=user.id,
+                user_id=resolved_user.id,
                 target="checkin",
                 target_id=checkin_id,
                 exc=exc,
             )
             raise
 
-    def delete_memory_summary(self, memory_summary_id: UUID) -> DataDeleteResponse:
-        user = get_single_user(self._session)
+    def delete_memory_summary(
+        self,
+        memory_summary_id: UUID,
+        *,
+        user: User | None = None,
+    ) -> DataDeleteResponse:
+        resolved_user = user or get_single_user(self._session)
         memory = self._session.get(MemorySummary, memory_summary_id)
-        if memory is None or memory.user_id != user.id:
+        if memory is None or memory.user_id != resolved_user.id:
             raise PrivacyError(
                 code="memory_summary_not_found",
                 message="Memory summary not found.",
@@ -243,7 +258,7 @@ class DataDeletionService:
             emit_privacy_audit(
                 self._session,
                 event_type=AuditEventType.memory_deleted,
-                user_id=user.id,
+                user_id=resolved_user.id,
                 metadata={"target": "memory_summary", "memory_summary_id": str(memory_summary_id)},
             )
             self._session.commit()
@@ -253,7 +268,7 @@ class DataDeletionService:
         except Exception as exc:
             self._record_deletion_failure(
                 event_type=AuditEventType.memory_deleted,
-                user_id=user.id,
+                user_id=resolved_user.id,
                 target="memory_summary",
                 target_id=memory_summary_id,
                 exc=exc,
