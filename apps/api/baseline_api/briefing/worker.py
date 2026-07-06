@@ -61,7 +61,7 @@ async def daily_briefing_cron(ctx: dict[str, Any]) -> dict[str, Any]:
         alerts = stale_briefing_alert(
             session,
             settings=settings,
-            since=dt.datetime.now(dt.UTC),
+            since=None,
         )
         return {
             "status": "success",
