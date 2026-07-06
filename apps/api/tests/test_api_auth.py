@@ -91,3 +91,25 @@ def test_api_token_allows_public_docs_and_openapi() -> None:
     assert client.get("/docs").status_code == 200
     assert client.get("/redoc").status_code == 200
     assert client.get("/openapi.json").status_code == 200
+
+
+def test_production_api_token_protects_docs_and_openapi() -> None:
+    settings = Settings(
+        APP_ENV="production",
+        DATABASE_URL="postgresql+psycopg://baseline@localhost:5433/baseline",
+        REDIS_URL="redis://localhost:6379/0",
+        BASELINE_API_AUTH_TOKEN="secret-token-with-at-least-32-characters",
+        EXPORT_STORAGE_DIR="/tmp/baseline-test-exports",
+    )
+    app = create_app(settings)
+
+    @app.get("/protected-test")
+    def protected_test() -> dict[str, str]:
+        return {"status": "ok"}
+
+    client = TestClient(app)
+
+    assert client.get("/docs").status_code == 401
+    assert client.get("/redoc").status_code == 401
+    assert client.get("/openapi.json").status_code == 401
+    assert client.get("/health").status_code == 200

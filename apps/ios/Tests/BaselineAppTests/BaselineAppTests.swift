@@ -40,7 +40,6 @@ final class BaselineAppTests: XCTestCase {
             ],
             infoDictionary: [
                 BaselineAppConfiguration.infoPlistKey: "https://bundle.example.test",
-                BaselineAppConfiguration.apiAuthTokenInfoPlistKey: "bundle-token",
             ]
         )
 
@@ -60,16 +59,15 @@ final class BaselineAppTests: XCTestCase {
         XCTAssertEqual(configuration.apiAuthToken, nil)
     }
 
-    func testAPIAuthTokenFallsBackToInfoPlist() throws {
+    func testAPIAuthTokenIgnoresInfoPlist() throws {
         let configuration = try BaselineAppConfiguration.current(
             environment: [:],
             infoDictionary: [
                 BaselineAppConfiguration.infoPlistKey: "https://bundle.example.test",
-                BaselineAppConfiguration.apiAuthTokenInfoPlistKey: "bundle-token",
             ]
         )
 
-        XCTAssertEqual(configuration.apiAuthToken, "bundle-token")
+        XCTAssertNil(configuration.apiAuthToken)
     }
 
     #if os(iOS)

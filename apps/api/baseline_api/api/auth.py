@@ -11,20 +11,19 @@ from starlette.responses import JSONResponse, Response
 
 from baseline_api.config import Settings
 
-_PUBLIC_EXACT_PATHS: Final[frozenset[str]] = frozenset(
-    {
-        "/health",
-        "/v1/health/ping",
-        "/docs",
-        "/redoc",
-        "/openapi.json",
-    }
-)
-_PUBLIC_PREFIXES: Final[tuple[str, ...]] = ("/docs/", "/static/")
+_HEALTH_EXACT_PATHS: Final[frozenset[str]] = frozenset({"/health", "/v1/health/ping"})
+_DOCS_EXACT_PATHS: Final[frozenset[str]] = frozenset({"/docs", "/redoc", "/openapi.json"})
+_DOCS_PREFIXES: Final[tuple[str, ...]] = ("/docs/", "/static/")
 
 
-def is_public_api_path(path: str) -> bool:
-    return path in _PUBLIC_EXACT_PATHS or path.startswith(_PUBLIC_PREFIXES)
+def is_public_api_path(path: str, app_env: str | None = None) -> bool:
+    """Return True for health checks; docs are public only in local/test."""
+
+    if path in _HEALTH_EXACT_PATHS:
+        return True
+    if app_env in {"staging", "production"}:
+        return False
+    return path in _DOCS_EXACT_PATHS or path.startswith(_DOCS_PREFIXES)
 
 
 async def api_key_auth_middleware(
@@ -38,7 +37,7 @@ async def api_key_auth_middleware(
         return await call_next(request)
 
     path = request.url.path
-    if is_public_api_path(path):
+    if is_public_api_path(path, app_env=settings.app_env):
         return await call_next(request)
 
     if not _request_has_valid_token(request, settings.api_auth_token):

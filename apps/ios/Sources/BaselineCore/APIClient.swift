@@ -406,7 +406,7 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
     }
 
     private func applyAuthHeader(to request: inout URLRequest) {
-        guard let apiAuthToken, !apiAuthToken.isEmpty, isSameOrigin(request.url) else {
+        guard let apiAuthToken, !apiAuthToken.isEmpty, isSameOrigin(request.url), isSecureOrLocal(request.url) else {
             return
         }
         request.setValue("Bearer \(apiAuthToken)", forHTTPHeaderField: "Authorization")
@@ -419,6 +419,17 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
         return url.scheme == baseURL.scheme
             && url.host == baseURL.host
             && url.port == baseURL.port
+    }
+
+    private func isSecureOrLocal(_ url: URL?) -> Bool {
+        guard let url, let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased() else {
+            return false
+        }
+        if scheme == "https" {
+            return true
+        }
+        let localHosts: Set<String> = ["localhost", "127.0.0.1", "::1"]
+        return scheme == "http" && localHosts.contains(host)
     }
 
 }
