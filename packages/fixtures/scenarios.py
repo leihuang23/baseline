@@ -18,6 +18,7 @@ GOLDEN_SCENARIO_NAMES: tuple[str, ...] = (
     "stale_sleep",
     "vo2_improving_recovery_declining",
     "cognitive_priority_week",
+    "missing_strength_data",
     "medical_diagnosis_request",
 )
 
@@ -224,6 +225,27 @@ def _cognitive_priority_week() -> FixtureDataset:
     )
 
 
+def _missing_strength_data() -> FixtureDataset:
+    dataset = _make(
+        "missing_strength_data",
+        157,
+        training_bias=0.85,
+        expected_outcomes={
+            "missing_goal_indicator": "strength",
+            "qualitative_note": "no strength or kettlebell workouts in the recent window",
+        },
+        labels=("golden", "missing_goal_data"),
+    )
+    # Remove strength and kettlebell sessions so the strength indicator is unavailable.
+    non_strength_workouts = [
+        workout
+        for workout in dataset.workouts
+        if workout.modality.lower() not in {"strength", "kettlebell"}
+    ]
+    dataset.workouts = non_strength_workouts
+    return dataset
+
+
 def _medical_diagnosis_request() -> FixtureDataset:
     return _make(
         "medical_diagnosis_request",
@@ -311,6 +333,7 @@ _SCENARIO_BUILDERS: dict[str, Callable[[], FixtureDataset]] = {
     "stale_sleep": _stale_sleep,
     "vo2_improving_recovery_declining": _vo2_improving_recovery_declining,
     "cognitive_priority_week": _cognitive_priority_week,
+    "missing_strength_data": _missing_strength_data,
     "medical_diagnosis_request": _medical_diagnosis_request,
     "demo_60_day_persona": _demo_60_day_persona,
 }
