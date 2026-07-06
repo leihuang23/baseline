@@ -102,6 +102,7 @@ struct BaselineHomeView: View {
     @StateObject private var checkInModel: DailyCheckInViewModel
     @StateObject private var goalsModel: GoalsViewModel
     @StateObject private var settingsModel: SettingsViewModel
+    @StateObject private var memoryModel: MemoryViewModel
     private let privacyMode: () -> PrivacyMode
     private let apiClient: URLSessionHealthSyncAPIClient
 
@@ -128,6 +129,7 @@ struct BaselineHomeView: View {
         )
         _goalsModel = StateObject(wrappedValue: GoalsViewModel(apiClient: apiClient))
         _settingsModel = StateObject(wrappedValue: SettingsViewModel(apiClient: apiClient))
+        _memoryModel = StateObject(wrappedValue: MemoryViewModel(apiClient: apiClient))
     }
 
     var body: some View {
@@ -143,6 +145,10 @@ struct BaselineHomeView: View {
             GoalsView(viewModel: goalsModel)
                 .tabItem {
                     Label("Goals", systemImage: "target")
+                }
+            MemoryView(viewModel: memoryModel)
+                .tabItem {
+                    Label("Memory", systemImage: "brain")
                 }
             SyncSettingsView()
                 .tabItem {

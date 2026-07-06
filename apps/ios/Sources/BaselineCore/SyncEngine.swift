@@ -104,6 +104,11 @@ public protocol DataControlsAPIClient: Sendable {
     func fetchLLMSettings() async throws -> LLMSettingsResponse
 }
 
+public protocol MemoryAPIClient: Sendable {
+    func fetchMemorySummaries(periodType: MemoryPeriodType?) async throws -> MemorySummaryListResponse
+    func deleteMemorySummary(id: UUID) async throws
+}
+
 public struct HealthSyncBatchBuilder: Sendable {
     public init() {}
 

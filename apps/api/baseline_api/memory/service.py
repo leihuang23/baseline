@@ -146,6 +146,24 @@ class MemoryService:
             self._session.commit()
         return persisted
 
+    def list_summaries(
+        self,
+        *,
+        user_id: UUID,
+        period_type: str | None = None,
+        limit: int = 100,
+    ) -> list[MemorySummary]:
+        from baseline_api.db.models.enums import PeriodType
+
+        parsed_period: PeriodType | None = None
+        if period_type is not None:
+            parsed_period = PeriodType(period_type)
+        return self._summaries.list_for_user(
+            user_id=user_id,
+            period_type=parsed_period,
+            limit=limit,
+        )
+
     def recent_for_reasoning(
         self,
         *,

@@ -462,6 +462,24 @@ class LLMSettingsResponse(ContractModel):
     fallback_model: str
 
 
+class MemorySummaryItem(ContractModel):
+    memory_summary_id: UUID
+    period_type: str
+    start_date: dt.date
+    end_date: dt.date
+    summary_version: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    observations: list[dict[str, Any]] = Field(default_factory=list)
+    hypotheses: list[dict[str, Any]] = Field(default_factory=list)
+    source_refs: list[dict[str, Any]] = Field(default_factory=list)
+    sensitive_fields_excluded: list[str] = Field(default_factory=list)
+
+
+class MemorySummaryListResponse(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    summaries: list[MemorySummaryItem] = Field(default_factory=list)
+
+
 __all__ = [
     "ActiveGoal",
     "ActiveGoalSet",
@@ -493,6 +511,8 @@ __all__ = [
     "HealthSyncRequest",
     "HealthSyncResponse",
     "LLMSettingsResponse",
+    "MemorySummaryItem",
+    "MemorySummaryListResponse",
     "RecommendationAlternative",
     "RecommendationFeedbackRequest",
     "RecommendationFeedbackResponse",
