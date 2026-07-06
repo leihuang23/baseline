@@ -41,7 +41,6 @@ from baseline_api.db.models import (
 from baseline_api.db.models.enums import AuditEventType
 from baseline_api.privacy.audit import emit_privacy_audit
 from baseline_api.privacy.errors import PrivacyError
-from baseline_api.privacy.key_store import ExportKeyStore, MemoryExportKeyStore
 from baseline_api.privacy.model_runs import (
     model_run_ids_from_payload,
     sanitize_model_input_metadata,
@@ -249,19 +248,20 @@ class LocalExportStore:
 
 
 class DataExportService:
-    """Create encrypted exports for the current MVP user."""
+    """Create encrypted exports for the current MVP user.
+
+    The encryption key is returned once to the client in the create response.
+    The server stores the encrypted file and its manifest but does not retain
+    the decryption key.
+    """
 
     def __init__(
         self,
         session: Session,
         store: LocalExportStore,
-        key_store: ExportKeyStore | None = None,
-        key_ttl_seconds: int | None = None,
     ) -> None:
         self._session = session
         self._store = store
-        self._key_store = key_store or MemoryExportKeyStore()
-        self._key_ttl_seconds = key_ttl_seconds
 
     def create_export(
         self,
@@ -273,7 +273,6 @@ class DataExportService:
         payload = self._payload(resolved_user, request)
         plaintext = _payload_bytes(payload, request.format)
         stored, key = self._store.create(plaintext, user_id=resolved_user.id)
-        self._key_store.store_key(stored.job_id, key, ttl_seconds=self._key_ttl_seconds)
         emit_privacy_audit(
             self._session,
             event_type=AuditEventType.data_export_requested,

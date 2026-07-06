@@ -19,7 +19,7 @@ from baseline_api.api.v1.observability import router as v1_observability_router
 from baseline_api.config import Settings, get_settings
 from baseline_api.observability import configure_logging, metrics_router, trace_id_middleware
 from baseline_api.observability.logging import log_event
-from baseline_api.privacy import LocalExportStore, MemoryExportKeyStore, RedisExportKeyStore
+from baseline_api.privacy import LocalExportStore
 from baseline_api.schemas.common import APIEnvelope, APIError
 
 
@@ -30,6 +30,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved_settings
 
     if resolved_settings.export_cleanup_on_start:
+
         @app.on_event("startup")
         async def cleanup_export_store() -> None:
             try:
@@ -47,13 +48,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
                 return
             app.state.export_store = store
-            if resolved_settings.export_key_store_provider == "redis":
-                app.state.export_key_store = RedisExportKeyStore(
-                    str(resolved_settings.redis_url),
-                    prefix=resolved_settings.export_key_redis_prefix,
-                )
-            else:
-                app.state.export_key_store = MemoryExportKeyStore()
             await _cleanup_expired_exports(store)
 
     app.add_exception_handler(RequestValidationError, _validation_exception_handler)

@@ -1,4 +1,10 @@
-"""Durable-but-ephemeral export encryption key storage."""
+"""Export encryption key storage abstractions.
+
+The `ExportKeyStore` protocol and its implementations are future infrastructure.
+The current client-custody model returns the decryption key once in the
+`POST /v1/data/export` response (`key_custody: client_response`) and does not
+retain it server-side.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +14,12 @@ from uuid import UUID
 
 
 class ExportKeyStore(Protocol):
-    """Hold an export decryption key only until the download link expires."""
+    """Future-proof storage for an export decryption key.
+
+    The current client-custody flow does not store export keys server-side;
+    implementations are kept for future deployments that choose server-side
+    key escrow.
+    """
 
     def store_key(
         self,
@@ -40,9 +51,10 @@ class MemoryExportKeyStore:
         *,
         ttl_seconds: int | None = None,
     ) -> None:
+        if ttl_seconds is None or ttl_seconds <= 0:
+            raise ValueError("MemoryExportKeyStore requires a positive ttl_seconds.")
         self._keys[job_id] = key
-        if ttl_seconds is not None:
-            self._expires_at[job_id] = datetime.now(UTC) + timedelta(seconds=ttl_seconds)
+        self._expires_at[job_id] = datetime.now(UTC) + timedelta(seconds=ttl_seconds)
 
     def get_key(self, job_id: UUID) -> bytes | None:
         expires_at = self._expires_at.get(job_id)
