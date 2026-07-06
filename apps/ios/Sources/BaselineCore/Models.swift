@@ -984,6 +984,21 @@ public struct DataQualityNote: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+public struct DataQualitySummary: Codable, Equatable, Sendable {
+    public var status: String
+    public var notes: [DataQualityNote]
+
+    public init(status: String, notes: [DataQualityNote] = []) {
+        self.status = status
+        self.notes = notes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case notes
+    }
+}
+
 public struct RecommendationAlternative: Codable, Equatable, Identifiable, Sendable {
     public var id: String { "\(label)-\(rationale)" }
     public var label: String
@@ -1618,6 +1633,7 @@ public struct HealthSyncResponse: Codable, Equatable, Sendable {
     public var rejectedCount: Int
     public var warnings: [String]
     public var nextAnchor: String
+    public var dataQualitySummary: DataQualitySummary
 
     public init(
         schemaVersion: String = "v1",
@@ -1626,7 +1642,8 @@ public struct HealthSyncResponse: Codable, Equatable, Sendable {
         duplicateCount: Int,
         rejectedCount: Int,
         warnings: [String],
-        nextAnchor: String
+        nextAnchor: String,
+        dataQualitySummary: DataQualitySummary
     ) {
         self.schemaVersion = schemaVersion
         self.syncID = syncID
@@ -1635,6 +1652,7 @@ public struct HealthSyncResponse: Codable, Equatable, Sendable {
         self.rejectedCount = rejectedCount
         self.warnings = warnings
         self.nextAnchor = nextAnchor
+        self.dataQualitySummary = dataQualitySummary
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1645,6 +1663,7 @@ public struct HealthSyncResponse: Codable, Equatable, Sendable {
         case rejectedCount = "rejected_count"
         case warnings
         case nextAnchor = "next_anchor"
+        case dataQualitySummary = "data_quality_summary"
     }
 }
 

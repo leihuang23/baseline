@@ -1600,7 +1600,8 @@ private final class MockOnboardingAPIClient: HealthSyncAPIClient, @unchecked Sen
             duplicateCount: 0,
             rejectedCount: 0,
             warnings: [],
-            nextAnchor: "anchor"
+            nextAnchor: "anchor",
+            dataQualitySummary: DataQualitySummary(status: "ok", notes: [])
         )
     }
 }
@@ -1702,7 +1703,8 @@ private final class MockSettingsAPIClient: SettingsAPIClient, @unchecked Sendabl
             duplicateCount: 0,
             rejectedCount: 0,
             warnings: [],
-            nextAnchor: "anchor"
+            nextAnchor: "anchor",
+            dataQualitySummary: DataQualitySummary(status: "ok", notes: [])
         )
     }
 
