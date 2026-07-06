@@ -164,12 +164,10 @@ def test_external_retrieval_result_contains_no_personal_evidence(db_session) -> 
 
     assert result.hits
     assert all(
-        citation.cited_claim.startswith(GENERAL_RESEARCH_LABEL)
-        for citation in result.citations
+        citation.cited_claim.startswith(GENERAL_RESEARCH_LABEL) for citation in result.citations
     )
     assert all(
-        "non-personalized" in hit.text or "general" in hit.text.lower()
-        for hit in result.hits
+        "non-personalized" in hit.text or "general" in hit.text.lower() for hit in result.hits
     )
 
 

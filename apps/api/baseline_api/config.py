@@ -67,6 +67,17 @@ class Settings(BaseSettings):
         ge=1,
         alias="DELETION_FAILURE_ALERT_THRESHOLD",
     )
+    daily_briefing_max_retries: int = Field(
+        default=2,
+        ge=0,
+        alias="DAILY_BRIEFING_MAX_RETRIES",
+    )
+    stale_briefing_alert_hour_utc: int = Field(
+        default=12,
+        ge=0,
+        le=23,
+        alias="STALE_BRIEFING_ALERT_HOUR_UTC",
+    )
     export_storage_dir: Path | None = Field(default=None, alias="EXPORT_STORAGE_DIR")
     export_retention_hours: int = Field(default=24, ge=1, alias="EXPORT_RETENTION_HOURS")
     export_cleanup_on_start: bool = Field(default=True, alias="EXPORT_CLEANUP_ON_START")
