@@ -20,6 +20,7 @@ final class BaselineAppModel: ObservableObject {
     private let anchorStore: any AnchorPersisting
     private let consentStore: any ConsentPersisting
     private let healthKitClient: HealthKitClient
+    private let healthKitReader: any HealthKitReading
     private let apiClient: any HealthSyncAPIClient
     private let apiBaseURL: URL
     private let apiAuthToken: String?
@@ -40,7 +41,8 @@ final class BaselineAppModel: ObservableObject {
         authorizationClient: (any HealthAuthorizationClient)? = nil,
         apiClient: (any HealthSyncAPIClient)? = nil,
         anchorStore: (any AnchorPersisting)? = nil,
-        consentStore: (any ConsentPersisting)? = nil
+        consentStore: (any ConsentPersisting)? = nil,
+        healthKitReader: (any HealthKitReading)? = nil
     ) {
         self.apiBaseURL = apiBaseURL
         self.apiAuthToken = apiAuthToken
@@ -49,6 +51,7 @@ final class BaselineAppModel: ObservableObject {
             apiAuthToken: apiAuthToken
         )
         healthKitClient = HealthKitClient()
+        self.healthKitReader = healthKitReader ?? healthKitClient
         permissionCoordinator = PermissionCoordinator(
             healthAuthorizationClient: authorizationClient ?? healthKitClient
         )
@@ -194,7 +197,7 @@ final class BaselineAppModel: ObservableObject {
         healthKitClient.enabledCategories = categories
         return HealthSyncEngine(
             anchorStore: anchorStore,
-            healthKitReader: healthKitClient,
+            healthKitReader: healthKitReader,
             apiClient: apiClient
         )
     }
