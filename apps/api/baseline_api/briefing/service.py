@@ -604,7 +604,7 @@ class DailyBriefingService:
             except Exception as exc:
                 self._session.rollback()
                 self._mark_job_failed(
-                    job_id,
+                    job_record_id,
                     error_code=type(exc).__name__,
                     error_message="Daily briefing generation failed.",
                 )
