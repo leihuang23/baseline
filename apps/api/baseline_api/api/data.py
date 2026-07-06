@@ -11,19 +11,15 @@ from fastapi.responses import Response
 from sqlmodel import Session
 
 from baseline_api.api.deps import SingleUserContext, get_single_user_context
-from baseline_api.config import Settings
 from baseline_api.db.session import get_db_session
 from baseline_api.observability.logging import log_event
 from baseline_api.privacy import (
     ConsentService,
     DataDeletionService,
     DataExportService,
-    ExportKeyStore,
     LocalExportStore,
-    MemoryExportKeyStore,
     ModelDisclosureService,
     PrivacyError,
-    RedisExportKeyStore,
 )
 from baseline_api.schemas.api import (
     ConsentHistoryResponse,
@@ -54,23 +50,6 @@ async def get_export_store(request: Request) -> LocalExportStore:
     return cast(LocalExportStore, store)
 
 
-def _build_key_store(settings: Settings) -> ExportKeyStore:
-    if settings.export_key_store_provider == "redis":
-        return RedisExportKeyStore(
-            str(settings.redis_url),
-            prefix=settings.export_key_redis_prefix,
-        )
-    return MemoryExportKeyStore()
-
-
-async def get_export_key_store(request: Request) -> ExportKeyStore:
-    key_store = getattr(request.app.state, "export_key_store", None)
-    if key_store is None:
-        key_store = _build_key_store(request.app.state.settings)
-        request.app.state.export_key_store = key_store
-    return cast(ExportKeyStore, key_store)
-
-
 async def _cleanup_expired_exports(store: LocalExportStore) -> None:
     try:
         removed = await asyncio.to_thread(store.cleanup_expired)
@@ -95,16 +74,10 @@ def export_data(
     request: Request,
     session: Annotated[Session, Depends(get_db_session)],
     store: Annotated[LocalExportStore, Depends(get_export_store)],
-    key_store: Annotated[ExportKeyStore, Depends(get_export_key_store)],
     context: Annotated[SingleUserContext, Depends(get_single_user_context)],
 ) -> APIEnvelope[DataExportResponse] | Response:
     try:
-        data = DataExportService(
-            session,
-            store,
-            key_store=key_store,
-            key_ttl_seconds=request.app.state.settings.export_key_ttl_seconds,
-        ).create_export(payload, user=context.user)
+        data = DataExportService(session, store).create_export(payload, user=context.user)
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)

@@ -32,8 +32,9 @@ API is reachable from any untrusted network.
   networks/devices; do not expose the API to the public internet with only that
   embedded token.
 - Keep `.env` and provider keys out of source control and logs.
-- Export download keys are returned only in the create response. Do not persist
-  response bodies that contain `encryption.key_base64` in logs or dashboards.
+- Export download keys are returned only in the create response; the server does
+  not retain decryption keys. Do not persist response bodies that contain
+  `encryption.key_base64` in logs or dashboards.
 - Monitor `/health`, `/v1/health/ping`, sync failures, briefing failures, model
   provider failures, schema validation failures, deletion failures, and cost
   budget alerts.
