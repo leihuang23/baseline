@@ -68,6 +68,13 @@ struct OnboardingView: View {
                 }
             }
 
+            Section("Morning routine") {
+                WakeTimePicker(wakeTime: $model.wakeTime)
+                Text("Background refresh and the optional morning reminder are scheduled near this time.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Section {
                 Button {
                     Task { await model.completeOnboarding() }
@@ -80,6 +87,12 @@ struct OnboardingView: View {
             }
         }
         .navigationTitle("Baseline")
+        .onChange(of: model.wakeTime) { _, _ in
+            BackgroundRefreshScheduler.schedule()
+            Task {
+                await BackgroundRefreshScheduler.scheduleMorningReminder()
+            }
+        }
     }
 }
 
@@ -88,7 +101,10 @@ struct BaselineHomeView: View {
     @StateObject private var briefingModel: DailyBriefingViewModel
     @StateObject private var checkInModel: DailyCheckInViewModel
     @StateObject private var goalsModel: GoalsViewModel
+    @StateObject private var settingsModel: SettingsViewModel
+    @StateObject private var memoryModel: MemoryViewModel
     private let privacyMode: () -> PrivacyMode
+    private let apiClient: URLSessionHealthSyncAPIClient
 
     init(apiBaseURL: URL, apiAuthToken: String?, privacyMode: @escaping () -> PrivacyMode) {
         let apiClient = URLSessionHealthSyncAPIClient(
@@ -100,6 +116,7 @@ struct BaselineHomeView: View {
             in: .userDomainMask
         )[0].appendingPathComponent("Baseline", isDirectory: true)
         self.privacyMode = privacyMode
+        self.apiClient = apiClient
         _briefingModel = StateObject(
             wrappedValue: DailyBriefingViewModel(
                 apiClient: apiClient,
@@ -111,6 +128,8 @@ struct BaselineHomeView: View {
             wrappedValue: DailyCheckInViewModel(apiClient: apiClient, privacyMode: privacyMode)
         )
         _goalsModel = StateObject(wrappedValue: GoalsViewModel(apiClient: apiClient))
+        _settingsModel = StateObject(wrappedValue: SettingsViewModel(apiClient: apiClient))
+        _memoryModel = StateObject(wrappedValue: MemoryViewModel(apiClient: apiClient))
     }
 
     var body: some View {
@@ -127,9 +146,17 @@ struct BaselineHomeView: View {
                 .tabItem {
                     Label("Goals", systemImage: "target")
                 }
+            MemoryView(viewModel: memoryModel)
+                .tabItem {
+                    Label("Memory", systemImage: "brain")
+                }
             SyncSettingsView()
                 .tabItem {
                     Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                }
+            SettingsView(viewModel: settingsModel, appModel: appModel)
+                .tabItem {
+                    Label("Settings", systemImage: "gear")
                 }
         }
         .task {
@@ -266,6 +293,13 @@ struct SyncSettingsView: View {
                 }
             }
 
+            Section("Morning routine") {
+                WakeTimePicker(wakeTime: $model.wakeTime)
+                Text("Background refresh and the optional morning reminder are scheduled near this time.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             if model.isDemoMode {
                 Section("Demo data") {
                     Text("\(model.demoSamples.count) synthetic sample(s)")
@@ -284,6 +318,12 @@ struct SyncSettingsView: View {
             }
         }
         .navigationTitle(model.isDemoMode ? "Demo Baseline" : "Baseline Sync")
+        .onChange(of: model.wakeTime) { _, _ in
+            BackgroundRefreshScheduler.schedule()
+            Task {
+                await BackgroundRefreshScheduler.scheduleMorningReminder()
+            }
+        }
     }
 
     private var lastSyncedText: String {
@@ -291,6 +331,35 @@ struct SyncSettingsView: View {
             return "Never"
         }
         return lastSyncedAt.formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
+private struct WakeTimePicker: View {
+    @Binding var wakeTime: WakeTime
+
+    var body: some View {
+        DatePicker(
+            "Wake time",
+            selection: Binding(
+                get: { wakeTime.date() },
+                set: { wakeTime = WakeTime(date: $0) }
+            ),
+            displayedComponents: .hourAndMinute
+        )
+    }
+}
+
+private extension WakeTime {
+    func date(calendar: Calendar = .current) -> Date {
+        var components = DateComponents()
+        components.hour = hour
+        components.minute = minute
+        return calendar.date(from: components) ?? Date()
+    }
+
+    init(date: Date, calendar: Calendar = .current) {
+        let components = calendar.dateComponents([.hour, .minute], from: date)
+        self.init(hour: components.hour ?? 7, minute: components.minute ?? 0)
     }
 }
 #endif

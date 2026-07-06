@@ -6,6 +6,8 @@
   <string>Baseline</string>
   <key>NSHealthShareUsageDescription</key>
   <string>Baseline reads selected HealthKit categories to sync wellness decision-support signals you enable.</string>
+  <key>NSUserNotificationsUsageDescription</key>
+  <string>Baseline can remind you to sync health data and complete your morning check-in.</string>
   <key>BaselineAPIBaseURL</key>
   <string>http://127.0.0.1:8000</string>
   <key>BGTaskSchedulerPermittedIdentifiers</key>

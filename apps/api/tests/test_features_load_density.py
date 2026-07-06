@@ -497,3 +497,37 @@ async def test_daily_analysis_worker_is_idempotent(db_session: Any) -> None:
     )
     with pytest.raises(IntegrityError):
         db_session.flush()
+
+
+def test_goal_indicators_cover_all_prd_categories() -> None:
+    target = _target_date("high_hrv_good_sleep_low_load")
+
+    bundle = assemble_daily_features(
+        target,
+        sleep_sessions=_sleep_inputs("high_hrv_good_sleep_low_load"),
+        hrv_samples=_cardio_inputs("high_hrv_good_sleep_low_load", "heart_rate_variability"),
+        rhr_samples=_cardio_inputs("high_hrv_good_sleep_low_load", "resting_heart_rate"),
+        workouts=_workout_inputs("high_hrv_good_sleep_low_load"),
+        vo2_samples=_vo2_inputs("high_hrv_good_sleep_low_load"),
+        personal_sleep_need_hours=8.35,
+        computed_at=dt.datetime(2026, 1, 25, 8, 0, tzinfo=dt.UTC),
+    )
+
+    goal_features = bundle.to_derived_daily_feature_fields()["goal_features"]
+    indicators = goal_features["values"]["goal_indicators"]["value"]
+    expected_categories = [
+        "vo2_max",
+        "strength",
+        "recovery",
+        "sleep",
+        "cognitive_performance",
+        "long_term_wellness",
+    ]
+    for category in expected_categories:
+        assert category in indicators, f"missing indicator for {category}"
+        indicator = indicators[category]
+        assert indicator["status"] in {"computed", "unavailable"}
+        assert indicator["confidence"] in {"low", "medium", "high"}
+        if indicator["status"] == "unavailable":
+            assert indicator["evidence_refs"] == []
+            assert indicator["missing_data"]

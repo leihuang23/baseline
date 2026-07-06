@@ -392,6 +392,12 @@ final class BaselineCoreTests: XCTestCase {
                     "rejected_count": 0,
                     "warnings": [],
                     "next_anchor": "anchor-1",
+                    "data_quality_summary": [
+                        "status": "degraded",
+                        "notes": [
+                            ["metric": "hrv", "note": "Sparse HRV samples.", "severity": "warning"],
+                        ],
+                    ],
                 ],
             ])
             return (try XCTUnwrap(response), data)
@@ -415,6 +421,9 @@ final class BaselineCoreTests: XCTestCase {
         )
 
         XCTAssertEqual(response.nextAnchor, "anchor-1")
+        XCTAssertEqual(response.dataQualitySummary.status, "degraded")
+        XCTAssertEqual(response.dataQualitySummary.notes.count, 1)
+        XCTAssertEqual(response.dataQualitySummary.notes.first?.metric, "hrv")
     }
 
     func testAPIClientAttachesBearerTokenToDeleteRequests() async throws {
@@ -444,6 +453,55 @@ final class BaselineCoreTests: XCTestCase {
 
         try await client.deleteDailyCheckIn(
             id: try XCTUnwrap(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        )
+    }
+
+    func testAPIClientOmitsBearerTokenOverHTTPToRemoteHost() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [BinaryExportURLProtocol.self]
+        BinaryExportURLProtocol.handler = { request in
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            XCTAssertEqual(request.url?.absoluteString, "http://api.example.test/base/v1/health/sync")
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )
+            let data = try JSONSerialization.data(withJSONObject: [
+                "status": "success",
+                "data": [
+                    "schema_version": "v1",
+                    "sync_id": "00000000-0000-0000-0000-000000000001",
+                    "accepted_count": 0,
+                    "duplicate_count": 0,
+                    "rejected_count": 0,
+                    "warnings": [],
+                    "next_anchor": "anchor-1",
+                    "data_quality_summary": [
+                        "status": "ok",
+                        "notes": [],
+                    ],
+                ],
+            ])
+            return (try XCTUnwrap(response), data)
+        }
+        defer { BinaryExportURLProtocol.handler = nil }
+        let client = URLSessionHealthSyncAPIClient(
+            baseURL: try XCTUnwrap(URL(string: "http://api.example.test/base")),
+            session: URLSession(configuration: configuration),
+            apiAuthToken: "test-token"
+        )
+
+        _ = try await client.postHealthSync(
+            HealthSyncRequest(
+                clientSyncID: "sync-1",
+                deviceID: "device-1",
+                timezone: "UTC",
+                samples: [],
+                lastAnchor: nil,
+                consentVersion: "consent-v1"
+            )
         )
     }
 
@@ -632,7 +690,8 @@ final class BaselineCoreTests: XCTestCase {
             duplicateCount: 0,
             rejectedCount: 0,
             warnings: [],
-            nextAnchor: "server-next"
+            nextAnchor: "server-next",
+            dataQualitySummary: DataQualitySummary(status: "ok", notes: [])
         )
         let api = MockSyncAPIClient(results: [
             .failure(TestError.interrupted),
@@ -690,7 +749,8 @@ final class BaselineCoreTests: XCTestCase {
             duplicateCount: 0,
             rejectedCount: 0,
             warnings: [],
-            nextAnchor: "server-next"
+            nextAnchor: "server-next",
+            dataQualitySummary: DataQualitySummary(status: "ok", notes: [])
         )
         let api = MockSyncAPIClient(results: [.success(response)])
         let engine = HealthSyncEngine(

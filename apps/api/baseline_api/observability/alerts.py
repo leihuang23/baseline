@@ -19,6 +19,7 @@ from baseline_api.db.models.enums import AuditEventType
 from baseline_api.db.models.ingestion import BackfillJob, HealthImportBatch
 from baseline_api.db.models.modelrun import ModelRun
 from baseline_api.observability.cost import CostLatencyReport, aggregate_model_run_costs
+from baseline_api.schemas.enums import AnalysisJobStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,7 @@ def evaluate_operational_alerts(
     session: Session,
     *,
     thresholds: AlertThresholds,
+    settings: Settings | None = None,
     since: dt.datetime | None = None,
 ) -> list[OperationalAlert]:
     """Evaluate all P5-04 alert families for recent operational state."""
@@ -69,6 +71,7 @@ def evaluate_operational_alerts(
     alerts.extend(model_provider_failure_alerts(session, thresholds=thresholds, since=since))
     alerts.extend(schema_validation_alerts(session, thresholds=thresholds, since=since))
     alerts.extend(daily_briefing_failure_alerts(session, thresholds=thresholds, since=since))
+    alerts.extend(stale_briefing_alert(session, settings=settings, since=since))
     alerts.extend(sync_failure_alerts(session, thresholds=thresholds, since=since))
     alerts.extend(deletion_failure_alerts(session, thresholds=thresholds, since=since))
     return alerts
@@ -85,6 +88,7 @@ def evaluate_configured_operational_alerts(
     return evaluate_operational_alerts(
         session,
         thresholds=AlertThresholds.from_settings(settings),
+        settings=settings,
         since=since,
     )
 
@@ -249,6 +253,44 @@ def deletion_failure_alerts(
             message="Deletion failures exceeded the configured threshold.",
             runbook="docs/runbooks/deletion-failures.md",
             metadata={"count": len(failed)},
+        )
+    ]
+
+
+def stale_briefing_alert(
+    session: Session,
+    *,
+    settings: Settings | None = None,
+    since: dt.datetime | None = None,
+    now: dt.datetime | None = None,
+) -> list[OperationalAlert]:
+    """Alert when the current UTC day has no completed briefing by the alert hour."""
+
+    resolved_now = now or dt.datetime.now(dt.UTC)
+    alert_hour = settings.stale_briefing_alert_hour_utc if settings is not None else 12
+    if resolved_now.hour < alert_hour:
+        return []
+    today = resolved_now.date()
+    statement = select(DailyAnalysisJob).where(
+        DailyAnalysisJob.date == today,
+        DailyAnalysisJob.status == AnalysisJobStatus.completed.value,
+        col(DailyAnalysisJob.recommendation_id).is_not(None),
+    )
+    if since is not None:
+        statement = statement.where(DailyAnalysisJob.created_at >= since)
+    completed = session.exec(statement).first()
+    if completed is not None:
+        return []
+    return [
+        OperationalAlert(
+            alert_type="stale_briefing",
+            severity="warning",
+            message="No daily briefing has been generated for the current UTC day.",
+            runbook="docs/runbooks/stale-briefing.md",
+            metadata={
+                "alert_hour_utc": alert_hour,
+                "date": today.isoformat(),
+            },
         )
     ]
 

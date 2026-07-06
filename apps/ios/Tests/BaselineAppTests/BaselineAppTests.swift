@@ -1,10 +1,37 @@
+import CryptoKit
 import Foundation
 import SwiftUI
 import XCTest
+#if os(iOS)
+import BackgroundTasks
+import UserNotifications
+#endif
 @testable import BaselineCore
 @testable import BaselineApp
 
+private typealias SettingsAPIClient = HealthSyncAPIClient & CheckInAPIClient & DataControlsAPIClient & DailyBriefingAPIClient
+
 final class BaselineAppTests: XCTestCase {
+    #if os(iOS)
+        // XCTest's setUp/tearDown are nonisolated, but XCTest always calls them
+        // on the main thread. Use MainActor.assumeIsolated so the scheduler
+        // reset runs synchronously on the main actor without changing the
+        // override signature.
+        nonisolated override func setUp() {
+            super.setUp()
+            MainActor.assumeIsolated {
+                BackgroundRefreshScheduler.resetForTesting()
+            }
+        }
+
+        nonisolated override func tearDown() {
+            MainActor.assumeIsolated {
+                BackgroundRefreshScheduler.resetForTesting()
+            }
+            super.tearDown()
+        }
+    #endif
+
     func testAPIBaseURLUsesEnvironmentFirst() throws {
         let configuration = try BaselineAppConfiguration.current(
             environment: [
@@ -13,7 +40,6 @@ final class BaselineAppTests: XCTestCase {
             ],
             infoDictionary: [
                 BaselineAppConfiguration.infoPlistKey: "https://bundle.example.test",
-                BaselineAppConfiguration.apiAuthTokenInfoPlistKey: "bundle-token",
             ]
         )
 
@@ -33,16 +59,15 @@ final class BaselineAppTests: XCTestCase {
         XCTAssertEqual(configuration.apiAuthToken, nil)
     }
 
-    func testAPIAuthTokenFallsBackToInfoPlist() throws {
+    func testAPIAuthTokenIgnoresInfoPlist() throws {
         let configuration = try BaselineAppConfiguration.current(
             environment: [:],
             infoDictionary: [
                 BaselineAppConfiguration.infoPlistKey: "https://bundle.example.test",
-                BaselineAppConfiguration.apiAuthTokenInfoPlistKey: "bundle-token",
             ]
         )
 
-        XCTAssertEqual(configuration.apiAuthToken, "bundle-token")
+        XCTAssertNil(configuration.apiAuthToken)
     }
 
     #if os(iOS)
@@ -54,7 +79,8 @@ final class BaselineAppTests: XCTestCase {
                 authorizationClient: MockAuthorizationClient(granted: [.sleep, .workouts]),
                 apiClient: api,
                 anchorStore: InMemoryAnchorStore(),
-                consentStore: consentStore
+                consentStore: consentStore,
+                enableBackgroundRefreshAndNotifications: false
             )
             model.enabledCategories = [.sleep, .workouts]
             model.privacyMode = .hybrid
@@ -75,7 +101,8 @@ final class BaselineAppTests: XCTestCase {
                 authorizationClient: MockAuthorizationClient(granted: [.sleep]),
                 apiClient: api,
                 anchorStore: InMemoryAnchorStore(),
-                consentStore: consentStore
+                consentStore: consentStore,
+                enableBackgroundRefreshAndNotifications: false
             )
             model.enabledCategories = [.sleep]
             model.privacyMode = .localOnly
@@ -95,7 +122,8 @@ final class BaselineAppTests: XCTestCase {
                 authorizationClient: MockAuthorizationClient(granted: [.sleep]),
                 apiClient: MockOnboardingAPIClient(consentError: TestError.failed),
                 anchorStore: InMemoryAnchorStore(),
-                consentStore: consentStore
+                consentStore: consentStore,
+                enableBackgroundRefreshAndNotifications: false
             )
             model.enabledCategories = [.sleep]
             model.privacyMode = .cloudAssisted
@@ -105,6 +133,39 @@ final class BaselineAppTests: XCTestCase {
             XCTAssertFalse(model.onboardingComplete)
             XCTAssertNil(consentStore.consent)
             XCTAssertTrue(model.syncMessage.contains("Consent could not be recorded"))
+        }
+
+        @MainActor
+        func testOnboardingPersistsServerConsentVersionAndUsesItForSync() async throws {
+            let consentStore = InMemoryConsentStore()
+            let api = MockOnboardingAPIClient(serverConsentVersion: "server-consent-v2")
+            let reader = MockHealthKitReader(reads: [
+                .steps: HealthKitReadResult(
+                    category: .steps,
+                    samples: [sample("steps-1", category: .steps)],
+                    newAnchorData: Data("steps-next".utf8)
+                ),
+            ])
+            let model = BaselineAppModel(
+                authorizationClient: MockAuthorizationClient(granted: [.steps]),
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: consentStore,
+                healthKitReader: reader,
+                enableBackgroundRefreshAndNotifications: false
+            )
+            model.enabledCategories = [.steps]
+            model.privacyMode = .hybrid
+
+            await model.completeOnboarding()
+            await model.syncNow()
+
+            XCTAssertTrue(model.onboardingComplete)
+            XCTAssertEqual(api.consentRequests.single?.consentVersion, ConsentRecord.currentVersion)
+            XCTAssertEqual(consentStore.consent?.consentVersion, "server-consent-v2")
+            XCTAssertEqual(api.syncRequests.single?.consentVersion, "server-consent-v2")
+            XCTAssertEqual(api.syncRequests.single?.samples.map(\.sourceSampleID), ["steps-1"])
+            XCTAssertTrue(model.syncMessage.contains("Synced 1 sample"))
         }
     #endif
 
@@ -487,6 +548,7 @@ final class BaselineAppTests: XCTestCase {
         XCTAssertTrue(api.fetchRequests.isEmpty)
         XCTAssertEqual(viewModel.briefing, cached)
         XCTAssertTrue(viewModel.isOfflineFallback)
+        XCTAssertTrue(viewModel.isRetryable)
         XCTAssertEqual(viewModel.statusMessage, "Analysis is still running. Showing latest saved briefing.")
     }
 
@@ -793,10 +855,437 @@ final class BaselineAppTests: XCTestCase {
             DailyCheckInLayoutSnapshot.oneMinuteInteractionBudget
         )
     }
+
+    @MainActor
+    func testBriefingPollingRespectsEstimateFloorAndCeiling() {
+        let viewModel = DailyBriefingViewModel(
+            apiClient: MockBriefingAPIClient(),
+            briefingStore: InMemoryBriefingStore(),
+            privacyMode: { .hybrid },
+            dateProvider: { "2026-07-04" }
+        )
+
+        let lowEstimate = DailyAnalysisResponse(
+            analysisJobID: UUID(),
+            status: "queued",
+            estimatedCompletionSeconds: 10
+        )
+        let mediumEstimate = DailyAnalysisResponse(
+            analysisJobID: UUID(),
+            status: "queued",
+            estimatedCompletionSeconds: 50
+        )
+        let highEstimate = DailyAnalysisResponse(
+            analysisJobID: UUID(),
+            status: "queued",
+            estimatedCompletionSeconds: 120
+        )
+
+        XCTAssertEqual(viewModel.pollingAttemptLimit(for: lowEstimate), 31)
+        XCTAssertEqual(viewModel.pollingAttemptLimit(for: mediumEstimate), 51)
+        XCTAssertEqual(viewModel.pollingAttemptLimit(for: highEstimate), 91)
+    }
+
+    func testNextWakeDateUsesTodayWhenBeforeWakeTime() {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = DateComponents(calendar: calendar, year: 2026, month: 7, day: 6, hour: 5, minute: 0).date!
+        let wake = WakeTime(hour: 7, minute: 0)
+
+        let result = nextWakeDate(for: wake, now: now, calendar: calendar)
+
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: result)
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 7)
+        XCTAssertEqual(components.day, 6)
+        XCTAssertEqual(components.hour, 7)
+        XCTAssertEqual(components.minute, 0)
+    }
+
+    func testNextWakeDateRollsToTomorrowWhenAfterWakeTime() {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = DateComponents(calendar: calendar, year: 2026, month: 7, day: 6, hour: 9, minute: 0).date!
+        let wake = WakeTime(hour: 7, minute: 30)
+
+        let result = nextWakeDate(for: wake, now: now, calendar: calendar)
+
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: result)
+        XCTAssertEqual(components.year, 2026)
+        XCTAssertEqual(components.month, 7)
+        XCTAssertEqual(components.day, 7)
+        XCTAssertEqual(components.hour, 7)
+        XCTAssertEqual(components.minute, 30)
+    }
+
+    func testNextWakeDateFallsBackToOneHourWhenCalendarDateIsNil() {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let wake = WakeTime(hour: 7, minute: 0)
+
+        let result = nextWakeDate(
+            for: wake,
+            now: now,
+            calendar: calendar,
+            dateFromComponents: { _ in nil }
+        )
+
+        XCTAssertEqual(result.timeIntervalSince(now), 60 * 60, accuracy: 0.001)
+    }
+
+    #if os(iOS)
+        @MainActor
+        func testBackgroundRefreshSchedulingUsesWakeTime() async {
+            let scheduler = MockBackgroundTaskScheduler()
+            let notifications = MockUserNotificationCenter()
+            BackgroundRefreshScheduler.register(
+                taskScheduler: scheduler,
+                notificationCenter: notifications,
+                syncHandler: { true },
+                wakeTimeProvider: { WakeTime(hour: 6, minute: 30) }
+            )
+
+            BackgroundRefreshScheduler.schedule()
+            try? await Task.sleep(nanoseconds: 50_000_000)
+
+            let request = scheduler.submittedRequests.first as? BGAppRefreshTaskRequest
+            XCTAssertEqual(request?.identifier, BackgroundRefreshScheduler.identifier)
+            XCTAssertNotNil(request?.earliestBeginDate)
+            let calendar = Calendar.current
+            let components = calendar.dateComponents([.hour, .minute], from: request?.earliestBeginDate ?? Date())
+            XCTAssertEqual(components.hour, 6)
+            XCTAssertEqual(components.minute, 30)
+        }
+
+        @MainActor
+        func testNotificationAuthorizationRequestedAndMorningReminderScheduled() async {
+            let scheduler = MockBackgroundTaskScheduler()
+            let notifications = MockUserNotificationCenter()
+            BackgroundRefreshScheduler.register(
+                taskScheduler: scheduler,
+                notificationCenter: notifications,
+                syncHandler: { true },
+                wakeTimeProvider: { WakeTime(hour: 7, minute: 15) }
+            )
+
+            let granted = await BackgroundRefreshScheduler.requestNotificationAuthorization()
+            await BackgroundRefreshScheduler.scheduleMorningReminder()
+
+            XCTAssertTrue(granted)
+            XCTAssertEqual(notifications.requestedOptions, [.alert, .sound])
+            XCTAssertEqual(notifications.removedIdentifiers, [BackgroundRefreshScheduler.morningReminderIdentifier])
+            let request = notifications.addedRequests.first
+            XCTAssertEqual(request?.identifier, BackgroundRefreshScheduler.morningReminderIdentifier)
+            let trigger = request?.trigger as? UNCalendarNotificationTrigger
+            XCTAssertEqual(trigger?.dateComponents.hour, 7)
+            XCTAssertEqual(trigger?.dateComponents.minute, 15)
+            XCTAssertTrue(trigger?.repeats ?? false)
+        }
+
+        @MainActor
+        func testSettingsViewRendersPrivacyModeAndExportControls() {
+            let api = MockSettingsAPIClient()
+            let model = BaselineAppModel(
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: InMemoryConsentStore(),
+                enableBackgroundRefreshAndNotifications: false
+            )
+            model.onboardingComplete = true
+            let viewModel = SettingsViewModel(apiClient: api)
+            let view = SettingsView(viewModel: viewModel, appModel: model)
+            let snapshot = renderedStrings(in: view.body)
+
+            XCTAssertTrue(snapshot.contains("Privacy mode"))
+            XCTAssertTrue(snapshot.contains("Export"))
+            XCTAssertTrue(snapshot.contains("Delete all Baseline data"))
+            XCTAssertTrue(snapshot.contains("LLM provider"))
+        }
+
+        @MainActor
+        func testPrivacyModeChangeRecordsConsentRequest() async {
+            let api = MockOnboardingAPIClient(serverConsentVersion: "server-consent-v2")
+            let model = BaselineAppModel(
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: InMemoryConsentStore(),
+                enableBackgroundRefreshAndNotifications: false
+            )
+            model.enabledCategories = [.sleep, .workouts]
+            model.privacyMode = .hybrid
+
+            await model.updatePrivacyMode(.cloudAssisted)
+
+            XCTAssertEqual(model.privacyMode, .cloudAssisted)
+            XCTAssertEqual(api.consentRequests.single?.privacyMode, .cloudAssisted)
+            XCTAssertEqual(api.consentRequests.single?.externalLLMEnabled, true)
+            XCTAssertEqual(api.consentRequests.single?.cloudProcessingEnabled, true)
+        }
+
+        @MainActor
+        func testSettingsExportRequestEncodesScopeAndFormat() async throws {
+            let api = MockSettingsAPIClient()
+            let model = BaselineAppModel(
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: InMemoryConsentStore(),
+                enableBackgroundRefreshAndNotifications: false
+            )
+            let viewModel = SettingsViewModel(apiClient: api)
+            viewModel.exportScope = DataExportScope.checkins
+            viewModel.exportFormat = DataExportFormat.csv
+            viewModel.includeRawData = true
+
+            await viewModel.requestExport()
+
+            let request = try XCTUnwrap(api.exportRequests.single)
+            XCTAssertEqual(request.exportScope, .checkins)
+            XCTAssertEqual(request.format, .csv)
+            XCTAssertTrue(request.includeRawData)
+        }
+
+        func testExportDecryptionRoundTrip() throws {
+            let plaintext = Data("Private export payload".utf8)
+            let key = SymmetricKey(size: .bits256)
+            let magic = Data("BASELINE-EXPORT-AES256GCM-V1".utf8)
+            let nonce = AES.GCM.Nonce()
+            let sealedBox = try AES.GCM.seal(plaintext, using: key, nonce: nonce, authenticating: magic)
+            var encrypted = magic
+            encrypted.append(contentsOf: nonce)
+            encrypted.append(contentsOf: sealedBox.tag)
+            encrypted.append(contentsOf: sealedBox.ciphertext)
+
+            let response = DataExportResponse(
+                schemaVersion: "v1",
+                exportJobID: UUID(),
+                status: "ready",
+                expiresAt: "2026-07-07T00:00:00Z",
+                encryption: [
+                    "algorithm": "AES-256-GCM",
+                    "key_base64": key.withUnsafeBytes { Data($0) }.base64EncodedString(),
+                    "key_custody": "client_response",
+                ]
+            )
+
+            let decrypted = try URLSessionHealthSyncAPIClient.decryptDataExport(encrypted, encryption: response.encryption)
+            XCTAssertEqual(decrypted, plaintext)
+        }
+
+        @MainActor
+        func testSettingsDeleteAllSendsDeleteRequest() async {
+            let api = MockSettingsAPIClient()
+            let model = BaselineAppModel(
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: InMemoryConsentStore(),
+                enableBackgroundRefreshAndNotifications: false
+            )
+            let viewModel = SettingsViewModel(apiClient: api)
+
+            await viewModel.deleteAll()
+
+            XCTAssertEqual(api.deleteAllCount, 1)
+            XCTAssertEqual(viewModel.deleteAllResult?.deleted["checkins"], 1)
+        }
+
+        @MainActor
+        func testSettingsDeleteCheckInNoteSendsDataEndpointRequest() async {
+            let api = MockSettingsAPIClient()
+            let model = BaselineAppModel(
+                apiClient: api,
+                anchorStore: InMemoryAnchorStore(),
+                consentStore: InMemoryConsentStore(),
+                enableBackgroundRefreshAndNotifications: false
+            )
+            let viewModel = SettingsViewModel(apiClient: api)
+            let id = UUID(uuidString: "00000000-0000-0000-0000-000000000010")!
+            viewModel.checkInIDToDelete = id.uuidString
+
+            await viewModel.deleteCheckInNote()
+
+            XCTAssertEqual(api.deletedCheckInNoteIDs, [id])
+        }
+
+        @MainActor
+        func testMemoryViewModelLoadsSummariesAndComputesTrend() async {
+            let latestWeekly = MemorySummaryItem(
+                memorySummaryID: UUID(),
+                periodType: .weekly,
+                startDate: "2026-07-06",
+                endDate: "2026-07-12",
+                summaryVersion: "v1",
+                confidence: 0.8,
+                observations: [MemorySummaryEntry(text: "Sleep improved")]
+            )
+            let previousWeekly = MemorySummaryItem(
+                memorySummaryID: UUID(),
+                periodType: .weekly,
+                startDate: "2026-06-29",
+                endDate: "2026-07-05",
+                summaryVersion: "v1",
+                confidence: 0.7,
+                observations: [MemorySummaryEntry(text: "Stable load")]
+            )
+            let daily = MemorySummaryItem(
+                memorySummaryID: UUID(),
+                periodType: .daily,
+                startDate: "2026-07-12",
+                endDate: "2026-07-12",
+                summaryVersion: "v1",
+                confidence: 0.9,
+                observations: []
+            )
+            let api = MockMemoryAPIClient(
+                summariesResult: MemorySummaryListResponse(summaries: [latestWeekly, previousWeekly, daily])
+            )
+            let viewModel = MemoryViewModel(apiClient: api)
+
+            await viewModel.loadSummaries()
+
+            XCTAssertEqual(viewModel.summaries.count, 3)
+            XCTAssertEqual(api.fetchRequests, [nil])
+            XCTAssertNotNil(viewModel.trendComparison)
+            XCTAssertEqual(viewModel.trendComparison?.latest.id, latestWeekly.id)
+            XCTAssertEqual(viewModel.trendComparison?.newObservations, ["Sleep improved"])
+        }
+
+        @MainActor
+        func testMemoryViewModelFiltersByPeriodType() async {
+            let api = MockMemoryAPIClient(
+                summariesResult: MemorySummaryListResponse(summaries: [
+                    MemorySummaryItem(
+                        memorySummaryID: UUID(),
+                        periodType: .daily,
+                        startDate: "2026-07-12",
+                        endDate: "2026-07-12",
+                        summaryVersion: "v1",
+                        confidence: 0.9,
+                        observations: []
+                    )
+                ])
+            )
+            let viewModel = MemoryViewModel(apiClient: api)
+            viewModel.selectedPeriod = .daily
+
+            await viewModel.loadSummaries()
+
+            XCTAssertEqual(api.fetchRequests, [.daily])
+            XCTAssertEqual(viewModel.summaries.count, 1)
+        }
+
+        @MainActor
+        func testMemoryViewModelDeleteRemovesSummaryOptimistically() async {
+            let id = UUID()
+            let api = MockMemoryAPIClient(
+                summariesResult: MemorySummaryListResponse(summaries: [
+                    MemorySummaryItem(
+                        memorySummaryID: id,
+                        periodType: .daily,
+                        startDate: "2026-07-12",
+                        endDate: "2026-07-12",
+                        summaryVersion: "v1",
+                        confidence: 0.9,
+                        observations: []
+                    )
+                ])
+            )
+            let viewModel = MemoryViewModel(apiClient: api)
+            await viewModel.loadSummaries()
+
+            await viewModel.deleteSummary(id: id)
+
+            XCTAssertTrue(viewModel.summaries.isEmpty)
+            XCTAssertEqual(api.deletedIDs, [id])
+        }
+
+        @MainActor
+        func testMemoryViewRendersTrendsAndSummaries() async {
+            let summary = MemorySummaryItem(
+                memorySummaryID: UUID(),
+                periodType: .weekly,
+                startDate: "2026-07-06",
+                endDate: "2026-07-12",
+                summaryVersion: "v1",
+                confidence: 0.8,
+                observations: [MemorySummaryEntry(text: "Sleep improved")],
+                hypotheses: [MemorySummaryEntry(text: "Higher load may help")]
+            )
+            let api = MockMemoryAPIClient(
+                summariesResult: MemorySummaryListResponse(summaries: [summary])
+            )
+            let viewModel = MemoryViewModel(apiClient: api)
+            await viewModel.loadSummaries()
+            let view = MemoryView(viewModel: viewModel)
+            let snapshot = renderedStrings(in: view.body)
+
+            XCTAssertTrue(snapshot.contains("Trends"))
+            XCTAssertTrue(snapshot.contains("Period"))
+            XCTAssertTrue(snapshot.contains("Summaries"))
+            XCTAssertTrue(snapshot.contains("Sleep improved"))
+            XCTAssertTrue(snapshot.contains("Higher load may help"))
+            XCTAssertTrue(snapshot.contains("2026-07-06"))
+        }
+
+        @MainActor
+        func testBriefingFeedbackEncodesRatingAndActionTaken() async {
+            let api = MockBriefingAPIClient()
+            let viewModel = DailyBriefingViewModel(
+                apiClient: api,
+                briefingStore: InMemoryBriefingStore(initialBriefing: sampleBriefing()),
+                privacyMode: { .hybrid },
+                dateProvider: { "2026-07-04" }
+            )
+            viewModel.feedbackRating = .useful
+            viewModel.feedbackAction = .followed
+            viewModel.feedbackReason = "Matched how I felt"
+            viewModel.feedbackOutcomeNotes = "Kept it moderate"
+
+            await viewModel.submitFeedback()
+
+            XCTAssertEqual(api.feedbackRequests.count, 1)
+            XCTAssertEqual(api.feedbackRequests.first?.recommendationID, sampleBriefing().recommendationID)
+            XCTAssertEqual(api.feedbackRequests.first?.request.rating, .useful)
+            XCTAssertEqual(api.feedbackRequests.first?.request.actionTaken, .followed)
+            XCTAssertEqual(api.feedbackRequests.first?.request.reason, "Matched how I felt")
+            XCTAssertEqual(api.feedbackRequests.first?.request.outcomeNotes, "Kept it moderate")
+        }
+    #endif
 }
 
 private enum TestError: Error {
     case failed
+}
+
+private final class MockHealthKitReader: HealthKitReading, @unchecked Sendable {
+    private let reads: [HealthCategory: HealthKitReadResult]
+    private(set) var readCount = 0
+
+    init(reads: [HealthCategory: HealthKitReadResult]) {
+        self.reads = reads
+    }
+
+    func readSamples(for category: HealthCategory, anchorData: Data?) async throws -> HealthKitReadResult {
+        readCount += 1
+        return reads[category] ?? HealthKitReadResult(
+            category: category,
+            samples: [],
+            newAnchorData: anchorData
+        )
+    }
+}
+
+private func sample(
+    _ id: String,
+    category: HealthCategory,
+    start: Date = Date(timeIntervalSince1970: 1_000)
+) -> HealthSample {
+    HealthSample(
+        sourceSampleID: id,
+        sampleType: category.apiSampleType,
+        startTime: start,
+        endTime: start.addingTimeInterval(60),
+        value: 1,
+        unit: "count",
+        sourceMetadata: ["source": "unit-test"]
+    )
 }
 
 private final class MockCheckInAPIClient: CheckInAPIClient, @unchecked Sendable {
@@ -811,6 +1300,7 @@ private final class MockCheckInAPIClient: CheckInAPIClient, @unchecked Sendable 
     private(set) var submittedRequests: [DailyCheckInRequest] = []
     private(set) var updatedRequests: [(id: UUID, request: DailyCheckInRequest)] = []
     private(set) var deletedIDs: [UUID] = []
+    private(set) var deletedNoteIDs: [UUID] = []
 
     init(
         fetchResult: DailyCheckInDetailResponse? = nil,
@@ -851,6 +1341,10 @@ private final class MockCheckInAPIClient: CheckInAPIClient, @unchecked Sendable 
 
     func deleteDailyCheckIn(id: UUID) async throws {
         deletedIDs.append(id)
+    }
+
+    func deleteDailyCheckInNote(id: UUID) async throws {
+        deletedNoteIDs.append(id)
     }
 }
 
@@ -924,6 +1418,9 @@ private final class MockBriefingAPIClient: DailyBriefingAPIClient, @unchecked Se
     private(set) var fetchRequests: [(date: String, offlineLast: Bool)] = []
     private(set) var traceRequestIDs: [UUID] = []
     private(set) var assistantRequests: [AssistantQueryRequest] = []
+    private let feedbackResult: RecommendationFeedbackResponse
+    private let feedbackError: Error?
+    private(set) var feedbackRequests: [(recommendationID: UUID, request: RecommendationFeedbackRequest)] = []
 
     init(
         generateResult: DailyAnalysisResponse = DailyAnalysisResponse(
@@ -951,7 +1448,14 @@ private final class MockBriefingAPIClient: DailyBriefingAPIClient, @unchecked Se
             safetyStatus: "passed",
             traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
         ),
-        assistantError: Error? = nil
+        assistantError: Error? = nil,
+        feedbackResult: RecommendationFeedbackResponse = RecommendationFeedbackResponse(
+            schemaVersion: "v1",
+            feedbackID: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
+            memoryUpdateStatus: "applied",
+            evalQueueStatus: "queued"
+        ),
+        feedbackError: Error? = nil
     ) {
         self.generateResult = generateResult
         self.generateError = generateError
@@ -961,6 +1465,8 @@ private final class MockBriefingAPIClient: DailyBriefingAPIClient, @unchecked Se
         self.traceError = traceError
         self.assistantResult = assistantResult
         self.assistantError = assistantError
+        self.feedbackResult = feedbackResult
+        self.feedbackError = feedbackError
     }
 
     func generateDailyAnalysis(_ request: DailyAnalysisRequest) async throws -> DailyAnalysisResponse {
@@ -1004,6 +1510,17 @@ private final class MockBriefingAPIClient: DailyBriefingAPIClient, @unchecked Se
             throw assistantError
         }
         return assistantResult
+    }
+
+    func submitRecommendationFeedback(
+        recommendationID: UUID,
+        request: RecommendationFeedbackRequest
+    ) async throws -> RecommendationFeedbackResponse {
+        feedbackRequests.append((recommendationID, request))
+        if let feedbackError {
+            throw feedbackError
+        }
+        return feedbackResult
     }
 }
 
@@ -1081,8 +1598,223 @@ private final class MockOnboardingAPIClient: HealthSyncAPIClient, @unchecked Sen
             duplicateCount: 0,
             rejectedCount: 0,
             warnings: [],
-            nextAnchor: "anchor"
+            nextAnchor: "anchor",
+            dataQualitySummary: DataQualitySummary(status: "ok", notes: [])
         )
+    }
+}
+
+private final class MockSettingsAPIClient: SettingsAPIClient, @unchecked Sendable {
+    private let exportResult: DataExportResponse
+    private let deleteAllResult: DataDeleteResponse
+    private let llmSettingsResult: LLMSettingsResponse
+    private let feedbackResult: RecommendationFeedbackResponse
+    private let consentResult: DataControlConsentResponse
+    private let consentHistoryResult: ConsentHistoryResponse
+    private let modelDisclosureResult: ModelDisclosureResponse
+    private(set) var consentRequests: [ConsentRecordRequest] = []
+    private(set) var syncRequests: [HealthSyncRequest] = []
+    private(set) var exportRequests: [DataExportRequest] = []
+    private(set) var deleteAllCount = 0
+    private(set) var deletedCheckInIDs: [UUID] = []
+    private(set) var deletedCheckInNoteIDs: [UUID] = []
+    private(set) var disableExternalLLMRequests: [DisableExternalLLMRequest] = []
+    private(set) var disableCloudProcessingRequests: [ConsentRevocationRequest] = []
+    private(set) var feedbackRequests: [(recommendationID: UUID, request: RecommendationFeedbackRequest)] = []
+    private(set) var llmSettingsCount = 0
+    private(set) var consentHistoryCount = 0
+    private(set) var modelDisclosureCount = 0
+
+    init(
+        exportResult: DataExportResponse = DataExportResponse(
+            schemaVersion: "v1",
+            exportJobID: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!,
+            status: "ready",
+            expiresAt: "2026-07-07T00:00:00Z",
+            downloadURL: "/v1/data/export/00000000-0000-0000-0000-000000000006/file",
+            encryption: [
+                "algorithm": "AES-256-GCM",
+                "key_base64": "",
+                "key_custody": "client_response",
+                "file_sha256": "sha256",
+            ]
+        ),
+        deleteAllResult: DataDeleteResponse = DataDeleteResponse(
+            schemaVersion: "v1",
+            deleted: ["checkins": 1, "samples": 2]
+        ),
+        llmSettingsResult: LLMSettingsResponse = LLMSettingsResponse(
+            schemaVersion: "v1",
+            provider: "deepseek",
+            cheapModel: "deepseek-v4-pro",
+            strongModel: "deepseek-v4-pro",
+            fallbackModel: "baseline-local-deterministic-v1"
+        ),
+        feedbackResult: RecommendationFeedbackResponse = RecommendationFeedbackResponse(
+            schemaVersion: "v1",
+            feedbackID: UUID(uuidString: "00000000-0000-0000-0000-000000000007")!,
+            memoryUpdateStatus: "applied",
+            evalQueueStatus: "queued"
+        ),
+        consentResult: DataControlConsentResponse = DataControlConsentResponse(
+            schemaVersion: "v1",
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000008")!,
+            userID: UUID(uuidString: "00000000-0000-0000-0000-000000000009")!,
+            consentVersion: "server-consent-v1",
+            healthCategoriesEnabled: ["activity", "sleep"],
+            cloudProcessingEnabled: true,
+            externalLLMEnabled: false,
+            rawNoteProcessingEnabled: false,
+            timestamp: "2026-07-04T08:00:00Z",
+            revokedAt: nil
+        ),
+        consentHistoryResult: ConsentHistoryResponse = ConsentHistoryResponse(
+            schemaVersion: "v1",
+            activeConsentVersion: "server-consent-v1",
+            records: []
+        ),
+        modelDisclosureResult: ModelDisclosureResponse = ModelDisclosureResponse(
+            schemaVersion: "v1",
+            runs: []
+        )
+    ) {
+        self.exportResult = exportResult
+        self.deleteAllResult = deleteAllResult
+        self.llmSettingsResult = llmSettingsResult
+        self.feedbackResult = feedbackResult
+        self.consentResult = consentResult
+        self.consentHistoryResult = consentHistoryResult
+        self.modelDisclosureResult = modelDisclosureResult
+    }
+
+    func recordConsent(_ request: ConsentRecordRequest) async throws -> DataControlConsentResponse {
+        consentRequests.append(request)
+        return consentResult
+    }
+
+    func postHealthSync(_ request: HealthSyncRequest) async throws -> HealthSyncResponse {
+        syncRequests.append(request)
+        return HealthSyncResponse(
+            schemaVersion: "v1",
+            syncID: UUID(),
+            acceptedCount: request.samples.count,
+            duplicateCount: 0,
+            rejectedCount: 0,
+            warnings: [],
+            nextAnchor: "anchor",
+            dataQualitySummary: DataQualitySummary(status: "ok", notes: [])
+        )
+    }
+
+    func fetchDailyCheckIn(date: String) async throws -> DailyCheckInDetailResponse {
+        throw BaselineAPIError.unsuccessfulStatus(404)
+    }
+
+    func submitDailyCheckIn(_ request: DailyCheckInRequest) async throws -> DailyCheckInResponse {
+        DailyCheckInResponse(
+            schemaVersion: "v1",
+            checkinID: UUID(),
+            acceptedFields: ["date"],
+            redactionStatus: .none
+        )
+    }
+
+    func updateDailyCheckIn(id: UUID, request: DailyCheckInRequest) async throws -> DailyCheckInResponse {
+        DailyCheckInResponse(
+            schemaVersion: "v1",
+            checkinID: id,
+            acceptedFields: ["date"],
+            redactionStatus: .none
+        )
+    }
+
+    func deleteDailyCheckIn(id: UUID) async throws {
+        deletedCheckInIDs.append(id)
+    }
+
+    func deleteDailyCheckInNote(id: UUID) async throws {
+        deletedCheckInNoteIDs.append(id)
+    }
+
+    func generateDailyAnalysis(_ request: DailyAnalysisRequest) async throws -> DailyAnalysisResponse {
+        DailyAnalysisResponse(
+            schemaVersion: "v1",
+            analysisJobID: UUID(),
+            status: "completed",
+            estimatedCompletionSeconds: 0
+        )
+    }
+
+    func fetchDailyAnalysisJob(id: UUID) async throws -> DailyAnalysisResponse {
+        DailyAnalysisResponse(
+            schemaVersion: "v1",
+            analysisJobID: id,
+            status: "completed",
+            estimatedCompletionSeconds: 0
+        )
+    }
+
+    func fetchDailyBriefing(date: String, offlineLast: Bool) async throws -> DailyBriefingResponse {
+        throw BaselineAPIError.unsuccessfulStatus(404)
+    }
+
+    func fetchBriefingTrace(traceID: UUID) async throws -> BriefingTraceInspection {
+        throw BaselineAPIError.unsuccessfulStatus(404)
+    }
+
+    func submitAssistantQuery(_ request: AssistantQueryRequest) async throws -> AssistantQueryResponse {
+        throw BaselineAPIError.unsuccessfulStatus(404)
+    }
+
+    func submitRecommendationFeedback(
+        recommendationID: UUID,
+        request: RecommendationFeedbackRequest
+    ) async throws -> RecommendationFeedbackResponse {
+        feedbackRequests.append((recommendationID, request))
+        return feedbackResult
+    }
+
+    func requestDataExport(_ request: DataExportRequest) async throws -> DataExportResponse {
+        exportRequests.append(request)
+        return exportResult
+    }
+
+    func downloadDataExport(from downloadURL: String) async throws -> Data {
+        Data()
+    }
+
+    func downloadDecryptedDataExport(_ response: DataExportResponse) async throws -> Data {
+        Data()
+    }
+
+    func deleteAllData() async throws -> DataDeleteResponse {
+        deleteAllCount += 1
+        return deleteAllResult
+    }
+
+    func disableExternalLLM(_ request: DisableExternalLLMRequest) async throws -> DataControlConsentResponse {
+        disableExternalLLMRequests.append(request)
+        return consentResult
+    }
+
+    func disableCloudProcessing(_ request: ConsentRevocationRequest) async throws -> DataControlConsentResponse {
+        disableCloudProcessingRequests.append(request)
+        return consentResult
+    }
+
+    func fetchConsentHistory() async throws -> ConsentHistoryResponse {
+        consentHistoryCount += 1
+        return consentHistoryResult
+    }
+
+    func fetchModelDisclosures() async throws -> ModelDisclosureResponse {
+        modelDisclosureCount += 1
+        return modelDisclosureResult
+    }
+
+    func fetchLLMSettings() async throws -> LLMSettingsResponse {
+        llmSettingsCount += 1
+        return llmSettingsResult
     }
 }
 
@@ -1113,6 +1845,46 @@ private final class InMemoryConsentStore: ConsentPersisting, @unchecked Sendable
         self.consent = consent
     }
 }
+
+#if os(iOS)
+private final class MockBackgroundTaskScheduler: BackgroundTaskScheduling, @unchecked Sendable {
+    private(set) var registeredIdentifiers: [String] = []
+    private(set) var submittedRequests: [BGTaskRequest] = []
+
+    func register(
+        forTaskWithIdentifier identifier: String,
+        using queue: DispatchQueue?,
+        launchHandler: @escaping (BGTask) -> Void
+    ) -> Bool {
+        registeredIdentifiers.append(identifier)
+        return true
+    }
+
+    func submit(_ taskRequest: BGTaskRequest) throws {
+        submittedRequests.append(taskRequest)
+    }
+}
+
+private final class MockUserNotificationCenter: UserNotificationCentering, @unchecked Sendable {
+    private(set) var requestedOptions: UNAuthorizationOptions?
+    var authorizationGranted = true
+    private(set) var addedRequests: [UNNotificationRequest] = []
+    private(set) var removedIdentifiers: [String] = []
+
+    func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
+        requestedOptions = options
+        return authorizationGranted
+    }
+
+    func add(_ request: UNNotificationRequest) async throws {
+        addedRequests.append(request)
+    }
+
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        removedIdentifiers.append(contentsOf: identifiers)
+    }
+}
+#endif
 
 private func sampleBriefing(
     recommendation: String = "Keep training moderate."
@@ -1175,7 +1947,8 @@ private func sampleBriefing(
         safetyStatus: "passed",
         safetyNotes: ["This is wellness decision support, not medical advice."],
         traceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
-        generatedAt: "2026-07-04T06:40:00Z"
+        generatedAt: "2026-07-04T06:40:00Z",
+        recommendationID: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!
     )
 }
 
@@ -1228,6 +2001,39 @@ private func sampleTrace(
 private extension Array {
     var single: Element? {
         count == 1 ? self[0] : nil
+    }
+}
+
+private final class MockMemoryAPIClient: MemoryAPIClient, @unchecked Sendable {
+    private let summariesResult: MemorySummaryListResponse
+    private(set) var fetchRequests: [MemoryPeriodType?] = []
+    private(set) var deletedIDs: [UUID] = []
+    private let fetchError: Error?
+    private let deleteError: Error?
+
+    init(
+        summariesResult: MemorySummaryListResponse = MemorySummaryListResponse(),
+        fetchError: Error? = nil,
+        deleteError: Error? = nil
+    ) {
+        self.summariesResult = summariesResult
+        self.fetchError = fetchError
+        self.deleteError = deleteError
+    }
+
+    func fetchMemorySummaries(periodType: MemoryPeriodType?) async throws -> MemorySummaryListResponse {
+        fetchRequests.append(periodType)
+        if let fetchError {
+            throw fetchError
+        }
+        return summariesResult
+    }
+
+    func deleteMemorySummary(id: UUID) async throws {
+        deletedIDs.append(id)
+        if let deleteError {
+            throw deleteError
+        }
     }
 }
 

@@ -262,15 +262,50 @@ def test_goal_tradeoffs_are_computed_from_active_goal_set() -> None:
 
     assert [tradeoff["goal"] for tradeoff in result.goal_tradeoffs] == ["vo2_max", "sleep"]
     assert all(tradeoff["tradeoff"] for tradeoff in result.goal_tradeoffs)
-    assert result.goal_tradeoffs[0]["indicator_status"] == "computed"
-    assert result.goal_tradeoffs[0]["evidence_refs"] == [
-        "goal_features.values.vo2_trend.values.trend_direction"
+    for tradeoff in result.goal_tradeoffs:
+        assert tradeoff["indicator_status"] == "computed"
+        assert tradeoff["evidence_refs"]
+        assert tradeoff["missing_data"] == []
+
+
+def test_goal_tradeoffs_include_evidence_refs_for_cognitive_goal() -> None:
+    features = _features()
+    features["goal_features"]["values"]["goal_indicators"]["value"]["cognitive_performance"] = {
+        "status": "computed",
+        "summary": "Cognitive-readiness proxy is supported.",
+        "confidence": "medium",
+        "evidence_refs": [
+            "sleep_features.values.sleep_debt_hours",
+            "hrv_features.values.deviation_pct",
+        ],
+        "missing_data": [],
+    }
+
+    result = assess_readiness(
+        _input(
+            features=features,
+            goals=[{"category": "cognitive_performance", "priority": 1}],
+        )
+    )
+
+    tradeoff = result.goal_tradeoffs[0]
+    assert tradeoff["goal"] == "cognitive_performance"
+    assert tradeoff["indicator_status"] == "computed"
+    assert tradeoff["evidence_refs"] == [
+        "sleep_features.values.sleep_debt_hours",
+        "hrv_features.values.deviation_pct",
     ]
 
 
 def test_goal_tradeoffs_explain_missing_goal_indicator_data() -> None:
     features = _features()
-    features["goal_features"] = {"values": {}, "data_quality": {"flags": [], "completeness": 0.0}}
+    features["goal_features"]["values"]["goal_indicators"]["value"]["strength"] = {
+        "status": "unavailable",
+        "summary": "Strength consistency proxy is unavailable.",
+        "confidence": "low",
+        "evidence_refs": [],
+        "missing_data": ["strength_or_kettlebell_workouts"],
+    }
 
     result = assess_readiness(
         _input(
@@ -279,9 +314,11 @@ def test_goal_tradeoffs_explain_missing_goal_indicator_data() -> None:
         )
     )
 
-    assert result.goal_tradeoffs[0]["indicator_status"] == "unavailable"
-    assert result.goal_tradeoffs[0]["missing_data"] == ["strength_indicator"]
-    assert "missing" in result.goal_tradeoffs[0]["tradeoff"]
+    tradeoff = result.goal_tradeoffs[0]
+    assert tradeoff["indicator_status"] == "unavailable"
+    assert tradeoff["missing_data"] == ["strength_or_kettlebell_workouts"]
+    assert "strength_or_kettlebell_workouts" in tradeoff["tradeoff"]
+    assert tradeoff["evidence_refs"] == []
 
 
 def test_assessment_and_trace_are_deterministic() -> None:

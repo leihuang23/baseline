@@ -23,9 +23,11 @@ from baseline_api.db.models import (
     WorkoutSession,
 )
 from baseline_api.db.models.enums import Modality
+from baseline_api.privacy.user import resolve_single_user
 from baseline_api.retrieval import (
     KnowledgeRetrievalResult,
     KnowledgeRetrievalService,
+    build_external_knowledge_query,
     create_embedder,
     has_external_knowledge_consent,
 )
@@ -85,9 +87,15 @@ class AssistantQueryService:
         self._settings = settings
         self._safety_engine = safety_engine or SafetyPolicyEngine.from_default_policy()
 
-    def answer(self, request: AssistantQueryRequest) -> AssistantQueryResponse:
+    def answer(
+        self,
+        request: AssistantQueryRequest,
+        *,
+        user: User | None = None,
+    ) -> AssistantQueryResponse:
         started = time.perf_counter()
-        user = self._get_single_user()
+        resolved_user = self._resolve_user(user)
+        user = resolved_user
         target_date = request.date_context or dt.date.today()
         precheck = self._safety_engine.evaluate(
             request_text=request.question,
@@ -116,7 +124,10 @@ class AssistantQueryService:
             external_knowledge = _external_knowledge_context(
                 self._session,
                 user.id,
-                _external_knowledge_query(plan),
+                _external_knowledge_query(
+                    active_goals=self._active_goals(),
+                    question=request.question,
+                ),
                 request,
                 settings=self._settings,
             )
@@ -802,21 +813,28 @@ class AssistantQueryService:
             generated_text=visible_text,
         )
 
-    def _get_single_user(self) -> User:
-        users = list(self._session.exec(select(User).order_by(col(User.created_at)).limit(2)).all())
-        if not users:
-            raise AssistantQueryError(
+    def _resolve_user(self, user: User | None = None) -> User:
+        if user is not None:
+            return user
+        return resolve_single_user(
+            self._session,
+            empty_error_factory=lambda: AssistantQueryError(
                 code="user_not_initialized",
                 message="No Baseline user is available for assistant queries.",
                 status_code=409,
-            )
-        if len(users) > 1:
-            raise AssistantQueryError(
+            ),
+            ambiguous_error_factory=lambda: AssistantQueryError(
                 code="ambiguous_user",
                 message="Assistant queries require an authenticated user context.",
                 status_code=409,
-            )
-        return users[0]
+            ),
+        )
+
+    def _active_goals(self) -> list[dict[str, Any]]:
+        from baseline_api.goals import GoalService
+
+        goal_set = GoalService(self._session).get_active_goal_set()
+        return [goal.model_dump(mode="json") for goal in goal_set.goals]
 
 
 def _plan_query(question: str) -> QueryPlan:
@@ -1021,25 +1039,16 @@ def _external_knowledge_context(
         )
 
 
-def _external_knowledge_query(plan: QueryPlan) -> str:
-    tokens = ["assistant wellness question", "general research", "non personalized"]
-    if plan.metric == "sleep_debt_hours":
-        tokens.extend(["sleep", "sleep debt", "recovery"])
-    elif plan.metric == "hrv_deviation_pct":
-        tokens.extend(["heart rate variability", "recovery"])
-    elif plan.metric == "rhr_deviation_pct":
-        tokens.extend(["resting heart rate", "recovery"])
-    elif plan.metric == "acute_chronic_ratio":
-        tokens.extend(["training load", "recovery"])
-    elif plan.metric == "recovery_level":
-        tokens.extend(["recovery", "training readiness"])
-    if plan.modality:
-        tokens.extend([plan.modality, "training"])
-    if plan.intent == "candidate_plan":
-        tokens.extend(["training plan", "progression"])
-    elif plan.intent == "briefing_follow_up":
-        tokens.extend(["daily readiness", "training recommendation"])
-    return " ".join(tokens)
+def _external_knowledge_query(
+    *,
+    active_goals: list[dict[str, Any]],
+    question: str | None = None,
+) -> str:
+    return build_external_knowledge_query(
+        active_goals=active_goals,
+        question=question,
+        requested_scope="assistant wellness question general research",
+    )
 
 
 def _contract_uncertainty(uncertainty: list[str]) -> list[str]:

@@ -614,8 +614,9 @@ def test_export_creates_encrypted_expiring_file_with_requested_scope(
     tampered = bytearray(stored.path.read_bytes())
     tampered[-1] ^= 1
     stored.path.write_bytes(tampered)
+    key = base64.b64decode(data["encryption"]["key_base64"])
     with pytest.raises(ValueError, match="authentication tag"):
-        export_store.decrypt(job_id)
+        export_store.decrypt(job_id, key)
 
     object.__setattr__(stored, "expires_at", dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1))
     expired = client.get(data["download_url"])
@@ -626,7 +627,7 @@ def test_export_creates_encrypted_expiring_file_with_requested_scope(
 
 def test_export_store_cleans_up_expired_manifests_and_encrypted_files(tmp_path) -> None:
     store = LocalExportStore(tmp_path, retention_hours=1)
-    stored = store.create(
+    stored, _key = store.create(
         b'{"sections": {}}',
         user_id=uuid4(),
         now=dt.datetime(2026, 7, 4, 8, 0, tzinfo=dt.UTC),
@@ -999,6 +1000,53 @@ def test_delete_checkin_note_removes_note_derived_memory_summary(db_session: Ses
     assert db_session.get(MemorySummary, memory.id) is None
 
 
+def test_list_memory_summaries_returns_single_user_summaries(db_session: Session) -> None:
+    user = _seed_user(db_session)
+    _seed_memory(db_session, user)
+    client = _client(db_session)
+
+    response = client.get("/v1/data/memory-summaries")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert len(data["summaries"]) == 1
+    assert data["summaries"][0]["period_type"] == "weekly"
+    assert data["summaries"][0]["observations"][0]["metric"] == "sleep"
+
+
+def test_list_memory_summaries_filters_by_period_type(db_session: Session) -> None:
+    user = _seed_user(db_session)
+    db_session.add(
+        MemorySummary(
+            user_id=user.id,
+            period_type=PeriodType.daily,
+            start_date=dt.date(2026, 7, 5),
+            end_date=dt.date(2026, 7, 5),
+            summary_version="v1",
+            observations=[],
+        )
+    )
+    db_session.add(
+        MemorySummary(
+            user_id=user.id,
+            period_type=PeriodType.weekly,
+            start_date=dt.date(2026, 6, 29),
+            end_date=dt.date(2026, 7, 5),
+            summary_version="v1",
+            observations=[{"metric": "sleep", "summary": "stable"}],
+        )
+    )
+    db_session.commit()
+    client = _client(db_session)
+
+    response = client.get("/v1/data/memory-summaries?period_type=daily")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert len(data["summaries"]) == 1
+    assert data["summaries"][0]["period_type"] == "daily"
+
+
 def test_record_consent_rejects_cloud_off_external_llm_enabled_state(
     db_session: Session,
 ) -> None:
@@ -1146,6 +1194,70 @@ def test_health_sync_rejects_stale_bootstrapped_consent(db_session: Session) -> 
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "consent_invalid"
+
+
+def test_consent_endpoint_creates_exactly_one_user_and_active_record(db_session: Session) -> None:
+    client = _client(db_session)
+
+    response = client.post(
+        "/v1/data/consent",
+        json={
+            "consent_version": "bootstrap-v1",
+            "health_categories_enabled": ["all"],
+            "cloud_processing_enabled": True,
+            "external_llm_enabled": False,
+            "raw_note_processing_enabled": False,
+        },
+    )
+
+    assert response.status_code == 200
+    users = list(db_session.exec(select(User)).all())
+    assert len(users) == 1
+    assert users[0].active_consent_version == "bootstrap-v1"
+    records = list(db_session.exec(select(ConsentRecord)).all())
+    assert len(records) == 1
+    assert records[0].consent_version == "bootstrap-v1"
+    assert records[0].revoked_at is None
+
+
+def test_consent_endpoint_fails_closed_when_multiple_users_exist(db_session: Session) -> None:
+    for consent_version in ("user-a-v1", "user-b-v1"):
+        user = User(
+            privacy_mode=PrivacyMode.hybrid,
+            active_consent_version=consent_version,
+        )
+        db_session.add(user)
+        db_session.flush()
+        db_session.add(
+            ConsentRecord(
+                user_id=user.id,
+                consent_version=consent_version,
+                health_categories_enabled=["all"],
+                cloud_processing_enabled=True,
+                external_llm_enabled=False,
+                raw_note_processing_enabled=False,
+                timestamp=dt.datetime.now(dt.UTC),
+            )
+        )
+        db_session.flush()
+    client = _client(db_session)
+    record_count_before = len(db_session.exec(select(ConsentRecord)).all())
+
+    response = client.post(
+        "/v1/data/consent",
+        json={
+            "consent_version": "new-v1",
+            "health_categories_enabled": ["all"],
+            "cloud_processing_enabled": True,
+            "external_llm_enabled": False,
+            "raw_note_processing_enabled": False,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "ambiguous_user"
+    assert len(db_session.exec(select(User)).all()) == 2
+    assert len(db_session.exec(select(ConsentRecord)).all()) == record_count_before
 
 
 def test_record_consent_rejects_unknown_health_category_without_persisting(
@@ -1534,3 +1646,17 @@ def test_view_data_sent_sanitizes_legacy_model_metadata(db_session: Session) -> 
     assert disclosure["task_type"] == "simple_explanation"
     assert disclosure["_redacted_fields"][0]["key_hash"]
     assert disclosure["_redacted_fields"][0]["value"]["hash"]
+
+
+def test_llm_settings_returns_operator_config(db_session: Session) -> None:
+    _seed_user(db_session)
+    client = _client(db_session)
+
+    response = client.get("/v1/data/llm-settings")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["provider"] == "deepseek"
+    assert data["cheap_model"] == "deepseek-v4-pro"
+    assert data["strong_model"] == "deepseek-v4-pro"
+    assert data["fallback_model"] == "baseline-local-deterministic-v1"

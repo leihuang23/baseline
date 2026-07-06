@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlmodel import Session, col, select
 
 from baseline_api.db.models.enums import AuditEventType, PrivacyMode
@@ -68,6 +69,7 @@ class ConsentService:
         return _consent_response(record)
 
     def _get_or_create_first_user(self, request: ConsentRecordRequest) -> User:
+        self._lock_first_user_creation(self._session)
         users = list_single_user_candidates(self._session)
         if len(users) > 1:
             raise PrivacyError(
@@ -86,14 +88,34 @@ class ConsentService:
         self._session.flush()
         return user
 
-    def disable_external_llm(self, request: DisableExternalLLMRequest) -> ConsentRecordResponse:
-        user = get_single_user(self._session)
-        active = self._active_consent(user.id)
+    @staticmethod
+    def _lock_first_user_creation(session: Session) -> None:
+        """Serialize first-user bootstrap across concurrent consent requests.
+
+        Uses a PostgreSQL advisory transaction lock when available. The lock is
+        released automatically at transaction commit/rollback.
+        """
+
+        bind = session.bind
+        if bind is None or getattr(bind, "dialect", None) is None:
+            return
+        if bind.dialect.name != "postgresql":
+            return
+        session.execute(text("SELECT pg_advisory_xact_lock(42)"))
+
+    def disable_external_llm(
+        self,
+        request: DisableExternalLLMRequest,
+        *,
+        user: User | None = None,
+    ) -> ConsentRecordResponse:
+        resolved_user = user or get_single_user(self._session)
+        active = self._active_consent(resolved_user.id)
         now = datetime.now(UTC)
         active.revoked_at = now
         self._session.add(active)
         record = ConsentRecord(
-            user_id=user.id,
+            user_id=resolved_user.id,
             consent_version=request.consent_version
             or f"{active.consent_version}-external-llm-disabled",
             health_categories_enabled=list(active.health_categories_enabled),
@@ -103,13 +125,13 @@ class ConsentService:
             timestamp=now,
         )
         self._session.add(record)
-        user.active_consent_version = record.consent_version
-        user.privacy_mode = _privacy_mode(record)
-        self._session.add(user)
+        resolved_user.active_consent_version = record.consent_version
+        resolved_user.privacy_mode = _privacy_mode(record)
+        self._session.add(resolved_user)
         emit_privacy_audit(
             self._session,
             event_type=AuditEventType.consent_revoked,
-            user_id=user.id,
+            user_id=resolved_user.id,
             metadata={
                 "previous_consent_version": active.consent_version,
                 "consent_version": record.consent_version,
@@ -120,9 +142,14 @@ class ConsentService:
         self._session.commit()
         return _consent_response(record)
 
-    def revoke(self, request: ConsentRevocationRequest) -> ConsentRecordResponse:
-        user = get_single_user(self._session)
-        active = self._active_consent(user.id)
+    def revoke(
+        self,
+        request: ConsentRevocationRequest,
+        *,
+        user: User | None = None,
+    ) -> ConsentRecordResponse:
+        resolved_user = user or get_single_user(self._session)
+        active = self._active_consent(resolved_user.id)
         now = datetime.now(UTC)
 
         categories = list(active.health_categories_enabled)
@@ -151,7 +178,7 @@ class ConsentService:
         active.revoked_at = now
         self._session.add(active)
         record = ConsentRecord(
-            user_id=user.id,
+            user_id=resolved_user.id,
             consent_version=request.consent_version or f"{active.consent_version}-revoked",
             health_categories_enabled=categories,
             cloud_processing_enabled=cloud_processing_enabled,
@@ -160,13 +187,13 @@ class ConsentService:
             timestamp=now,
         )
         self._session.add(record)
-        user.active_consent_version = record.consent_version
-        user.privacy_mode = _privacy_mode(record)
-        self._session.add(user)
+        resolved_user.active_consent_version = record.consent_version
+        resolved_user.privacy_mode = _privacy_mode(record)
+        self._session.add(resolved_user)
         emit_privacy_audit(
             self._session,
             event_type=AuditEventType.consent_revoked,
-            user_id=user.id,
+            user_id=resolved_user.id,
             metadata={
                 "previous_consent_version": active.consent_version,
                 "consent_version": record.consent_version,
@@ -179,17 +206,17 @@ class ConsentService:
         self._session.commit()
         return _consent_response(record)
 
-    def history(self) -> ConsentHistoryResponse:
-        user = get_single_user(self._session)
+    def history(self, *, user: User | None = None) -> ConsentHistoryResponse:
+        resolved_user = user or get_single_user(self._session)
         records = list(
             self._session.exec(
                 select(ConsentRecord)
-                .where(ConsentRecord.user_id == user.id)
+                .where(ConsentRecord.user_id == resolved_user.id)
                 .order_by(col(ConsentRecord.timestamp).desc())
             ).all()
         )
         return ConsentHistoryResponse(
-            active_consent_version=user.active_consent_version,
+            active_consent_version=resolved_user.active_consent_version,
             records=[_consent_response(record) for record in records],
         )
 
@@ -238,8 +265,7 @@ def _privacy_mode_from_request(request: ConsentRecordRequest) -> PrivacyMode:
             raise PrivacyError(
                 code="consent_inconsistent",
                 message=(
-                    "privacy_mode must match cloud_processing_enabled and "
-                    "external_llm_enabled."
+                    "privacy_mode must match cloud_processing_enabled and external_llm_enabled."
                 ),
                 status_code=400,
             )

@@ -12,7 +12,7 @@ public enum BaselineAPIError: Error, Equatable, Sendable {
 public typealias HealthSyncAPIError = BaselineAPIError
 
 public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAPIClient, GoalsAPIClient,
-    DailyBriefingAPIClient, DataControlsAPIClient
+    DailyBriefingAPIClient, DataControlsAPIClient, MemoryAPIClient
 {
     private let baseURL: URL
     private let session: URLSession
@@ -75,6 +75,19 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
         }
     }
 
+    public func deleteDailyCheckInNote(id: UUID) async throws {
+        var urlRequest = URLRequest(url: Self.dailyCheckInNoteURL(baseURL: baseURL, id: id))
+        urlRequest.httpMethod = "DELETE"
+        applyAuthHeader(to: &urlRequest)
+        let (_, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BaselineAPIError.invalidResponse
+        }
+        guard 200 ..< 300 ~= httpResponse.statusCode else {
+            throw BaselineAPIError.unsuccessfulStatus(httpResponse.statusCode)
+        }
+    }
+
     public func listGoals() async throws -> [GoalResponse] {
         try await sendEnvelope(method: "GET", url: Self.goalsURL(baseURL: baseURL), body: Optional<String>.none)
     }
@@ -121,6 +134,17 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
 
     public func submitAssistantQuery(_ request: AssistantQueryRequest) async throws -> AssistantQueryResponse {
         try await sendEnvelope(method: "POST", url: Self.assistantQueryURL(baseURL: baseURL), body: request)
+    }
+
+    public func submitRecommendationFeedback(
+        recommendationID: UUID,
+        request: RecommendationFeedbackRequest
+    ) async throws -> RecommendationFeedbackResponse {
+        try await sendEnvelope(
+            method: "POST",
+            url: Self.recommendationFeedbackURL(baseURL: baseURL, id: recommendationID),
+            body: request
+        )
     }
 
     public func requestDataExport(_ request: DataExportRequest) async throws -> DataExportResponse {
@@ -205,6 +229,31 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
 
     public func fetchModelDisclosures() async throws -> ModelDisclosureResponse {
         try await sendEnvelope(method: "GET", url: Self.modelDisclosuresURL(baseURL: baseURL), body: Optional<String>.none)
+    }
+
+    public func fetchLLMSettings() async throws -> LLMSettingsResponse {
+        try await sendEnvelope(method: "GET", url: Self.llmSettingsURL(baseURL: baseURL), body: Optional<String>.none)
+    }
+
+    public func fetchMemorySummaries(periodType: MemoryPeriodType?) async throws -> MemorySummaryListResponse {
+        try await sendEnvelope(
+            method: "GET",
+            url: Self.memorySummariesURL(baseURL: baseURL, periodType: periodType),
+            body: Optional<String>.none
+        )
+    }
+
+    public func deleteMemorySummary(id: UUID) async throws {
+        var urlRequest = URLRequest(url: Self.memorySummaryURL(baseURL: baseURL, id: id))
+        urlRequest.httpMethod = "DELETE"
+        applyAuthHeader(to: &urlRequest)
+        let (_, response) = try await session.data(for: urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BaselineAPIError.invalidResponse
+        }
+        guard 200 ..< 300 ~= httpResponse.statusCode else {
+            throw BaselineAPIError.unsuccessfulStatus(httpResponse.statusCode)
+        }
     }
 
     public static func healthSyncURL(baseURL: URL) -> URL {
@@ -297,6 +346,38 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
         baseURL.appendingPathComponent("v1/data/model-disclosures")
     }
 
+    public static func llmSettingsURL(baseURL: URL) -> URL {
+        baseURL.appendingPathComponent("v1/data/llm-settings")
+    }
+
+    public static func memorySummariesURL(baseURL: URL, periodType: MemoryPeriodType?) -> URL {
+        let url = baseURL.appendingPathComponent("v1/data/memory-summaries")
+        guard let periodType else {
+            return url
+        }
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "period_type", value: periodType.rawValue)]
+        return components?.url ?? url
+    }
+
+    public static func memorySummaryURL(baseURL: URL, id: UUID) -> URL {
+        memorySummariesURL(baseURL: baseURL, periodType: nil).appendingPathComponent(id.uuidString)
+    }
+
+    public static func dailyCheckInNoteURL(baseURL: URL, id: UUID) -> URL {
+        baseURL
+            .appendingPathComponent("v1/data/checkins")
+            .appendingPathComponent(id.uuidString)
+            .appendingPathComponent("note")
+    }
+
+    public static func recommendationFeedbackURL(baseURL: URL, id: UUID) -> URL {
+        baseURL
+            .appendingPathComponent("v1/recommendations")
+            .appendingPathComponent(id.uuidString)
+            .appendingPathComponent("feedback")
+    }
+
     private func sendEnvelope<Response: Codable & Sendable, Body: Encodable>(
         method: String,
         url: URL,
@@ -325,7 +406,7 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
     }
 
     private func applyAuthHeader(to request: inout URLRequest) {
-        guard let apiAuthToken, !apiAuthToken.isEmpty, isSameOrigin(request.url) else {
+        guard let apiAuthToken, !apiAuthToken.isEmpty, isSameOrigin(request.url), isSecureOrLocal(request.url) else {
             return
         }
         request.setValue("Bearer \(apiAuthToken)", forHTTPHeaderField: "Authorization")
@@ -338,6 +419,17 @@ public final class URLSessionHealthSyncAPIClient: HealthSyncAPIClient, CheckInAP
         return url.scheme == baseURL.scheme
             && url.host == baseURL.host
             && url.port == baseURL.port
+    }
+
+    private func isSecureOrLocal(_ url: URL?) -> Bool {
+        guard let url, let scheme = url.scheme?.lowercased(), let host = url.host?.lowercased() else {
+            return false
+        }
+        if scheme == "https" {
+            return true
+        }
+        let localHosts: Set<String> = ["localhost", "127.0.0.1", "::1"]
+        return scheme == "http" && localHosts.contains(host)
     }
 
 }

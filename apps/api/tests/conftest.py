@@ -116,6 +116,12 @@ def db_engine(request: pytest.FixtureRequest) -> Generator[Engine]:
     # Run Alembic migrations against the test database.
     test_url = _test_database_url()
     os.environ["DATABASE_URL"] = test_url
+
+    # Clear the cached settings so env changes above are picked up by migrations.
+    from baseline_api.config import get_settings
+
+    get_settings.cache_clear()
+
     alembic_cfg = Config("alembic.ini")
     command.upgrade(alembic_cfg, "head")
 

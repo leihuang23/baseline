@@ -30,12 +30,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved_settings
 
     if resolved_settings.export_cleanup_on_start:
+
         @app.on_event("startup")
         async def cleanup_export_store() -> None:
             try:
                 store = LocalExportStore(
                     resolved_settings.export_storage_dir,
                     retention_hours=resolved_settings.export_retention_hours,
+                    app_env=resolved_settings.app_env,
                 )
             except Exception as exc:
                 log_event(
@@ -94,8 +96,10 @@ def _install_openapi_auth_contract(app: FastAPI) -> None:
             {"BaselineBearerAuth": []},
             {"BaselineApiKeyAuth": []},
         ]
+        app_env = getattr(getattr(app, "state", None), "settings", None)
+        app_env = app_env.app_env if app_env is not None else "production"
         for path, operations in schema.get("paths", {}).items():
-            if is_public_api_path(path):
+            if is_public_api_path(path, app_env=app_env):
                 continue
             for method, operation in operations.items():
                 if method not in {"get", "put", "post", "delete", "patch", "options", "head"}:

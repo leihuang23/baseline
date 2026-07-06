@@ -311,6 +311,7 @@ class DailyBriefingResponse(ContractModel):
     safety_notes: list[str] = Field(min_length=1)
     trace_id: UUID
     generated_at: dt.datetime
+    recommendation_id: UUID | None = None
 
 
 class AssistantQueryRequest(ContractModel):
@@ -453,6 +454,32 @@ class ModelDisclosureResponse(ContractModel):
     runs: list[ModelDisclosureRecord] = Field(default_factory=list)
 
 
+class LLMSettingsResponse(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    provider: str
+    cheap_model: str
+    strong_model: str
+    fallback_model: str
+
+
+class MemorySummaryItem(ContractModel):
+    memory_summary_id: UUID
+    period_type: str
+    start_date: dt.date
+    end_date: dt.date
+    summary_version: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    observations: list[dict[str, Any]] = Field(default_factory=list)
+    hypotheses: list[dict[str, Any]] = Field(default_factory=list)
+    source_refs: list[dict[str, Any]] = Field(default_factory=list)
+    sensitive_fields_excluded: list[str] = Field(default_factory=list)
+
+
+class MemorySummaryListResponse(ContractModel):
+    schema_version: Literal["v1"] = "v1"
+    summaries: list[MemorySummaryItem] = Field(default_factory=list)
+
+
 __all__ = [
     "ActiveGoal",
     "ActiveGoalSet",
@@ -483,6 +510,9 @@ __all__ = [
     "HealthSamplePayload",
     "HealthSyncRequest",
     "HealthSyncResponse",
+    "LLMSettingsResponse",
+    "MemorySummaryItem",
+    "MemorySummaryListResponse",
     "RecommendationAlternative",
     "RecommendationFeedbackRequest",
     "RecommendationFeedbackResponse",

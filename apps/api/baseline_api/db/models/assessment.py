@@ -188,6 +188,7 @@ class DailyAnalysisJob(BaseDBModel, table=True):
         sa_type=JSONB,
         default_factory=list,
     )
+    retry_count: int = Field(default=0, nullable=False, ge=0)
     error_code: str | None = Field(default=None)
     error_message: str | None = Field(default=None)
     started_at: dt.datetime | None = Field(default=None)

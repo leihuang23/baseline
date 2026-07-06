@@ -70,6 +70,7 @@ public protocol CheckInAPIClient: Sendable {
         request: DailyCheckInRequest
     ) async throws -> DailyCheckInResponse
     func deleteDailyCheckIn(id: UUID) async throws
+    func deleteDailyCheckInNote(id: UUID) async throws
 }
 
 public protocol GoalsAPIClient: Sendable {
@@ -84,6 +85,10 @@ public protocol DailyBriefingAPIClient: Sendable {
     func fetchDailyBriefing(date: String, offlineLast: Bool) async throws -> DailyBriefingResponse
     func fetchBriefingTrace(traceID: UUID) async throws -> BriefingTraceInspection
     func submitAssistantQuery(_ request: AssistantQueryRequest) async throws -> AssistantQueryResponse
+    func submitRecommendationFeedback(
+        recommendationID: UUID,
+        request: RecommendationFeedbackRequest
+    ) async throws -> RecommendationFeedbackResponse
 }
 
 public protocol DataControlsAPIClient: Sendable {
@@ -91,10 +96,17 @@ public protocol DataControlsAPIClient: Sendable {
     func downloadDataExport(from downloadURL: String) async throws -> Data
     func downloadDecryptedDataExport(_ response: DataExportResponse) async throws -> Data
     func deleteAllData() async throws -> DataDeleteResponse
+    func deleteDailyCheckInNote(id: UUID) async throws
     func disableExternalLLM(_ request: DisableExternalLLMRequest) async throws -> DataControlConsentResponse
     func disableCloudProcessing(_ request: ConsentRevocationRequest) async throws -> DataControlConsentResponse
     func fetchConsentHistory() async throws -> ConsentHistoryResponse
     func fetchModelDisclosures() async throws -> ModelDisclosureResponse
+    func fetchLLMSettings() async throws -> LLMSettingsResponse
+}
+
+public protocol MemoryAPIClient: Sendable {
+    func fetchMemorySummaries(periodType: MemoryPeriodType?) async throws -> MemorySummaryListResponse
+    func deleteMemorySummary(id: UUID) async throws
 }
 
 public struct HealthSyncBatchBuilder: Sendable {
