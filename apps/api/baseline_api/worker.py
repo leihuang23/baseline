@@ -98,7 +98,7 @@ class WorkerSettings:
             month={1, 4, 7, 10},
             day=1,
             hour=6,
-            minute=0,
+            minute=30,
             max_tries=1,
         ),
     ]
