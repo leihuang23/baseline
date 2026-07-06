@@ -81,7 +81,7 @@ fabricating missing data.
 
 | Path | Purpose |
 | --- | --- |
-| `apps/api/baseline_api` | FastAPI app, database models/repositories, feature engine, reasoning, LLM orchestration, safety, privacy, retrieval, briefing, and observability. |
+| `apps/api/baseline_api` | FastAPI app, database models/repositories, feature engine, reasoning, LLM orchestration, safety, privacy, retrieval, briefing, observability, schemas, check-in, feedback, assistant, and goals. |
 | `apps/ios` | Thin SwiftUI client for onboarding, privacy mode, HealthKit sync, check-ins, goals, briefings, and trace presentation. |
 | `apps/dashboard` | Dependency-free internal dashboard with synthetic demo mode and host-gated read-only operator mode. |
 | `packages/fixtures` | Deterministic synthetic personas, golden scenarios, and HealthKit-like sync payloads. |
