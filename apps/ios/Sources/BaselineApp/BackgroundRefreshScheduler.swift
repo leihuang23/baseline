@@ -102,7 +102,7 @@ private final class SchedulerState {
         self.syncHandler = syncHandler
         self.wakeTimeProvider = wakeTimeProvider
 
-        taskScheduler.register(
+        _ = taskScheduler.register(
             forTaskWithIdentifier: BackgroundRefreshScheduler.identifier,
             using: nil
         ) { task in
