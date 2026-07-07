@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, col, select
 
+from baseline_api.api.deps import SingleUserContext, get_single_user_context
 from baseline_api.api.v1.health import get_normalization_queue
 from baseline_api.app import create_app
 from baseline_api.config import Settings
@@ -1045,6 +1046,125 @@ def test_list_memory_summaries_filters_by_period_type(db_session: Session) -> No
     data = response.json()["data"]
     assert len(data["summaries"]) == 1
     assert data["summaries"][0]["period_type"] == "daily"
+
+
+def _structured_memory_item(kind: str, text: str, confidence: float) -> dict[str, object]:
+    return {
+        "kind": kind,
+        "key": "readiness_assessment",
+        "text": text,
+        "confidence": confidence,
+        "source_refs": [{"table": "readiness_assessment", "id": "assessment-1"}],
+    }
+
+
+def _seed_structured_memory(db_session: Session, user: User) -> MemorySummary:
+    summary = MemorySummary(
+        user_id=user.id,
+        period_type=PeriodType.daily,
+        start_date=dt.date(2026, 7, 4),
+        end_date=dt.date(2026, 7, 4),
+        summary_version="v1",
+        observations=[_structured_memory_item("observation", "Original observation.", 0.5)],
+        hypotheses=[],
+        confidence=0.5,
+        source_refs=[{"table": "readiness_assessment", "id": "assessment-1"}],
+        sensitive_fields_excluded=[],
+    )
+    db_session.add(summary)
+    db_session.commit()
+    return summary
+
+
+def test_correct_memory_summary_applies_edit_and_audits(db_session: Session) -> None:
+    user = _seed_user(db_session)
+    summary = _seed_structured_memory(db_session, user)
+    client = _client(db_session)
+
+    response = client.post(
+        f"/v1/data/memory-summaries/{summary.id}/correct",
+        json={
+            "observations": [_structured_memory_item("observation", "Corrected observation.", 0.9)],
+            "hypotheses": [_structured_memory_item("hypothesis", "Corrected hypothesis.", 0.8)],
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["observations"][0]["text"] == "Corrected observation."
+    assert data["hypotheses"][0]["text"] == "Corrected hypothesis."
+    # Confidence is the mean of the corrected items: (0.9 + 0.8) / 2.
+    assert data["confidence"] == 0.85
+    db_session.refresh(summary)
+    assert summary.observations[0]["text"] == "Corrected observation."
+    audits = list(
+        db_session.exec(
+            select(AuditEvent).where(
+                AuditEvent.user_id == user.id,
+                AuditEvent.event_type == AuditEventType.memory_corrected,
+            )
+        ).all()
+    )
+    assert len(audits) == 1
+    assert audits[0].event_metadata["changed_fields"] == ["observations", "hypotheses"]
+    assert audits[0].redaction_status == RedactionStatus.redacted
+
+
+def test_correct_memory_summary_returns_404_for_unknown_id(db_session: Session) -> None:
+    _seed_user(db_session)
+    client = _client(db_session)
+
+    response = client.post(
+        f"/v1/data/memory-summaries/{uuid4()}/correct",
+        json={"observations": [_structured_memory_item("observation", "x", 0.5)]},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "memory_summary_not_found"
+
+
+def test_correct_memory_summary_rejects_invalid_payload(db_session: Session) -> None:
+    user = _seed_user(db_session)
+    summary = _seed_structured_memory(db_session, user)
+    client = _client(db_session)
+
+    empty_response = client.post(
+        f"/v1/data/memory-summaries/{summary.id}/correct",
+        json={},
+    )
+    assert empty_response.status_code == 400
+    assert empty_response.json()["error"]["code"] == "memory_correction_invalid"
+
+    malformed_response = client.post(
+        f"/v1/data/memory-summaries/{summary.id}/correct",
+        json={"observations": [{"kind": "observation", "text": "x", "confidence": 0.5}]},
+    )
+    assert malformed_response.status_code == 400
+    assert malformed_response.json()["error"]["code"] == "memory_correction_invalid"
+
+
+def test_correct_memory_summary_rejects_other_users_summary(
+    db_session: Session,
+) -> None:
+    owner = _seed_user(db_session)
+    intruder = User(privacy_mode=PrivacyMode.cloud_assisted, active_consent_version="v1")
+    db_session.add(intruder)
+    db_session.commit()
+    summary = _seed_structured_memory(db_session, owner)
+    client = _client(db_session)
+    intruder_context = SingleUserContext(session=db_session)
+    intruder_context._user = intruder
+    client.app.dependency_overrides[get_single_user_context] = lambda: intruder_context
+
+    response = client.post(
+        f"/v1/data/memory-summaries/{summary.id}/correct",
+        json={"observations": [_structured_memory_item("observation", "x", 0.5)]},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "memory_summary_not_found"
+    db_session.refresh(summary)
+    assert summary.observations[0]["text"] == "Original observation."
 
 
 def test_record_consent_rejects_cloud_off_external_llm_enabled_state(

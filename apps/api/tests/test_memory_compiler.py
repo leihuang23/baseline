@@ -977,9 +977,9 @@ def test_memory_correction_and_deletion_are_audited(db_session: Session) -> None
     ]
     assert all(event.redaction_status == RedactionStatus.redacted for event in events)
     assert events[0].event_metadata["changed_fields"] == ["observations", "hypotheses"]
-    assert {"table": "source_sample", "source_id": "sample-aggregate"} in events[0].event_metadata[
-        "source_refs"
-    ]
+    # source_refs intentionally absent from the correct audit (privacy: user-
+    # controlled content is not per-field redacted); refs stay on the row.
+    assert "source_refs" not in events[0].event_metadata
     assert events[1].event_metadata["memory_summary_id"] == str(summary.id)
     assert {"table": "source_sample", "source_id": "sample-aggregate"} in events[1].event_metadata[
         "source_refs"

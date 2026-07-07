@@ -217,7 +217,10 @@ class MemoryService:
                 "start_date": summary.start_date.isoformat(),
                 "end_date": summary.end_date.isoformat(),
                 "changed_fields": changed_fields,
-                "source_refs": summary.source_refs,
+                # source_refs intentionally omitted: user-controlled dict keys are
+                # not whitelisted and audit rows are stamped redacted without
+                # per-field redaction. Current refs remain on the MemorySummary row.
+                # Matches the conservative DataDeletionService.delete_memory_summary audit.
             },
         )
         self._session.commit()
