@@ -311,10 +311,19 @@ def correct_memory_summary(
             actor="user",
         )
     except ValueError as exc:
+        message = str(exc)
+        if message == "memory summary not found":
+            return _error_response(
+                PrivacyError(
+                    code="memory_summary_not_found",
+                    message="Memory summary not found.",
+                    status_code=404,
+                )
+            )
         return _error_response(
             PrivacyError(
                 code="memory_correction_invalid",
-                message=str(exc),
+                message=message,
                 status_code=400,
             )
         )
