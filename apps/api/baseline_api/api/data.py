@@ -12,6 +12,7 @@ from sqlmodel import Session
 
 from baseline_api.api.deps import SingleUserContext, get_single_user_context
 from baseline_api.db.models.enums import PeriodType
+from baseline_api.db.models.memory import MemorySummary
 from baseline_api.db.session import get_db_session
 from baseline_api.memory import MemoryService
 from baseline_api.observability.logging import log_event
@@ -33,6 +34,7 @@ from baseline_api.schemas.api import (
     DataExportResponse,
     DisableExternalLLMRequest,
     LLMSettingsResponse,
+    MemoryCorrectionRequest,
     MemorySummaryItem,
     MemorySummaryListResponse,
     ModelDisclosureResponse,
@@ -274,6 +276,63 @@ def delete_memory_summary(
     except PrivacyError as error:
         return _error_response(error)
     return APIEnvelope(status="success", data=data)
+
+
+@router.post(
+    "/memory-summaries/{memory_summary_id}/correct",
+    response_model=APIEnvelope[MemorySummaryItem],
+)
+def correct_memory_summary(
+    memory_summary_id: UUID,
+    payload: MemoryCorrectionRequest,
+    session: Annotated[Session, Depends(get_db_session)],
+    context: Annotated[SingleUserContext, Depends(get_single_user_context)],
+) -> APIEnvelope[MemorySummaryItem] | Response:
+    """FR-067: correct the observations/hypotheses of a memory summary.
+
+    The service layer re-validates item structure and emits a redacted
+    `memory_corrected` audit event. Ownership is verified before delegating so
+    a caller cannot correct another user's summary.
+    """
+    existing = session.get(MemorySummary, memory_summary_id)
+    if existing is None or existing.user_id != context.user.id:
+        return _error_response(
+            PrivacyError(
+                code="memory_summary_not_found",
+                message="Memory summary not found.",
+                status_code=404,
+            )
+        )
+    try:
+        corrected = MemoryService(session).correct_summary(
+            memory_summary_id,
+            observations=payload.observations,
+            hypotheses=payload.hypotheses,
+            actor="user",
+        )
+    except ValueError as exc:
+        return _error_response(
+            PrivacyError(
+                code="memory_correction_invalid",
+                message=str(exc),
+                status_code=400,
+            )
+        )
+    return APIEnvelope(
+        status="success",
+        data=MemorySummaryItem(
+            memory_summary_id=corrected.id,
+            period_type=corrected.period_type.value,
+            start_date=corrected.start_date,
+            end_date=corrected.end_date,
+            summary_version=corrected.summary_version,
+            confidence=corrected.confidence,
+            observations=corrected.observations,
+            hypotheses=corrected.hypotheses,
+            source_refs=corrected.source_refs,
+            sensitive_fields_excluded=corrected.sensitive_fields_excluded,
+        ),
+    )
 
 
 @router.get("/model-disclosures", response_model=APIEnvelope[ModelDisclosureResponse])

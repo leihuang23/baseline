@@ -31,6 +31,14 @@ for compatibility with the published PRD example.
 - `DELETE /v1/data/all` deletes all user data after confirmation.
 - `DELETE /v1/data/checkins/{checkin_id}` and `DELETE /v1/data/checkins/{checkin_id}/note`
   delete a check-in or only its free-text note.
+- `GET /v1/data/memory-summaries` lists persisted memory summaries (optional
+  `period_type` filter).
+- `POST /v1/data/memory-summaries/{memory_summary_id}/correct` replaces the
+  observations and/or hypotheses of a memory summary (FR-067), re-aggregates
+  confidence, and emits a redacted `memory_corrected` audit event. At least one
+  of `observations` or `hypotheses` is required.
+- `DELETE /v1/data/memory-summaries/{memory_summary_id}` deletes a memory summary
+  and emits a redacted audit event.
 - `POST /v1/data/consent/disable-external-llm`, `POST /v1/data/consent/revoke`,
   `GET /v1/data/consent/history`, and `GET /v1/data/model-disclosures` manage consent and
   model-run disclosures.
