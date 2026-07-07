@@ -295,7 +295,7 @@ The iOS app has no Settings tab. Export, delete-all, disable LLM, consent histor
 - [ ] Step 1: Create `SettingsView` and add it to the tab bar.
 - [ ] Step 2: Implement export flow in Settings.
 - [ ] Step 3: Implement delete-all confirmation flow.
-- [ ] Step 4: Expose individual check-in and note deletion using existing `DELETE /v1/data/checkins/{id}` and `/v1/data/checkins/{id}/note` endpoints; extend `CheckInAPIClient`/`DataControlsAPIClient` protocols and `URLSessionHealthSyncAPIClient` with the note-deletion method.
+- [ ] Step 4: Expose individual check-in and note deletion using existing `DELETE /v1/data/checkins/{checkin_id}` and `DELETE /v1/data/checkins/{checkin_id}/note` endpoints; extend `CheckInAPIClient`/`DataControlsAPIClient` protocols and `URLSessionHealthSyncAPIClient` with the note-deletion method.
 - [ ] Step 5: Implement `ConsentManagementView` with disable external LLM, revoke cloud processing, revoke raw note processing, revoke health categories, and consent history viewer.
 - [ ] Step 6: Add `LLMSettingsResponse` schema, `GET /v1/data/llm-settings` route in `apps/api/baseline_api/api/data.py`, and corresponding Swift model; document the endpoint in `docs/architecture/api-contracts.md`.
 - [ ] Step 7: Expose the read-only LLM provider/model values in Settings (operator-controlled, not user-editable).
@@ -313,11 +313,20 @@ The iOS app has no Settings tab. Export, delete-all, disable LLM, consent histor
 ### Context
 PRD §24 requires Trends and Memory views. The backend has memory summaries but no list endpoint, and no aggregated trend endpoint for feature history.
 
+### Implementation outcome (2026-07-07)
+Module 8 landed with deliberate deviations from the original goals below. The memory list, correction, and deletion endpoints were built under the /v1/data router (consistent with the rest of the data-controls API) rather than /v1/memory:
+- `GET /v1/data/memory-summaries` lists summaries (optional `period_type` filter).
+- `POST /v1/data/memory-summaries/{memory_summary_id}/correct` corrects observations/hypotheses and emits a redacted `memory_corrected` audit event (FR-067).
+- `DELETE /v1/data/memory-summaries/{memory_summary_id}` deletes a summary.
+- iOS `MemoryView` ships a week-over-week observation diff plus swipe-to-delete; an inline correction UI is deferred.
+
+The charted 7/30/90-day Trends view (the trends endpoint + SwiftUI `TrendsView`) was **descoped for V1**. PRD §24.1 now records V1 scope as the week-over-week observation diff rendered in the Memory view; the full charted Trends view is deferred to post-V1. The original /v1/trends and /v1/memory/summaries references in the goals/tasks below are superseded by the paths above.
+
 ### Goals
-1. Add backend endpoint `/v1/memory/summaries` listing memory summaries by period type with pagination.
-2. Add backend endpoint `/v1/trends` returning windowed aggregates (mean/latest/count as appropriate) over `DerivedDailyFeature` rows for sleep, HRV/RHR, training load, VO2 max, recovery, and goal progress over 7/30/90-day windows. `goal_indicator_completeness` is extracted from nested `goal_features`. Define schemas in code first, then document the endpoints in `docs/architecture/api-contracts.md` after route registration so `docs-check` passes.
-3. Add iOS `MemoryView` showing daily/weekly/monthly summaries, learned patterns, and correction/deletion controls.
-4. Add iOS `TrendsView` with charts or list visualizations of the aggregated history.
+1. Add backend endpoint `GET /v1/data/memory-summaries` listing memory summaries by period type with pagination.
+2. (Descoped to post-V1) Add backend endpoint /v1/trends returning windowed aggregates (mean/latest/count as appropriate) over `DerivedDailyFeature` rows for sleep, HRV/RHR, training load, VO2 max, recovery, and goal progress over 7/30/90-day windows. `goal_indicator_completeness` is extracted from nested `goal_features`. Define schemas in code first, then document the endpoints in `docs/architecture/api-contracts.md` after route registration so `docs-check` passes.
+3. Add iOS `MemoryView` showing daily/weekly/monthly summaries, learned patterns, and deletion controls (correction UI deferred).
+4. (Descoped to post-V1) Add iOS `TrendsView` with charts or list visualizations of the aggregated history.
 
 ### Files
 - `apps/api/baseline_api/api/memory.py` (new)
@@ -336,18 +345,19 @@ PRD §24 requires Trends and Memory views. The backend has memory summaries but 
 - `apps/ios/Tests/BaselineAppTests/BaselineAppTests.swift`
 
 ### Test plan
-- Backend test: `/v1/memory/summaries` returns summaries for the authenticated user.
-- Backend test: `/v1/trends` returns feature history for requested windows.
-- Swift test: MemoryView renders summaries and supports delete/correct actions.
-- Swift test: TrendsView renders feature history.
+- Backend test: `GET /v1/data/memory-summaries` returns summaries for the authenticated user.
+- Backend test: `POST /v1/data/memory-summaries/{memory_summary_id}/correct` applies a correction and audits it.
+- (Descoped to post-V1) Backend test: the trends endpoint returns feature history for requested windows.
+- Swift test: MemoryView renders summaries and supports delete actions.
+- (Descoped to post-V1) Swift test: TrendsView renders feature history.
 
 ### Tasks
-- [ ] Step 1: Define request/response Pydantic/Swift schemas for `/v1/memory/summaries` (query params: `period_type`, `limit`), `/v1/trends` (query params: `window_days` ∈ {7,30,90}, `metrics[]` ∈ {sleep_debt_hours, hrv_deviation_pct, rhr_deviation_pct, training_load_acute, training_load_chronic, vo2_max_recent, recovery_level, goal_indicator_completeness}), and memory correction (`POST /v1/memory/summaries/{id}/correct`). Document the endpoints in `docs/architecture/api-contracts.md` only after they are registered.
+- [ ] Step 1: Define request/response Pydantic/Swift schemas for `GET /v1/data/memory-summaries` (query params: `period_type`, `limit`), the descoped trends endpoint (query params: `window_days` ∈ {7,30,90}, `metrics[]` ∈ {sleep_debt_hours, hrv_deviation_pct, rhr_deviation_pct, training_load_acute, training_load_chronic, vo2_max_recent, recovery_level, goal_indicator_completeness}), and memory correction (`POST /v1/data/memory-summaries/{memory_summary_id}/correct`). Document the endpoints in `docs/architecture/api-contracts.md` only after they are registered.
 - [ ] Step 2: Add memory repository/service methods to list summaries and correct a summary.
-- [ ] Step 3: Add `/v1/memory/summaries` endpoint and `POST /v1/memory/summaries/{id}/correct` endpoint.
-- [ ] Step 4: Add feature-history repository/service and `/v1/trends` endpoint.
+- [ ] Step 3: Add `GET /v1/data/memory-summaries` endpoint and `POST /v1/data/memory-summaries/{memory_summary_id}/correct` endpoint.
+- [ ] Step 4: (Descoped to post-V1) Add feature-history repository/service and the trends endpoint.
 - [ ] Step 5: Register new routers in `app.py`; then document the new endpoints in `docs/architecture/api-contracts.md`.
-- [ ] Step 6: Add `BaselineCore` API client methods for memory summaries, memory correction, memory summary deletion (reusing existing `DELETE /v1/data/memory-summaries/{id}`), and trends.
+- [ ] Step 6: Add `BaselineCore` API client methods for memory summaries, memory correction, memory summary deletion (reusing existing `DELETE /v1/data/memory-summaries/{memory_summary_id}`), and trends.
 - [ ] Step 7: Create `MemoryView` and `TrendsView` and add them to the tab bar.
 - [ ] Step 8: Wire iOS API client methods to views.
 - [ ] Step 9: Add backend and iOS tests.

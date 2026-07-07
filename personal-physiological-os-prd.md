@@ -1624,6 +1624,7 @@ Trace View:
 
 Trends:
 
+- V1 scope: a week-over-week observation diff surfacing directional changes in the metrics below, rendered in the Memory view. The full charted 7/30/90-day Trends view (charts for Sleep, HRV/RHR, Training load, VO2 max, Recovery, and Goal progress) is deferred to post-V1.
 - Sleep.
 - HRV/RHR.
 - Training load.

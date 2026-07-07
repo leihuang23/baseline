@@ -1309,6 +1309,71 @@
         ]
       }
     },
+    "/v1/data/memory-summaries/{memory_summary_id}/correct": {
+      "post": {
+        "tags": [
+          "data-controls"
+        ],
+        "summary": "Correct Memory Summary",
+        "description": "FR-067: correct the observations/hypotheses of a memory summary.\n\nThe service layer re-validates item structure and emits a redacted\n`memory_corrected` audit event. Ownership is verified before delegating so\na caller cannot correct another user's summary.",
+        "operationId": "correct_memory_summary_v1_data_memory_summaries__memory_summary_id__correct_post",
+        "parameters": [
+          {
+            "name": "memory_summary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Memory Summary Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemoryCorrectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIEnvelope_MemorySummaryItem_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        },
+        "security": [
+          {
+            "BaselineBearerAuth": []
+          },
+          {
+            "BaselineApiKeyAuth": []
+          }
+        ]
+      }
+    },
     "/v1/data/model-disclosures": {
       "get": {
         "tags": [
@@ -2259,6 +2324,47 @@
           "status"
         ],
         "title": "APIEnvelope[LLMSettingsResponse]"
+      },
+      "APIEnvelope_MemorySummaryItem_": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ],
+            "title": "Status"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemorySummaryItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/APIError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/APIResponseMeta"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "APIEnvelope[MemorySummaryItem]"
       },
       "APIEnvelope_MemorySummaryListResponse_": {
         "properties": {
@@ -4277,6 +4383,50 @@
           "fallback_model"
         ],
         "title": "LLMSettingsResponse"
+      },
+      "MemoryCorrectionRequest": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "v1",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "observations": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observations"
+          },
+          "hypotheses": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hypotheses"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MemoryCorrectionRequest",
+        "description": "Request body for `POST /v1/data/memory-summaries/{memory_summary_id}/correct`.\n\nAt least one of `observations` or `hypotheses` must be provided. Items are\nstructurally validated by `MemoryService.correct_summary`, which is the\nsingle source of truth for the corrected-item shape."
       },
       "MemoryObservation": {
         "properties": {

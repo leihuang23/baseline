@@ -480,6 +480,19 @@ class MemorySummaryListResponse(ContractModel):
     summaries: list[MemorySummaryItem] = Field(default_factory=list)
 
 
+class MemoryCorrectionRequest(ContractModel):
+    """Request body for `POST /v1/data/memory-summaries/{memory_summary_id}/correct`.
+
+    At least one of `observations` or `hypotheses` must be provided. Items are
+    structurally validated by `MemoryService.correct_summary`, which is the
+    single source of truth for the corrected-item shape.
+    """
+
+    schema_version: Literal["v1"] = "v1"
+    observations: list[dict[str, Any]] | None = Field(default=None)
+    hypotheses: list[dict[str, Any]] | None = Field(default=None)
+
+
 __all__ = [
     "ActiveGoal",
     "ActiveGoalSet",
@@ -511,6 +524,7 @@ __all__ = [
     "HealthSyncRequest",
     "HealthSyncResponse",
     "LLMSettingsResponse",
+    "MemoryCorrectionRequest",
     "MemorySummaryItem",
     "MemorySummaryListResponse",
     "RecommendationAlternative",
