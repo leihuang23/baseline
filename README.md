@@ -150,4 +150,3 @@ and expected artifacts.
 - [Safety boundary](docs/safety/README.md)
 - [Failure modes](docs/safety/failure-modes.md)
 - [Deployment readiness](docs/runbooks/deployment-readiness.md)
-- [Docs consistency checklist](docs/docs-consistency-checklist.md)
