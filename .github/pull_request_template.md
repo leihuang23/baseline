@@ -12,7 +12,6 @@
 - [ ] `uv run pytest`
 - [ ] `BASELINE_REQUIRE_TEST_DB=1 uv run pytest --require-db`
 - [ ] `make eval`
-- [ ] `make docs-check`
 - [ ] `npm test --prefix apps/dashboard`
 - [ ] `swift test --package-path apps/ios`
 

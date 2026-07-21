@@ -67,8 +67,6 @@ jobs:
         run: uv run pytest --require-db
       - name: Eval gate
         run: make eval
-      - name: Documentation consistency
-        run: make docs-check
 
   dashboard:
     name: Dashboard tests

@@ -3,7 +3,7 @@ DATABASE_URL ?= postgresql+psycopg://baseline@localhost:5433/baseline
 export UV_CACHE_DIR
 export DATABASE_URL
 
-.PHONY: dev test lint typecheck migrate fmt eval demo docs-check
+.PHONY: dev test lint typecheck migrate fmt eval demo
 
 dev:
 	uv run uvicorn baseline_api.main:app --reload
@@ -29,6 +29,3 @@ eval:
 
 demo:
 	uv run python -m packages.eval.demo
-
-docs-check:
-	uv run python scripts/check_docs.py

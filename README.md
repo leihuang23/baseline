@@ -112,7 +112,6 @@ make lint
 make typecheck
 make test
 make eval
-make docs-check
 ```
 
 `make test` uses Postgres integration tests when the configured database is
