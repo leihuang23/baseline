@@ -1,4 +1,4 @@
-"""P4-01 memory compiler tests."""
+"""Memory compiler tests."""
 
 from __future__ import annotations
 

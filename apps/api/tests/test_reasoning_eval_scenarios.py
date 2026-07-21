@@ -1,4 +1,4 @@
-"""Meta-tests for P3-03 reasoning golden scenario evals."""
+"""Meta-tests for reasoning golden-scenario evaluations."""
 
 from packages.eval import EvalRunner, EvalType
 from packages.eval.reasoning_scenarios import (
@@ -18,7 +18,7 @@ def _reasoning_suites():
 
 
 def test_reasoning_golden_scenarios_are_registered() -> None:
-    """The reasoning suite covers at least 30 scenarios, including the 10 PRD names."""
+    """The reasoning suite covers at least 30 scenarios, including the 10 canonical names."""
 
     _, reasoning_suites = _reasoning_suites()
     registered_scenario_names = {suite.scenario_name for suite in reasoning_suites}

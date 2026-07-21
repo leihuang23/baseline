@@ -373,7 +373,7 @@ All time-series access patterns are indexed on `user_id` plus the relevant time 
 
 ## Data Classification Summary
 
-Per PRD §20.2:
+Baseline uses the following data classifications:
 
 | Classification | Tables |
 |----------------|--------|

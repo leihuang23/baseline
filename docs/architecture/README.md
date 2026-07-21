@@ -13,7 +13,6 @@ structured inputs.
 - [API contracts](api-contracts.md)
 - [Model routing](model-routing.md)
 - [Evaluation harness](evaluation.md)
-- [HealthKit feasibility](healthkit-feasibility.md)
 - [Observability foundation](observability.md)
 - [Synthetic data](synthetic-data.md)
 - [OpenAPI snapshot](openapi.json)

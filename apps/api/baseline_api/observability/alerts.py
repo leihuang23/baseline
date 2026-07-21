@@ -63,7 +63,7 @@ def evaluate_operational_alerts(
     settings: Settings | None = None,
     since: dt.datetime | None = None,
 ) -> list[OperationalAlert]:
-    """Evaluate all P5-04 alert families for recent operational state."""
+    """Evaluate all alert families for recent operational state."""
 
     cost_report = aggregate_model_run_costs(session, start_at=since or _current_utc_day_start())
     alerts: list[OperationalAlert] = []

@@ -90,7 +90,7 @@ def _today():
 
 
 def test_insert_and_read_each_entity(db_session, user, model_run) -> None:
-    """All PRD §15 entities can be persisted and read back."""
+    """All core entities can be persisted and read back."""
     trace_id = uuid4()
     knowledge_source = KnowledgeSource(
         title="Exercise Physiology Reference",

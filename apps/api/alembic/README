@@ -1,2 +1,1 @@
-P0-01 intentionally creates the Alembic directory without domain migrations.
-P0-02 owns the first schema revision.
+Alembic migration revisions for the Baseline API live in `versions/`.

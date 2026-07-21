@@ -1,4 +1,4 @@
-"""Tests for P1-02 health data normalization."""
+"""Tests for health-data normalization."""
 
 from __future__ import annotations
 
@@ -676,7 +676,7 @@ def test_provenance_links_persisted_for_all_outputs(db_session: Session) -> None
 
 
 def test_provenance_links_correct_row_when_source_sample_id_is_shared(db_session: Session) -> None:
-    """P1-01 dedupes raw samples by source_sample_id + content_hash.
+    """Raw sample ingestion deduplicates by source_sample_id and content_hash.
 
     Two rows with the same source_sample_id but different content_hash must each
     link to their own normalized output, not collapse to a single raw row.

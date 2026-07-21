@@ -46,7 +46,7 @@ test("recommendation traces are browsable and tied to trace ids", () => {
   assert.match(html, /baseline-explainer-demo/);
 });
 
-test("recommendation traces accept P3-06 snake_case trace inspection rows", () => {
+test("recommendation traces accept snake_case trace inspection rows", () => {
   const traceId = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
   const data = {
     ...demoDashboardData,
@@ -125,7 +125,7 @@ test("llm run, cost, latency, eval, and safety views render required fields", ()
   );
 });
 
-test("eval parsing preserves P0-07 passed safety catches and pending states", () => {
+test("eval parsing preserves passed safety catches and pending states", () => {
   const data = {
     ...demoDashboardData,
     evalResults: [

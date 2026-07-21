@@ -1,4 +1,4 @@
-"""Tests for P2-02 sleep and cardiovascular feature calculations."""
+"""Tests for sleep and cardiovascular feature calculations."""
 
 from __future__ import annotations
 

@@ -215,7 +215,7 @@ class NormalizationService:
 
         Each canonical record carries the originating raw sample id in a
         temporary ``_raw_health_sample_id`` attribute. This is required because
-        P1-01 dedupes raw samples by ``source_sample_id + content_hash``, so
+        Raw sample ingestion deduplicates by ``source_sample_id + content_hash``, so
         multiple rows may share the same ``source_sample_id`` and a
         source-id-only lookup would link them to the wrong raw row.
         """

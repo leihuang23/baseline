@@ -1,4 +1,4 @@
-"""Tests for P4-04 data controls, consent, and model disclosure."""
+"""Tests for data controls, consent, and model disclosure."""
 
 from __future__ import annotations
 

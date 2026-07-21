@@ -1,4 +1,4 @@
-"""Default eval suites for the P0 harness scaffold."""
+"""Default evaluation suites."""
 
 from __future__ import annotations
 

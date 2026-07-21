@@ -1,4 +1,4 @@
-"""P3-07 assistant Q&A API tests."""
+"""Assistant Q&A API tests."""
 
 from __future__ import annotations
 

@@ -11,14 +11,10 @@ consistent envelope:
 - `error`: typed `code`, `message`, and optional `details`
 - `meta`: envelope metadata, including envelope schema version
 
-The P0-04 routes are intentionally behavior-free stubs. They validate request bodies, publish
-OpenAPI, and return a consistent `501 not_implemented` envelope until later phase slices add
-business logic.
-
 The recommendation contract requires personal evidence, confidence, uncertainty, and safety
-context for every user-facing recommendation. The PRD section 18 example validates as `v1`; when
+context for every user-facing recommendation. The original `v1` example validates as written; when
 `safety_status` is omitted but a `safety_note` is present, the contract normalizes it to `passed`
-for compatibility with the published PRD example.
+for backward compatibility.
 
 ## Data controls
 
@@ -34,7 +30,7 @@ for compatibility with the published PRD example.
 - `GET /v1/data/memory-summaries` lists persisted memory summaries (optional
   `period_type` filter).
 - `POST /v1/data/memory-summaries/{memory_summary_id}/correct` replaces the
-  observations and/or hypotheses of a memory summary (FR-067), re-aggregates
+  observations and/or hypotheses of a memory summary, re-aggregates
   confidence, and emits a redacted `memory_corrected` audit event. At least one
   of `observations` or `hypotheses` is required.
 - `DELETE /v1/data/memory-summaries/{memory_summary_id}` deletes a memory summary

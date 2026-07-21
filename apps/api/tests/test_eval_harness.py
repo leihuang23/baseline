@@ -1,4 +1,4 @@
-"""Tests for the P0 evaluation harness scaffold."""
+"""Tests for the evaluation harness."""
 
 from pathlib import Path
 from types import SimpleNamespace

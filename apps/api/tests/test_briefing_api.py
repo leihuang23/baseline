@@ -1,4 +1,4 @@
-"""P3-06 daily briefing assembly API tests."""
+"""Daily briefing assembly API tests."""
 
 from __future__ import annotations
 

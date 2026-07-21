@@ -1,8 +1,7 @@
 """Local redaction/summarization boundary for free-text check-in notes.
 
-The real summarizer model is wired in P3-04; this module exposes the interface and a
-privacy-safe stub so that downstream code never passes raw notes to an external LLM
-unless the user explicitly permits it.
+This module exposes a privacy-safe summarization boundary so downstream code
+never passes raw notes to an external LLM unless the user explicitly permits it.
 """
 
 from __future__ import annotations
@@ -22,9 +21,9 @@ def _note_hash(note: str) -> str:
 def _local_summary(_note: str) -> str:
     """Privacy-preserving local stub summarizer.
 
-    The real implementation (P3-04) will run an on-device or local model and return a
-    condensed, non-identifying summary. The stub returns a fixed placeholder so tests can
-    prove the *interface* is used and raw text is not echoed.
+    A production implementation may run an on-device or local model and return a
+    condensed, non-identifying summary. The stub returns a fixed placeholder so tests
+    can prove the *interface* is used and raw text is not echoed.
     """
 
     return "User-provided note summarized locally."

@@ -1,4 +1,4 @@
-"""Tests for P1-03 historical backfill orchestration."""
+"""Tests for historical backfill orchestration."""
 
 from __future__ import annotations
 

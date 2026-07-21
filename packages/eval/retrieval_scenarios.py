@@ -51,7 +51,7 @@ STOPWORDS = frozenset(
 
 
 def retrieval_scenario_suites() -> list[EvalSuite]:
-    """Build retrieval suites required by PRD §22.2."""
+    """Build the canonical retrieval suites."""
 
     return [
         EvalSuite(

@@ -1,4 +1,4 @@
-"""Tests for P1-01 health sync ingestion."""
+"""Tests for health sync ingestion."""
 
 from __future__ import annotations
 

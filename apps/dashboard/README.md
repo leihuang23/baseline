@@ -1,6 +1,6 @@
 # Baseline Dashboard
 
-Dependency-free internal dashboard for P5-03. It renders sync and pipeline health,
+Dependency-free internal dashboard. It renders sync and pipeline health,
 data completeness, recommendation traces, model runs, cost/latency, eval results,
 safety events, and synthetic demo scenarios.
 

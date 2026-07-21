@@ -2,7 +2,7 @@
 
 Curated external evidence corpus lives here. Personal time-series data must stay in SQL.
 
-This package owns ingestion-time behavior only:
+This package owns curated-corpus ingestion and retrieval behavior:
 
 - required source metadata and explicit trust assignment;
 - non-null title, author/org, source type, URL/identifier, license status,
@@ -17,7 +17,8 @@ its chunks for audit history. Active matching excludes superseded and removed
 source rows. Explicit source removal marks all matching source versions removed
 and purges their chunks.
 
-Query-time retrieval and citation rendering are intentionally deferred to P5-02.
+Query-time retrieval filters inactive sources and preserves source metadata for
+downstream citation rendering.
 
 ## Starter Corpus
 

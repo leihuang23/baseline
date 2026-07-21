@@ -114,7 +114,7 @@ function renderPipelineHealth(pipeline) {
   return `
     <section class="section" data-section="pipeline-health">
       <div class="section-heading">
-        <p class="eyebrow">FR-091 / FR-092</p>
+        <p class="eyebrow">Operations</p>
         <h2>Pipeline health</h2>
       </div>
       <div class="split">
@@ -217,7 +217,7 @@ function renderTraceBrowser(traces, selectedTraceId) {
   return `
     <section class="section" data-section="recommendation-traces">
       <div class="section-heading">
-        <p class="eyebrow">FR-093</p>
+        <p class="eyebrow">Explainability</p>
         <h2>Recommendation traces</h2>
       </div>
       <div class="trace-browser">
@@ -294,7 +294,7 @@ function renderEvalResults(results) {
   return `
     <section class="section" data-section="eval-results">
       <div class="section-heading">
-        <p class="eyebrow">P0-07 harness</p>
+        <p class="eyebrow">Evaluation</p>
         <h2>Eval results</h2>
       </div>
       <div class="eval-grid">${byType || emptyState("No eval results")}</div>
@@ -329,7 +329,7 @@ function renderSafetyEvents(events) {
   return `
     <section class="section" data-section="safety-events">
       <div class="section-heading">
-        <p class="eyebrow">FR-094</p>
+        <p class="eyebrow">Safety monitoring</p>
         <h2>Safety events</h2>
       </div>
       <div class="panel">${rows || emptyState("No safety events")}</div>
@@ -402,7 +402,7 @@ function renderDemoScenarios(scenarios) {
   return `
     <section class="section" data-section="demo-scenarios">
       <div class="section-heading">
-        <p class="eyebrow">FR-095</p>
+        <p class="eyebrow">Synthetic data</p>
         <h2>Demo scenarios</h2>
       </div>
       <div class="demo-grid">${cards || emptyState("No demo scenarios")}</div>

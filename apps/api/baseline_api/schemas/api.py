@@ -1,4 +1,4 @@
-"""Versioned API request and response contracts from PRD section 17."""
+"""Versioned API request and response contracts."""
 
 from __future__ import annotations
 

@@ -13,7 +13,7 @@ Baseline uses synthetic data for development, tests, golden scenarios, and publi
 
 ## Scenario Catalog
 
-The 11 PRD §22.2 golden scenarios are registered by name:
+The 11 golden scenarios are registered by name:
 
 - `high_hrv_good_sleep_low_load`
 - `low_hrv_high_rhr_poor_sleep`
@@ -31,7 +31,7 @@ The catalog also includes a 60-day `demo_60_day_persona` and additional syntheti
 
 ## Loading And Sync Payloads
 
-`load_fixture(session, dataset)` inserts a fixture into the existing P0-02 tables:
+`load_fixture(session, dataset)` inserts a fixture into the existing persistence tables:
 
 - `user`
 - `raw_health_sample`

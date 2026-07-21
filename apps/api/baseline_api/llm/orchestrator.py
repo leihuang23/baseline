@@ -30,7 +30,7 @@ class LLMConsentError(Exception):
 
 
 class SafetyGate(Protocol):
-    """Post-generation safety validation hook owned by P3-05."""
+    """Post-generation safety validation hook."""
 
     def validate(
         self,

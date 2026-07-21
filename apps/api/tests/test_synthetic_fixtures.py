@@ -71,7 +71,7 @@ def test_generated_metric_ranges_and_units_are_normalizer_ready() -> None:
 
 
 def test_catalog_contains_all_golden_scenarios_and_eval_breadth() -> None:
-    """The catalog contains the PRD golden scenarios plus enough synthetic breadth."""
+    """The catalog contains the canonical scenarios plus enough synthetic breadth."""
 
     scenario_names = set(list_scenarios())
 
@@ -123,7 +123,7 @@ def test_raw_sync_payload_is_synthetic_and_contract_shaped() -> None:
 
 @pytest.mark.parametrize("scenario_name", GOLDEN_SCENARIO_NAMES)
 def test_each_golden_scenario_loads_into_db(db_session, scenario_name: str) -> None:
-    """Every PRD golden scenario can be inserted into the P0-02 schema."""
+    """Every canonical golden scenario can be inserted into the database schema."""
 
     dataset = get_scenario(scenario_name)
     loaded = load_fixture(db_session, dataset)

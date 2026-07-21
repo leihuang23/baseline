@@ -51,7 +51,7 @@ def test_migration_upgrade_downgrade_round_trip(db_engine) -> None:
 
 
 def test_p5_01_migration_rejects_incomplete_existing_knowledge_sources(db_engine) -> None:
-    """P5-01 must fail clearly before making incomplete source metadata non-null."""
+    """Migration must fail clearly before making incomplete source metadata non-null."""
     os.environ["DATABASE_URL"] = str(db_engine.url)
     alembic_cfg = Config("alembic.ini")
 

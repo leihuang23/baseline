@@ -1,4 +1,4 @@
-"""Tests for P1-03 daily data quality and freshness read model."""
+"""Tests for the daily data-quality and freshness read model."""
 
 from __future__ import annotations
 

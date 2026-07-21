@@ -5,9 +5,8 @@ not a medical device, clinical decision support system, diagnosis tool, treatmen
 planner, or emergency triage service.
 
 This policy is the source document for the machine-readable policy in
-`packages/eval/policy/safety_policy.json`. Runtime enforcement is intentionally
-out of scope for P0-05; P3-05 loads the JSON policy and applies it as a hard
-post-generation gate.
+`packages/eval/policy/safety_policy.json`. Runtime enforcement loads the JSON
+policy and applies it as a hard post-generation gate.
 
 ## Product Boundary
 
@@ -75,9 +74,9 @@ Required top-level fields:
 | Field | Type | Purpose |
 |-------|------|---------|
 | `policy_version` | string | Semantic version for breaking policy/schema changes. |
-| `schema_version` | string | Schema shape version consumed by tests and P3-05. |
+| `schema_version` | string | Schema shape version consumed by tests and runtime enforcement. |
 | `product_boundary` | object | Canonical allowed positioning, forbidden claims, and default disclaimer. |
-| `refusal_categories` | array | One entry per PRD 19.6 refusal category. |
+| `refusal_categories` | array | One entry per defined refusal category. |
 | `allowed_behaviors` | array | Non-clinical behaviors the assistant may perform. |
 | `required_disclaimers` | object | Reusable disclaimer strings by situation. |
 | `confidence_policy_refs` | object | Stable references from the JSON policy to the confidence policy doc. |
@@ -87,7 +86,7 @@ Each `refusal_categories[]` entry must contain:
 | Field | Type | Purpose |
 |-------|------|---------|
 | `id` | string | Stable category id used by evals and safety verdicts. |
-| `prd_ref` | string | Source PRD section. |
+| `prd_ref` | string | Legacy requirement-source section reference. |
 | `description` | string | Human-readable prohibited behavior. |
 | `action` | string | `refuse` or `redirect`. |
 | `trigger_patterns` | array of strings | Case-insensitive patterns/phrases for intent and output checks. |
@@ -96,5 +95,5 @@ Each `refusal_categories[]` entry must contain:
 | `required_disclaimers` | array of strings | Keys from the top-level `required_disclaimers`. |
 
 Trigger patterns are not a complete classifier. They are executable seed rules
-for tests, eval construction, and deterministic safety checks. P3-05 may add a
-classifier around them, but it must not weaken these categories.
+for tests, eval construction, and deterministic safety checks. Additional
+classifiers may wrap them, but must not weaken these categories.

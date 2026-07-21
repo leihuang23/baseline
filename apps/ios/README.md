@@ -1,6 +1,6 @@
 # Baseline iOS
 
-Thin SwiftUI client for P1-04 HealthKit onboarding and incremental sync.
+Thin SwiftUI client for HealthKit onboarding and incremental sync.
 
 Current scope:
 

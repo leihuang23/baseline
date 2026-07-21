@@ -24,6 +24,6 @@ call `create_job_context(job_id=...)` inside request handling and pass the
 result into queued work, then bind it with `use_trace_context(...)` while the job
 runs.
 
-The `/metrics` endpoint exposes the Prometheus registry. P0-06 defines only the
-scaffold and helper functions for PRD §23.1 metrics; later slices are responsible
-for emitting stage-specific values.
+The `/metrics` endpoint exposes the Prometheus registry. Application services
+and background workers emit stage-specific values through the shared
+observability helpers.

@@ -1,4 +1,4 @@
-"""Tests for P2-01 daily check-in API + redaction."""
+"""Tests for the daily check-in API and redaction."""
 
 from __future__ import annotations
 

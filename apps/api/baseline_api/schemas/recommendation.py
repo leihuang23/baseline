@@ -1,4 +1,4 @@
-"""Recommendation output contract from PRD section 18."""
+"""Recommendation output contract."""
 
 from __future__ import annotations
 

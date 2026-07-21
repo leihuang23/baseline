@@ -13,7 +13,7 @@ SCHEMA_VERSION: Literal["llm_explanation_v1"] = "llm_explanation_v1"
 
 
 class TaskType(StrEnum):
-    """Model routing categories from PRD §21.3."""
+    """Model routing categories."""
 
     classification = "classification"
     summarization = "summarization"

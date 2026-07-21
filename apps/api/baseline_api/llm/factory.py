@@ -10,8 +10,8 @@ from baseline_api.llm.router import ModelRouter
 def build_default_router(settings: Settings) -> ModelRouter:
     """Build the configured provider router.
 
-    DeepSeek is the default provider for P3-04. Additional providers can be
-    appended here without changing orchestration behavior.
+    DeepSeek is the default provider. Additional providers can be appended here
+    without changing orchestration behavior.
     """
 
     provider = DeepSeekProvider(

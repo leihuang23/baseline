@@ -1,4 +1,4 @@
-"""Tests for P4-03 recommendation feedback and outcome routing."""
+"""Tests for recommendation feedback and outcome routing."""
 
 from __future__ import annotations
 

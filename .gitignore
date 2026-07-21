@@ -16,7 +16,7 @@ apps/ios/.build/
 .omx/
 .task-runs/
 .worktrees/
-/docs/archive/
+/archive/
 
 # Generated local agent/editor surfaces.
 .claude/

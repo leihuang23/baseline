@@ -185,7 +185,7 @@ class SafetyPolicyEngine:
 
     @classmethod
     def from_default_policy(cls) -> Self:
-        """Load the versioned P0-05 safety policy artifact."""
+        """Load the versioned safety policy artifact."""
 
         policy_path = (
             Path(__file__).resolve().parents[4] / "packages/eval/policy/safety_policy.json"

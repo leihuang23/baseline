@@ -1,4 +1,4 @@
-"""P5-04 cost aggregation and alert tests."""
+"""Cost aggregation and alert tests."""
 
 from __future__ import annotations
 

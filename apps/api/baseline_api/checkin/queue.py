@@ -23,7 +23,7 @@ class AnalysisJobQueue(Protocol):
 
 
 class ArqAnalysisJobQueue:
-    """Redis-backed queue for daily analysis jobs (real wiring lands in P2-02/03)."""
+    """Redis-backed queue for daily analysis jobs."""
 
     def __init__(self, redis_url: str) -> None:
         self._redis_settings = RedisSettings.from_dsn(redis_url)

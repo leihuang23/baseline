@@ -6,8 +6,8 @@ storage unless the user explicitly enables a narrower external flow. Raw health
 data, free-text notes, and raw LLM prompts are not external-LLM inputs by
 default.
 
-This document covers PRD 20.2 data classification, PRD 20.4 LLM controls, PRD
-20.5 retention defaults, and the sensitive data-flow threat model.
+This document covers data classification, LLM controls, retention defaults, and
+the sensitive data-flow threat model.
 
 ## Classification Rules
 
@@ -19,7 +19,7 @@ This document covers PRD 20.2 data classification, PRD 20.4 LLM controls, PRD
 
 ## Entity Classification And External LLM Exposure
 
-| PRD 15 entity | Classification | External LLM exposure rule |
+| Entity | Classification | External LLM exposure rule |
 |---------------|----------------|----------------------------|
 | User | Restricted | Do not send identifiers, locale, timezone, privacy mode, or consent fields to an external LLM. Use only non-identifying runtime controls, such as a coarse privacy mode flag, when required. |
 | Consent Record | Restricted | Do not send. Consent gates whether an external call is allowed but the record itself stays internal. |

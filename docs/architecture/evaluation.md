@@ -35,7 +35,7 @@ can be promoted later if their risk changes.
 ## Golden Scenario Coverage
 
 The fixture catalog in `packages/fixtures/scenarios.py` includes the 11 named
-PRD golden scenarios:
+golden scenarios:
 
 - `high_hrv_good_sleep_low_load`
 - `low_hrv_high_rhr_poor_sleep`

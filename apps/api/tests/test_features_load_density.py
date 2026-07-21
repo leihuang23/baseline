@@ -1,4 +1,4 @@
-"""Tests for P2-03 training load, density, VO2 trend, and recovery confidence."""
+"""Tests for training load, density, VO2 trend, and recovery confidence."""
 
 from __future__ import annotations
 

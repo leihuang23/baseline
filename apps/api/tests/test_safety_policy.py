@@ -1,4 +1,4 @@
-"""Executable checks for the P0-05 safety policy artifact."""
+"""Executable checks for the safety policy artifact."""
 
 import json
 from pathlib import Path
