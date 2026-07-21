@@ -136,9 +136,6 @@ make demo
 npm test --prefix apps/dashboard
 ```
 
-See [docs/demo-walkthrough.md](docs/demo-walkthrough.md) for the reviewer flow
-and expected artifacts.
-
 ## Portfolio Documentation
 
 - [Architecture overview](docs/architecture/system-overview.md)
